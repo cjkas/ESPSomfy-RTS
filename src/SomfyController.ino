@@ -9,6 +9,7 @@
 #include "Somfy.h"
 #include "MQTT.h"
 #include "GitOTA.h"
+#include "esp_core_dump.h"
 
 ConfigSettings settings;
 Web webServer;
@@ -20,11 +21,61 @@ MQTTClass mqtt;
 GitUpdater git;
 
 uint32_t oldheap = 0;
-void setup() {
+
+void inline checkCoreDumpPartition() {
+  esp_core_dump_init();
+  esp_core_dump_summary_t *summary =
+      static_cast<esp_core_dump_summary_t *>(malloc(sizeof(esp_core_dump_summary_t)));
+  if (summary) {
+    esp_err_t err = esp_core_dump_get_summary(summary);
+    if (err == ESP_OK) {
+      log_i("Getting core dump summary ok.");
+
+    } else {
+      log_e("Getting core dump summary not ok. Error: %d", (int)err);
+      log_e("Probably no coredump present yet.");
+      log_e("esp_core_dump_image_check() = %d", esp_core_dump_image_check());
+    }
+    free(summary);
+  }
+}
+
+void listDir(const char *dirname, uint8_t levels) {
+    Serial.printf("Listing: %s\n", dirname);
+    File root = LittleFS.open(dirname);
+    if (!root || !root.isDirectory()) {
+        Serial.println("Failed to open directory");
+        return;
+    }
+    File file = root.openNextFile();
+    while (file) {
+        if (file.isDirectory()) {
+            Serial.printf("  DIR : %s\n", file.name());
+            if (levels) listDir(file.path(), levels - 1);
+        } else {
+            Serial.printf("  FILE: %-30s  %d bytes\n", file.name(), file.size());
+        }
+        file = root.openNextFile();
+    }
+}
+
+void setup() {  
   Serial.begin(115200);
   Serial.println();
   Serial.println("Startup/Boot....");
   Serial.println("Mounting File System...");
+  checkCoreDumpPartition();
+
+  if (LittleFS.begin()) {
+    Serial.printf("\nTotal: %d bytes\n", LittleFS.totalBytes());
+    Serial.printf("Used:  %d bytes\n", LittleFS.usedBytes());
+    Serial.printf("Free:  %d bytes\n", LittleFS.totalBytes() - LittleFS.usedBytes());
+    Serial.println();
+    listDir("/", 3);
+} else {
+    Serial.println("LittleFS mount failed!");
+}
+
   if(LittleFS.begin()) Serial.println("File system mounted successfully");
   else Serial.println("Error mounting file system");
   settings.begin();

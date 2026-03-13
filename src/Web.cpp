@@ -858,14 +858,11 @@ void Web::handleBackup(WebServer &server, bool attach) {
   }
   Serial.println("Saving current shade information");
   somfy.writeBackup();
-  File file = LittleFS.open("/controller.backup", "r");
-  if (!file) {
-    Serial.println("Error opening shades.cfg");
-    server.send(500, _encoding_text, "shades.cfg");
+  if(somfy.backupData.length() == 0) {
+    server.send(500, _encoding_text, "backup failed");
     return;
   }
-  server.streamFile(file, _encoding_text);
-  file.close();
+  server.send(200, _encoding_text, somfy.backupData);
 }
 void Web::handleSetPositions(WebServer &server) {
   webServer.sendCORSHeaders(server);

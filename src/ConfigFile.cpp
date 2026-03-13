@@ -22,10 +22,15 @@ bool ConfigFile::begin(const char* filename, bool readOnly) {
   this->_opened = true;
   return true;
 }
+bool ConfigFile::beginRAM(String *buf) {
+  _ramBuf = buf;
+  _opened = true;
+  return true;
+}
 void ConfigFile::end() {
   if(this->isOpen()) {
-    if(!this->readOnly) this->file.flush();
-    this->file.close();
+    if(_ramBuf) { _ramBuf = nullptr; }
+    else { if(!this->readOnly) this->file.flush(); this->file.close(); }
   }
   this->_opened = false;
 }
@@ -187,10 +192,16 @@ bool ConfigFile::readVarString(char *buff, size_t len) {
 bool ConfigFile::writeString(const char *val, size_t len, const char tok) {
   if(!this->isOpen()) return false;
   int slen = strlen(val);
+  if(_ramBuf) {
+    if(slen > 0) _ramBuf->concat(val);
+    while(slen < (int)len - 1) { _ramBuf->concat(' '); slen++; }
+    if(tok != CFG_TOK_NONE) _ramBuf->concat(tok);
+    return true;
+  }
   if(slen > 0)
     if(this->file.write((uint8_t *)val, slen) != slen) return false;
   // Now we need to pad the end of the string so that it is of a fixed length.
-  while(slen < len - 1) {
+  while(slen < (int)len - 1) {
     this->file.write(' ');
     slen++;
   }
@@ -202,6 +213,13 @@ bool ConfigFile::writeString(const char *val, size_t len, const char tok) {
 bool ConfigFile::writeVarString(const char *val, const char tok) {
   if(!this->isOpen()) return false;
   int slen = strlen(val);
+  if(_ramBuf) {
+    _ramBuf->concat((char)CFG_TOK_QUOTE);
+    if(slen > 0) _ramBuf->concat(val);
+    _ramBuf->concat((char)CFG_TOK_QUOTE);
+    if(tok != CFG_TOK_NONE) _ramBuf->concat(tok);
+    return true;
+  }
   this->writeChar(CFG_TOK_QUOTE);
   if(slen > 0) if(this->file.write((uint8_t *)val, slen) != slen) return false;
   this->writeChar(CFG_TOK_QUOTE);
@@ -210,6 +228,7 @@ bool ConfigFile::writeVarString(const char *val, const char tok) {
 }
 bool ConfigFile::writeChar(const char val) {
   if(!this->isOpen()) return false;
+  if(_ramBuf) { _ramBuf->concat(val); return true; }
   if(this->file.write(static_cast<uint8_t>(val)) == 1) return true;
   return false;
 }

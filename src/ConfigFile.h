@@ -31,12 +31,14 @@ struct config_header_t {
 class ConfigFile {
   protected:
     File file;
+    String *_ramBuf = nullptr;
     bool readOnly = false;
     bool begin(const char *filename, bool readOnly = false);
     uint32_t startRecPos = 0;
     bool _opened = false;
   public:
     config_header_t header;
+    bool beginRAM(String *buf);
     void end();
     bool isOpen();
     bool seekRecordByIndex(uint16_t ndx);

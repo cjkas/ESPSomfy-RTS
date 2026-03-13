@@ -633,8 +633,10 @@ void SomfyShadeController::commit() {
 void SomfyShadeController::writeBackup() {
   if(git.lockFS) return;
   esp_task_wdt_reset(); // Make sure we don't reset inadvertently.
+  this->backupData = "";
+  this->backupData.reserve(16384);
   ShadeConfigFile file;
-  file.begin("/controller.backup", false);
+  file.beginRAM(&this->backupData);
   file.backup(this);
   file.end();
 }
@@ -2888,6 +2890,7 @@ void SomfyShade::moveToMyPosition() {
 }
 void SomfyShade::sendCommand(somfy_commands cmd) { this->sendCommand(cmd, this->repeats); }
 void SomfyShade::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize) {
+  Serial.print("Send command start\n");
   // This sendCommand function will always be called externally. sendCommand at the remote level
   // is expected to be called internally when the motor needs commanded.
   if(this->bitLength == 0) this->bitLength = somfy.transceiver.config.type;
@@ -2930,9 +2933,13 @@ void SomfyShade::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSiz
   else if(cmd == somfy_commands::My) {
     if(this->isToggle() || this->shadeType == shade_types::drycontact)
       SomfyRemote::sendCommand(cmd, repeat);
-    else if(this->shadeType == shade_types::drycontact2) return;   
+    else if(this->shadeType == shade_types::drycontact2){ 
+        Serial.print("Send command start 1\n");
+      return;   
+    }
     else if(this->isIdle()) {
-      this->moveToMyPosition();      
+      this->moveToMyPosition();  
+        Serial.print("Send command end 2\n");    
       return;
     }
     else {
@@ -2951,6 +2958,7 @@ void SomfyShade::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSiz
   else {
     SomfyRemote::sendCommand(cmd, repeat, stepSize);
   }
+  Serial.print("Send command end\n");
 }
 void SomfyGroup::sendCommand(somfy_commands cmd) { this->sendCommand(cmd, this->repeats); }
 void SomfyGroup::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize) {

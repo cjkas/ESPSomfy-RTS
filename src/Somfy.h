@@ -578,6 +578,7 @@ class SomfyShadeController {
     void processWaitingFrame();
     void commit();
     void writeBackup();
+    String backupData;
     bool loadShadesFile(const char *filename);
     #ifdef USE_NVS
     bool loadLegacy();
