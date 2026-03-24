@@ -3,6 +3,7 @@
 #include <Update.h>
 #include <HTTPClient.h>
 #include <esp_task_wdt.h>
+#include "esp_log.h"
 #include "ConfigSettings.h"
 #include "GitOTA.h"
 #include "Utils.h"
@@ -22,7 +23,7 @@ extern rebootDelay_t rebootDelay;
 extern Web webServer;
 extern Network net;
 
-
+static const char *TAG = "OTA";
 
 #define MAX_BUFF_SIZE 4096
 void GitRelease::setReleaseProperty(const char *key, const char *val) {
@@ -95,10 +96,10 @@ int16_t GitRepo::getReleases(uint8_t num) {
   if(https.begin(sclient, url)) {
     esp_task_wdt_reset();
     int httpCode = https.GET();
-    Serial.printf("[HTTPS] GET... code: %d\n", httpCode);
+    ESP_LOGD(TAG, "[HTTPS] GET... code: %d", httpCode);
     if(httpCode > 0) {
       int len = https.getSize();
-      Serial.printf("[HTTPS] GET... code: %d - %d\n", httpCode, len);
+      ESP_LOGD(TAG, "[HTTPS] GET... code: %d - %d", httpCode, len);
       if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY) {
         WiFiClient *stream = https.getStreamPtr();
         uint8_t buff[128] = {0};
@@ -229,14 +230,14 @@ void GitUpdater::loop() {
     }
   }
   else if(this->status == GIT_AWAITING_UPDATE) {
-    Serial.println("Starting update process.........");
+    ESP_LOGI(TAG, "Starting update process.........");
     this->status = GIT_UPDATING;
     this->beginUpdate(this->targetRelease);
     this->status = GIT_STATUS_READY;
     this->emitUpdateCheck();
   }
   else if(this->status == GIT_UPDATE_CANCELLING) {
-    Serial.println("Cancelling update process..........");
+    ESP_LOGI(TAG, "Cancelling update process..........");
     if(!this->lockFS) {
       this->status = GIT_UPDATE_CANCELLED;
       this->cancelled = true;
@@ -246,8 +247,8 @@ void GitUpdater::loop() {
 }
 void GitUpdater::checkForUpdate() {
   if(this->status != 0) return; // If we are already checking.
-  Serial.println("Check github for updates...");
-  
+  ESP_LOGI(TAG, "Check github for updates...");
+
   this->status = GIT_STATUS_CHECK;
   settings.printAvailHeap();  
   this->lastCheck = millis();
@@ -316,12 +317,12 @@ int GitUpdater::checkInternet() {
     esp_task_wdt_reset();
     if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY || httpCode == HTTP_CODE_FOUND) {
       err = 0;
-      Serial.printf("Internet is Available: %ldms\n", millis() - t);
+      ESP_LOGI(TAG, "Internet is Available: %ldms", millis() - t);
       this->inetAvailable = true;
     }
     else {
       err = httpCode;
-      Serial.printf("Internet is Unavailable: %d: %ldms\n", err, millis() - t);
+      ESP_LOGE(TAG, "Internet is Unavailable: %d: %ldms", err, millis() - t);
       this->inetAvailable = false;
     }
     https.end();
@@ -371,7 +372,7 @@ void GitUpdater::setFirmwareFile() {
 }
 
 bool GitUpdater::beginUpdate(const char *version) {
-  Serial.println("Begin update called...");
+  ESP_LOGI(TAG, "Begin update called...");
   if(strcmp(version, "Main") == 0)  strcpy(this->baseUrl, "https://raw.githubusercontent.com/rstrouse/ESPSomfy-RTS/master/");
   else sprintf(this->baseUrl, "https://github.com/rstrouse/ESPSomfy-RTS/releases/download/%s/", version);
   
@@ -392,7 +393,7 @@ bool GitUpdater::beginUpdate(const char *version) {
     if(this->error == 0) {
       settings.fwVersion.parse(version);
       delay(100);
-      Serial.println("Committing Configuration...");
+      ESP_LOGI(TAG, "Committing Configuration...");
       somfy.commit();
     }
     rebootDelay.reboot = true;
@@ -412,7 +413,7 @@ bool GitUpdater::recoverFilesystem() {
   this->lockFS = false;
   if(this->error == 0) {
     delay(100);
-    Serial.println("Committing Configuration...");
+    ESP_LOGI(TAG, "Committing Configuration...");
     somfy.commit();
   }
   this->status = GIT_UPDATE_COMPLETE;
@@ -422,28 +423,27 @@ bool GitUpdater::recoverFilesystem() {
 }
 bool GitUpdater::endUpdate() { return true; }
 int8_t GitUpdater::downloadFile() {
-  Serial.printf("Begin update %s\n", this->currentFile);
+  ESP_LOGI(TAG, "Begin update %s", this->currentFile);
   WiFiClientSecure sclient;
   sclient.setInsecure();
   HTTPClient https;
   char url[196];
   sprintf(url, "%s%s", this->baseUrl, this->currentFile);
-  Serial.println(url);
+  ESP_LOGD(TAG, "%s", url);
   esp_task_wdt_reset();
   if(https.begin(sclient, url)) {
     https.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
-    Serial.print("[HTTPS] GET...\n");
+    ESP_LOGD(TAG, "[HTTPS] GET...");
     int httpCode = https.GET();
     if(httpCode > 0) {
       size_t len = https.getSize();
       size_t total = 0;
       uint8_t pct = 0;
-      Serial.printf("[HTTPS] GET... code: %d - %d\n", httpCode, len);
+      ESP_LOGD(TAG, "[HTTPS] GET... code: %d - %d", httpCode, len);
       if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY || httpCode == HTTP_CODE_FOUND) {
         WiFiClient *stream = https.getStreamPtr();
         if(!Update.begin(len, this->partition)) {
-          Serial.println("Update Error detected!!!!!");
-          Update.printError(Serial);
+          ESP_LOGE(TAG, "Update Error detected!!!!!");
           https.end();
           return -(Update.getError() + UPDATE_ERR_OFFSET);
         }
@@ -466,8 +466,7 @@ int8_t GitUpdater::downloadFile() {
               total += c;
               //Serial.println(total);
               if (Update.write(buff, c) != c) {
-                Update.printError(Serial);
-                Serial.printf("Upload of %s aborted invalid size %d\n", url, c);
+                ESP_LOGE(TAG, "Upload of %s aborted invalid size %d", url, c);
                 free(buff);
                 https.end();
                 sclient.stop();
@@ -477,17 +476,16 @@ int8_t GitUpdater::downloadFile() {
               uint8_t p = (uint8_t)floor(((float)total / (float)len) * 100.0f);
               if(p != pct) {
                 pct = p;
-                Serial.printf("LEN:%d TOTAL:%d %d%%\n", len, total, pct);
+                ESP_LOGD(TAG, "LEN:%d TOTAL:%d %d%%", len, total, pct);
                 this->emitDownloadProgress(len, total);
               }
               delay(1);
               if(total >= len) {
                 if(!Update.end(true)) {
-                  Serial.println("Error downloading update...");
-                  Update.printError(Serial);
+                  ESP_LOGE(TAG, "Error downloading update...");
                 }
                 else {
-                  Serial.println("Update.end Called...");
+                  ESP_LOGI(TAG, "Update.end Called...");
                 }
                 https.end();
                 sclient.stop();
@@ -499,7 +497,7 @@ int8_t GitUpdater::downloadFile() {
                 Update.abort();
                 https.end();
                 free(buff);
-                Serial.println("Stream timeout!!!");
+                ESP_LOGE(TAG, "Stream timeout!!!");
                 return -43;
               }
               sockEmit.loop();
@@ -511,28 +509,28 @@ int8_t GitUpdater::downloadFile() {
           if(len > total) {
             Update.abort();
             somfy.commit();
-            Serial.println("Error downloading file!!!");
+            ESP_LOGE(TAG, "Error downloading file!!!");
             return -42;
           }
           else
-            Serial.printf("Update %s complete\n", this->currentFile);
+            ESP_LOGI(TAG, "Update %s complete", this->currentFile);
         }
         else {
           // TODO: memory allocation error.
-          Serial.println("Unable to allocate memory for update!!!");
+          ESP_LOGE(TAG, "Unable to allocate memory for update!!!");
         }
       }
       else {
-        Serial.printf("Invalid HTTP Code... %d", httpCode);
+        ESP_LOGE(TAG, "Invalid HTTP Code... %d", httpCode);
         return httpCode;
       }
     }        
     else {
-      Serial.printf("Invalid HTTP Code: %d\n", httpCode);
+      ESP_LOGE(TAG, "Invalid HTTP Code: %d", httpCode);
     }
     https.end(); 
     sclient.stop(); 
-    Serial.printf("End update %s\n", this->currentFile);
+    ESP_LOGI(TAG, "End update %s", this->currentFile);
   }
   esp_task_wdt_reset();
   return 0;

@@ -1,11 +1,14 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <esp_task_wdt.h>
+#include "esp_log.h"
 #include "Sockets.h"
 #include "ConfigSettings.h"
 #include "Somfy.h"
 #include "Network.h"
 #include "GitOTA.h"
+
+static const char *TAG = "Sockets";
 
 extern ConfigSettings settings;
 extern Network net;
@@ -86,7 +89,7 @@ void SocketEmitter::begin() {
   ws.onEvent(SocketEmitter::wsEvent);
   wsServer.addHandler(&ws);
   wsServer.begin();
-  Serial.println("Socket Server Started...");
+  ESP_LOGI(TAG, "Socket Server Started...");
 }
 void SocketEmitter::loop() {
   ws.cleanupClients();
@@ -126,7 +129,7 @@ void SocketEmitter::initClients() {
     if(slot != 255) {
       uint32_t asyncId = getAsyncId(slot);
       if(asyncId != 0 && ws.hasClient(asyncId)) {
-        Serial.printf("Initializing Socket Client %u (asyncId=%lu)\n", slot, asyncId);
+        ESP_LOGD(TAG, "Initializing Socket Client %u (asyncId=%lu)", slot, asyncId);
         esp_task_wdt_reset();
         settings.emitSockets(slot);
         if(!ws.hasClient(asyncId)) { this->newClients[i] = 255; continue; }
@@ -168,12 +171,12 @@ void SocketEmitter::wsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client
       {
         uint8_t slot = addClient(asyncId);
         if(slot == 255) {
-          Serial.printf("Socket: No free client slots, closing %lu\n", asyncId);
+          ESP_LOGE(TAG, "Socket: No free client slots, closing %lu", asyncId);
           client->close();
           return;
         }
         IPAddress ip = client->remoteIP();
-        Serial.printf("Socket [%lu] Connected from %d.%d.%d.%d (slot %u)\n", asyncId, ip[0], ip[1], ip[2], ip[3], slot);
+        ESP_LOGD(TAG, "Socket [%lu] Connected from %d.%d.%d.%d (slot %u)", asyncId, ip[0], ip[1], ip[2], ip[3], slot);
         client->text("Connected");
         client->setCloseClientOnQueueFull(false);
         sockEmit.delayInit(slot);
@@ -182,7 +185,7 @@ void SocketEmitter::wsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client
     case WS_EVT_DISCONNECT:
       {
         uint8_t slot = mapClientId(asyncId);
-        Serial.printf("Socket [%lu] Disconnected (slot %u)\n", asyncId, slot);
+        ESP_LOGD(TAG, "Socket [%lu] Disconnected (slot %u)", asyncId, slot);
         if(slot != 255) {
           for(uint8_t i = 0; i < SOCK_MAX_ROOMS; i++)
             sockEmit.rooms[i].leave(slot);
@@ -198,22 +201,22 @@ void SocketEmitter::wsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client
           data[len] = 0;
           if(strncmp((char*)data, "join:", 5) == 0) {
             uint8_t roomNum = atoi((char*)&data[5]);
-            Serial.printf("Client %u joining room %u\n", slot, roomNum);
+            ESP_LOGD(TAG, "Client %u joining room %u", slot, roomNum);
             if(roomNum < SOCK_MAX_ROOMS && slot != 255) sockEmit.rooms[roomNum].join(slot);
           }
           else if(strncmp((char*)data, "leave:", 6) == 0) {
             uint8_t roomNum = atoi((char*)&data[6]);
-            Serial.printf("Client %u leaving room %u\n", slot, roomNum);
+            ESP_LOGD(TAG, "Client %u leaving room %u", slot, roomNum);
             if(roomNum < SOCK_MAX_ROOMS && slot != 255) sockEmit.rooms[roomNum].leave(slot);
           }
           else {
-            Serial.printf("Socket [%lu] text: %s\n", asyncId, data);
+            ESP_LOGD(TAG, "Socket [%lu] text: %s", asyncId, data);
           }
         }
       }
       break;
     case WS_EVT_ERROR:
-      Serial.printf("Socket [%lu] Error\n", asyncId);
+      ESP_LOGE(TAG, "Socket [%lu] Error", asyncId);
       break;
     case WS_EVT_PONG:
       break;

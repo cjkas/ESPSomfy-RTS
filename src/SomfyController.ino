@@ -1,4 +1,3 @@
-#define LOG_LOCAL_LEVEL ESP_LOG_INFO
 #include "esp_log.h"
 #include <WiFi.h>
 #include <LittleFS.h>
@@ -13,6 +12,8 @@
 #include "GitOTA.h"
 #include "esp_core_dump.h"
 
+static const char *TAG = "Main";
+
 ConfigSettings settings;
 Web webServer;
 SocketEmitter sockEmit;
@@ -25,19 +26,19 @@ GitUpdater git;
 uint32_t oldheap = 0;
 
 void listDir(const char *dirname, uint8_t levels) {
-    Serial.printf("Listing: %s\n", dirname);
+    ESP_LOGI(TAG, "Listing: %s", dirname);
     File root = LittleFS.open(dirname);
     if (!root || !root.isDirectory()) {
-        Serial.println("Failed to open directory");
+        ESP_LOGE(TAG, "Failed to open directory");
         return;
     }
     File file = root.openNextFile();
     while (file) {
         if (file.isDirectory()) {
-            Serial.printf("  DIR : %s\n", file.name());
+            ESP_LOGI(TAG, "  DIR : %s", file.name());
             if (levels) listDir(file.path(), levels - 1);
         } else {
-            Serial.printf("  FILE: %-30s  %d bytes\n", file.name(), file.size());
+            ESP_LOGI(TAG, "  FILE: %-30s  %d bytes", file.name(), file.size());
         }
         file = root.openNextFile();
     }
@@ -45,39 +46,37 @@ void listDir(const char *dirname, uint8_t levels) {
 
 void setup() {  
   Serial.begin(115200);
-  Serial.println();
-  Serial.println("Startup/Boot....");
+  ESP_LOGI(TAG, "Startup/Boot....");
   esp_core_dump_summary_t summary;
   if (esp_core_dump_get_summary(&summary) == ESP_OK) {
-    Serial.println("*** Previous crash coredump found ***");
-    Serial.printf("  Task: %s\n", summary.exc_task);
-    Serial.printf("  PC: 0x%08x\n", summary.exc_pc);
-    Serial.printf("  Cause: %d\n", summary.ex_info.exc_cause);
-    Serial.printf("  Backtrace:");
+    ESP_LOGW(TAG, "*** Previous crash coredump found ***");
+    ESP_LOGW(TAG, "  Task: %s", summary.exc_task);
+    ESP_LOGW(TAG, "  PC: 0x%08x", summary.exc_pc);
+    ESP_LOGW(TAG, "  Cause: %d", summary.ex_info.exc_cause);
+    char bt_buf[256] = {0};
+    int pos = 0;
     for (int i = 0; i < summary.exc_bt_info.depth; i++) {
-      Serial.printf(" 0x%08x", summary.exc_bt_info.bt[i]);
+      pos += snprintf(bt_buf + pos, sizeof(bt_buf) - pos, " 0x%08x", summary.exc_bt_info.bt[i]);
     }
-    Serial.println();
+    ESP_LOGW(TAG, "  Backtrace:%s", bt_buf);
   }
-  Serial.println("Mounting File System...");
+  ESP_LOGI(TAG, "Mounting File System...");
 
 
   if (LittleFS.begin()) {
-      Serial.printf("\nTotal: %d bytes\n", LittleFS.totalBytes());
-      Serial.printf("Used:  %d bytes\n", LittleFS.usedBytes());
-      Serial.printf("Free:  %d bytes\n", LittleFS.totalBytes() - LittleFS.usedBytes());
-      Serial.println();
+      ESP_LOGI(TAG, "Total: %d bytes", LittleFS.totalBytes());
+      ESP_LOGI(TAG, "Used:  %d bytes", LittleFS.usedBytes());
+      ESP_LOGI(TAG, "Free:  %d bytes", LittleFS.totalBytes() - LittleFS.usedBytes());
       listDir("/", 3);
   } else {
-      Serial.println("LittleFS mount failed!");
+      ESP_LOGE(TAG, "LittleFS mount failed!");
   }
 
-  if(LittleFS.begin()) Serial.println("File system mounted successfully");
-  else Serial.println("Error mounting file system");
+  if(LittleFS.begin()) ESP_LOGI(TAG, "File system mounted successfully");
+  else ESP_LOGE(TAG, "Error mounting file system");
   settings.begin();
   if(WiFi.status() == WL_CONNECTED) WiFi.disconnect(true);
   delay(10);
-  Serial.println();
   webServer.startup();
   webServer.begin();
   delay(1000);
@@ -93,9 +92,7 @@ void loop() {
   // put your main code here, to run repeatedly:
   //uint32_t heap = ESP.getFreeHeap();
   if(rebootDelay.reboot && millis() > rebootDelay.rebootTime) {
-    Serial.print("Rebooting after ");
-    Serial.print(rebootDelay.rebootTime);
-    Serial.println("ms");
+    ESP_LOGI(TAG, "Rebooting after %lums", rebootDelay.rebootTime);
     net.end();
     ESP.restart();
     return;
@@ -103,11 +100,11 @@ void loop() {
   uint32_t timing = millis();
   
   net.loop();
-  if(millis() - timing > 100) Serial.printf("Timing Net: %ldms\n", millis() - timing);
+  if(millis() - timing > 100) ESP_LOGD(TAG, "Timing Net: %ldms", millis() - timing);
   timing = millis();
   esp_task_wdt_reset();
   somfy.loop();
-  if(millis() - timing > 100) Serial.printf("Timing Somfy: %ldms\n", millis() - timing);
+  if(millis() - timing > 100) ESP_LOGD(TAG, "Timing Somfy: %ldms", millis() - timing);
   timing = millis();
   esp_task_wdt_reset();
   if(net.connected() || net.softAPOpened) {
@@ -117,11 +114,11 @@ void loop() {
     }
     webServer.loop();
     esp_task_wdt_reset();
-    if(millis() - timing > 100) Serial.printf("Timing WebServer: %ldms\n", millis() - timing);
+    if(millis() - timing > 100) ESP_LOGD(TAG, "Timing WebServer: %ldms", millis() - timing);
     esp_task_wdt_reset();
     timing = millis();
     sockEmit.loop();
-    if(millis() - timing > 100) Serial.printf("Timing Socket: %ldms\n", millis() - timing);
+    if(millis() - timing > 100) ESP_LOGD(TAG, "Timing Socket: %ldms", millis() - timing);
     esp_task_wdt_reset();
     timing = millis();
   }

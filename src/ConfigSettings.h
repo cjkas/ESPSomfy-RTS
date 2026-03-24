@@ -194,7 +194,7 @@ class ConfigSettings: BaseSettings {
     void print();
     void emitSockets();
     void emitSockets(uint8_t num);
-    bool toJSON(DynamicJsonDocument &doc);
+    bool toJSON(JsonDocument &doc);
     uint16_t calcSettingsRecSize();
     uint16_t calcNetRecSize();
     bool getAppVersion();

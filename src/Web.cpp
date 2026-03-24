@@ -2,6 +2,7 @@
 #include <LittleFS.h>
 #include <Update.h>
 #include <esp_task_wdt.h>
+#include "esp_log.h"
 #include "mbedtls/md.h"
 #include "ConfigSettings.h"
 #include "ConfigFile.h"
@@ -40,10 +41,12 @@ static const char _encoding_text[] = "text/plain";
 static const char _encoding_html[] = "text/html";
 static const char _encoding_json[] = "application/json";
 
+static const char *TAG = "Web";
+
 AsyncWebServer asyncServer(80);
 AsyncWebServer asyncApiServer(8081);
 void Web::startup() {
-  Serial.println("Launching web server...");
+  ESP_LOGI(TAG, "Launching web server...");
 
   asyncServer.on("/loginContext", HTTP_GET, [](AsyncWebServerRequest *request) {
     AsyncJsonResponse *response = new AsyncJsonResponse();
@@ -58,17 +61,17 @@ void Web::startup() {
     request->send(response);
   });
   asyncApiServer.begin();
-  Serial.println("Async API server started on port 8081");
+  ESP_LOGI(TAG, "Async API server started on port 8081");
 }
 void Web::loop() {
   delay(1);
 }
 bool Web::isAuthenticated(AsyncWebServerRequest *request, bool cfg) {
-  Serial.println("Checking async authentication");
+  ESP_LOGD(TAG, "Checking async authentication");
   if(settings.Security.type == security_types::None) return true;
   else if(!cfg && (settings.Security.permissions & static_cast<uint8_t>(security_permissions::ConfigOnly)) == 0x01) return true;
   else if(request->hasHeader("apikey")) {
-    Serial.println("Checking API Key...");
+    ESP_LOGD(TAG, "Checking API Key...");
     char token[65];
     memset(token, 0x00, sizeof(token));
     this->createAPIToken(request->client()->remoteIP(), token);
@@ -79,7 +82,7 @@ bool Web::isAuthenticated(AsyncWebServerRequest *request, bool cfg) {
     // Key is valid
   }
   else {
-    Serial.println("Not authenticated...");
+    ESP_LOGE(TAG, "Not authenticated...");
     request->send(401, _encoding_text, "Unauthorized API Key");
     return false;
   }
@@ -99,14 +102,13 @@ bool Web::createAPIToken(const char *payload, char *token) {
     mbedtls_md_hmac_starts(&ctx, (const unsigned char *)settings.serverId, strlen(settings.serverId));
     mbedtls_md_hmac_update(&ctx, (const unsigned char *)payload, strlen(payload)); 
     mbedtls_md_hmac_finish(&ctx, hmacResult);
-    Serial.print("Hash: ");
     token[0] = '\0';
     for(int i = 0; i < sizeof(hmacResult); i++){
         char str[3];
         sprintf(str, "%02x", (int)hmacResult[i]);
         strcat(token, str);
     }
-    Serial.println(token);
+    ESP_LOGD(TAG, "Hash: %s", token);
     return true;
 }
 bool Web::createAPIToken(const IPAddress ipAddress, char *token) {
@@ -325,7 +327,7 @@ static void serializeGitRelease(GitRelease *rel, JsonFormatter &json) {
 // -- Async handler implementations --
 void Web::handleDiscovery(AsyncWebServerRequest *request) {
   if(request->method() == HTTP_POST || request->method() == HTTP_GET) {
-    Serial.println("Async Discovery Requested");
+    ESP_LOGD(TAG, "Async Discovery Requested");
     char connType[10] = "Unknown";
     if(net.connType == conn_types_t::ethernet) strcpy(connType, "Ethernet");
     else if(net.connType == conn_types_t::wifi) strcpy(connType, "Wifi");
@@ -794,7 +796,7 @@ void Web::handleDownloadFirmware(AsyncWebServerRequest *request) {
   GitRepo repo;
   GitRelease *rel = nullptr;
   int8_t err = repo.getReleases();
-  Serial.println("Async downloadFirmware called...");
+  ESP_LOGI(TAG, "Async downloadFirmware called...");
   if(err == 0) {
     if(asyncHasParam(request, "ver")) {
       String ver = asyncParam(request, "ver");
@@ -826,7 +828,7 @@ void Web::handleBackup(AsyncWebServerRequest *request) {
   if(!this->isAuthenticated(request)) return;
   bool attach = false;
   if(asyncHasParam(request, "attach")) attach = toBoolean(asyncParam(request, "attach").c_str(), false);
-  Serial.println("Async saving current shade information");
+  ESP_LOGI(TAG, "Async saving current shade information");
   somfy.writeBackup();
   if(somfy.backupData.length() == 0) {
     request->send(500, _encoding_text, "backup failed");
@@ -854,7 +856,7 @@ void Web::handleReboot(AsyncWebServerRequest *request) {
   if(request->method() == HTTP_OPTIONS) { request->send(200); return; }
   if(!this->isAuthenticated(request)) return;
   if(request->method() == HTTP_POST || request->method() == HTTP_PUT) {
-    Serial.println("Async Rebooting ESP...");
+    ESP_LOGI(TAG, "Async Rebooting ESP...");
     rebootDelay.reboot = true;
     rebootDelay.rebootTime = millis() + 500;
     request->send(200, _encoding_json, "{\"status\":\"OK\",\"desc\":\"Successfully started reboot\"}");
@@ -868,7 +870,7 @@ void Web::handleNotFound(AsyncWebServerRequest *request) {
 }
 
 void Web::begin() {
-  Serial.println("Creating Web MicroServices...");
+  ESP_LOGI(TAG, "Creating Web MicroServices...");
   // Async API Server (port 8081)
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Methods", "PUT,POST,GET,OPTIONS");
@@ -1014,8 +1016,8 @@ void Web::begin() {
         restore_options_t opts;
         if(asyncHasParam(request, "data")) {
           String dataStr = asyncParam(request, "data");
-          Serial.println(dataStr);
-          StaticJsonDocument<256> doc;
+          ESP_LOGD(TAG, "%s", dataStr.c_str());
+          JsonDocument doc;
           DeserializationError err = deserializeJson(doc, dataStr);
           if(err) {
             request->send(500, "application/json", "{\"status\":\"ERROR\",\"desc\":\"JSON parse error\"}");
@@ -1027,11 +1029,11 @@ void Web::begin() {
           }
         }
         else {
-          Serial.println("No restore options sent.  Using defaults...");
+          ESP_LOGD(TAG, "No restore options sent.  Using defaults...");
           opts.shades = true;
         }
         ShadeConfigFile::restore(&somfy, "/shades.tmp", opts);
-        Serial.println("Rebooting ESP for restored settings...");
+        ESP_LOGI(TAG, "Rebooting ESP for restored settings...");
         rebootDelay.reboot = true;
         rebootDelay.rebootTime = millis() + 1000;
       }
@@ -1040,7 +1042,7 @@ void Web::begin() {
       esp_task_wdt_reset();
       if(index == 0) {
         webServer.uploadSuccess = false;
-        Serial.printf("Restore: %s\n", filename.c_str());
+        ESP_LOGD(TAG, "Restore: %s", filename.c_str());
         File fup = LittleFS.open("/shades.tmp", "w");
         fup.close();
       }
@@ -1103,7 +1105,7 @@ void Web::begin() {
   asyncServer.addHandler(new AsyncCallbackJsonWebHandler("/addRoom",
     [](AsyncWebServerRequest *request, JsonVariant &json) {
       if(json.isNull()) { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No room object supplied.\"}")); return; }
-      Serial.println("Adding a room");
+      ESP_LOGD(TAG, "Adding a room");
       JsonObject obj = json.as<JsonObject>();
       if(somfy.roomCount() > SOMFY_MAX_ROOMS) {
         request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Maximum number of rooms exceeded.\"}"));
@@ -1126,7 +1128,7 @@ void Web::begin() {
   asyncServer.addHandler(new AsyncCallbackJsonWebHandler("/addShade",
     [](AsyncWebServerRequest *request, JsonVariant &json) {
       if(json.isNull()) { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No shade object supplied.\"}")); return; }
-      Serial.println("Adding a shade");
+      ESP_LOGD(TAG, "Adding a shade");
       JsonObject obj = json.as<JsonObject>();
       if(somfy.shadeCount() > SOMFY_MAX_SHADES) {
         request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Maximum number of shades exceeded.\"}"));
@@ -1149,7 +1151,7 @@ void Web::begin() {
   asyncServer.addHandler(new AsyncCallbackJsonWebHandler("/addGroup",
     [](AsyncWebServerRequest *request, JsonVariant &json) {
       if(json.isNull()) { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No group object supplied.\"}")); return; }
-      Serial.println("Adding a group");
+      ESP_LOGD(TAG, "Adding a group");
       JsonObject obj = json.as<JsonObject>();
       if(somfy.groupCount() > SOMFY_MAX_GROUPS) {
         request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Maximum number of groups exceeded.\"}"));
@@ -1210,7 +1212,7 @@ void Web::begin() {
   asyncServer.addHandler(new AsyncCallbackJsonWebHandler("/saveRoom",
     [](AsyncWebServerRequest *request, JsonVariant &json) {
       if(json.isNull()) { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No room object supplied.\"}")); return; }
-      Serial.println("Updating a room");
+      ESP_LOGD(TAG, "Updating a room");
       JsonObject obj = json.as<JsonObject>();
       if(obj.containsKey("roomId")) {
         SomfyRoom* room = somfy.getRoomById(obj["roomId"]);
@@ -1232,7 +1234,7 @@ void Web::begin() {
   asyncServer.addHandler(new AsyncCallbackJsonWebHandler("/saveShade",
     [](AsyncWebServerRequest *request, JsonVariant &json) {
       if(json.isNull()) { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No shade object supplied.\"}")); return; }
-      Serial.println("Updating a shade");
+      ESP_LOGD(TAG, "Updating a shade");
       JsonObject obj = json.as<JsonObject>();
       if(obj.containsKey("shadeId")) {
         SomfyShade* shade = somfy.getShadeById(obj["shadeId"]);
@@ -1260,7 +1262,7 @@ void Web::begin() {
   asyncServer.addHandler(new AsyncCallbackJsonWebHandler("/saveGroup",
     [](AsyncWebServerRequest *request, JsonVariant &json) {
       if(json.isNull()) { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No group object supplied.\"}")); return; }
-      Serial.println("Updating a group");
+      ESP_LOGD(TAG, "Updating a group");
       JsonObject obj = json.as<JsonObject>();
       if(obj.containsKey("groupId")) {
         SomfyGroup* group = somfy.getGroupById(obj["groupId"]);
@@ -1493,7 +1495,7 @@ void Web::begin() {
     [](AsyncWebServerRequest *request, JsonVariant &json) {
       uint32_t address = 0;
       if(!json.isNull()) {
-        Serial.println("Linking a repeater");
+        ESP_LOGD(TAG, "Linking a repeater");
         JsonObject obj = json.as<JsonObject>();
         if(obj.containsKey("address")) address = obj["address"];
         else if(obj.containsKey("remoteAddress")) address = obj["remoteAddress"];
@@ -1534,7 +1536,7 @@ void Web::begin() {
     [](AsyncWebServerRequest *request, JsonVariant &json) {
       uint32_t address = 0;
       if(!json.isNull()) {
-        Serial.println("Unlinking a repeater");
+        ESP_LOGD(TAG, "Unlinking a repeater");
         JsonObject obj = json.as<JsonObject>();
         if(obj.containsKey("address")) address = obj["address"];
         else if(obj.containsKey("remoteAddress")) address = obj["remoteAddress"];
@@ -1600,7 +1602,7 @@ void Web::begin() {
   asyncServer.addHandler(new AsyncCallbackJsonWebHandler("/linkRemote",
     [](AsyncWebServerRequest *request, JsonVariant &json) {
       if(json.isNull()) { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No remote object supplied.\"}")); return; }
-      Serial.println("Linking a remote");
+      ESP_LOGD(TAG, "Linking a remote");
       JsonObject obj = json.as<JsonObject>();
       if(obj.containsKey("shadeId")) {
         SomfyShade* shade = somfy.getShadeById(obj["shadeId"]);
@@ -1628,7 +1630,7 @@ void Web::begin() {
   asyncServer.addHandler(new AsyncCallbackJsonWebHandler("/linkToGroup",
     [](AsyncWebServerRequest *request, JsonVariant &json) {
       if(json.isNull()) { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No linking object supplied.\"}")); return; }
-      Serial.println("Linking a shade to a group");
+      ESP_LOGD(TAG, "Linking a shade to a group");
       JsonObject obj = json.as<JsonObject>();
       uint8_t shadeId = obj.containsKey("shadeId") ? obj["shadeId"] : 0;
       uint8_t groupId = obj.containsKey("groupId") ? obj["groupId"] : 0;
@@ -1663,7 +1665,7 @@ void Web::begin() {
   asyncServer.addHandler(new AsyncCallbackJsonWebHandler("/unlinkFromGroup",
     [](AsyncWebServerRequest *request, JsonVariant &json) {
       if(json.isNull()) { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No unlinking object supplied.\"}")); return; }
-      Serial.println("Unlinking a shade from a group");
+      ESP_LOGD(TAG, "Unlinking a shade from a group");
       JsonObject obj = json.as<JsonObject>();
       uint8_t shadeId = obj.containsKey("shadeId") ? obj["shadeId"] : 0;
       uint8_t groupId = obj.containsKey("groupId") ? obj["groupId"] : 0;
@@ -1699,7 +1701,7 @@ void Web::begin() {
     [](AsyncWebServerRequest *request, JsonVariant &json) {
       uint8_t roomId = 0;
       if(!json.isNull()) {
-        Serial.println("Deleting a Room");
+        ESP_LOGD(TAG, "Deleting a Room");
         JsonObject obj = json.as<JsonObject>();
         if(obj.containsKey("roomId")) roomId = obj["roomId"];
         else { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No room id was supplied.\"}")); return; }
@@ -1730,7 +1732,7 @@ void Web::begin() {
     [](AsyncWebServerRequest *request, JsonVariant &json) {
       uint8_t shadeId = 255;
       if(!json.isNull()) {
-        Serial.println("Deleting a shade");
+        ESP_LOGD(TAG, "Deleting a shade");
         JsonObject obj = json.as<JsonObject>();
         if(obj.containsKey("shadeId")) shadeId = obj["shadeId"];
         else { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No shade id was supplied.\"}")); return; }
@@ -1767,7 +1769,7 @@ void Web::begin() {
     [](AsyncWebServerRequest *request, JsonVariant &json) {
       uint8_t groupId = 255;
       if(!json.isNull()) {
-        Serial.println("Deleting a group");
+        ESP_LOGD(TAG, "Deleting a group");
         JsonObject obj = json.as<JsonObject>();
         if(obj.containsKey("groupId")) groupId = obj["groupId"];
         else { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No group id was supplied.\"}")); return; }
@@ -1806,9 +1808,9 @@ void Web::begin() {
     [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
       if(index == 0) {
         webServer.uploadSuccess = false;
-        Serial.printf("Update: %s\n", filename.c_str());
+        ESP_LOGI(TAG, "Update: %s", filename.c_str());
         if(!Update.begin(UPDATE_SIZE_UNKNOWN)) {
-          Update.printError(Serial);
+          ESP_LOGE(TAG, "Update begin failed");
         }
         else {
           somfy.transceiver.end();
@@ -1817,18 +1819,17 @@ void Web::begin() {
       }
       if(len > 0) {
         if(Update.write(data, len) != len) {
-          Update.printError(Serial);
-          Serial.printf("Upload of %s aborted invalid size %d\n", filename.c_str(), len);
+          ESP_LOGE(TAG, "Upload of %s aborted invalid size %d", filename.c_str(), len);
           Update.abort();
         }
       }
       if(final) {
         if(Update.end(true)) {
-          Serial.printf("Update Success: %u\nRebooting...\n", index + len);
+          ESP_LOGI(TAG, "Update Success: %u Rebooting...", index + len);
           webServer.uploadSuccess = true;
         }
         else {
-          Update.printError(Serial);
+          ESP_LOGE(TAG, "Update end failed");
         }
       }
       esp_task_wdt_reset();
@@ -1845,7 +1846,7 @@ void Web::begin() {
     },
     [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
       if(index == 0) {
-        Serial.printf("Update: shades.cfg\n");
+        ESP_LOGI(TAG, "Update: shades.cfg");
         File fup = LittleFS.open("/shades.tmp", "w");
         fup.close();
       }
@@ -1872,9 +1873,9 @@ void Web::begin() {
     [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
       if(index == 0) {
         webServer.uploadSuccess = false;
-        Serial.printf("Update: %s\n", filename.c_str());
+        ESP_LOGI(TAG, "Update: %s", filename.c_str());
         if(!Update.begin(UPDATE_SIZE_UNKNOWN, U_SPIFFS)) {
-          Update.printError(Serial);
+          ESP_LOGE(TAG, "Update begin failed");
         }
         else {
           somfy.transceiver.end();
@@ -1883,20 +1884,19 @@ void Web::begin() {
       }
       if(len > 0) {
         if(Update.write(data, len) != len) {
-          Update.printError(Serial);
-          Serial.printf("Upload of %s aborted invalid size %d\n", filename.c_str(), len);
+          ESP_LOGE(TAG, "Upload of %s aborted invalid size %d", filename.c_str(), len);
           Update.abort();
         }
       }
       if(final) {
         if(Update.end(true)) {
           webServer.uploadSuccess = true;
-          Serial.printf("Update Success: %u\nRebooting...\n", index + len);
+          ESP_LOGI(TAG, "Update Success: %u Rebooting...", index + len);
           somfy.commit();
         }
         else {
           somfy.commit();
-          Update.printError(Serial);
+          ESP_LOGE(TAG, "Update end failed");
         }
       }
       esp_task_wdt_reset();
@@ -1908,9 +1908,7 @@ void Web::begin() {
     if(net.softAPOpened) WiFi.disconnect(false);
     int n = WiFi.scanNetworks(false, true);
     esp_task_wdt_add(NULL);
-    Serial.print("Scanned ");
-    Serial.print(n);
-    Serial.println(" networks");
+    ESP_LOGI(TAG, "Scanned %d networks", n);
     AsyncJsonResp resp;
     resp.beginResponse(request, g_async_content, sizeof(g_async_content));
     resp.beginObject();
@@ -1949,7 +1947,7 @@ void Web::begin() {
       settings.Security.save();
       char token[65];
       webServer.createAPIToken(request->client()->remoteIP(), token);
-      DynamicJsonDocument sdoc(1024);
+      JsonDocument sdoc;
       JsonObject sobj = sdoc.to<JsonObject>();
       settings.Security.toJSON(sobj);
       sobj["apiKey"] = token;
@@ -1959,7 +1957,7 @@ void Web::begin() {
 
   // getSecurity
   asyncServer.on("/getSecurity", HTTP_GET, [](AsyncWebServerRequest *request) {
-    DynamicJsonDocument doc(512);
+    JsonDocument doc;
     JsonObject obj = doc.to<JsonObject>();
     settings.Security.toJSON(obj);
     serializeJson(doc, g_async_content, sizeof(g_async_content));
@@ -2091,7 +2089,7 @@ void Web::begin() {
         settings.Ethernet.save();
       }
       if(reboot) {
-        Serial.println("Rebooting ESP for new Network settings...");
+        ESP_LOGI(TAG, "Rebooting ESP for new Network settings...");
         rebootDelay.reboot = true;
         rebootDelay.rebootTime = millis() + 1000;
       }
@@ -2105,7 +2103,7 @@ void Web::begin() {
         request->send(500, "application/json", "{\"status\":\"ERROR\",\"desc\":\"JSON parse error\"}");
         return;
       }
-      Serial.println("Setting IP...");
+      ESP_LOGD(TAG, "Setting IP...");
       JsonObject obj = json.as<JsonObject>();
       settings.IP.fromJSON(obj);
       settings.IP.save();
@@ -2120,7 +2118,7 @@ void Web::begin() {
         return;
       }
       JsonObject obj = json.as<JsonObject>();
-      Serial.println("Settings WIFI connection...");
+      ESP_LOGD(TAG, "Settings WIFI connection...");
       String ssid = "";
       String passphrase = "";
       if(obj.containsKey("ssid")) ssid = obj["ssid"].as<String>();
@@ -2138,7 +2136,7 @@ void Web::begin() {
         settings.WIFI.print();
         request->send(201, _encoding_json, "{\"status\":\"OK\",\"desc\":\"Successfully set server connection\"}");
         if(reboot) {
-          Serial.println("Rebooting ESP for new WiFi settings...");
+          ESP_LOGI(TAG, "Rebooting ESP for new WiFi settings...");
           rebootDelay.reboot = true;
           rebootDelay.rebootTime = millis() + 1000;
         }
@@ -2164,7 +2162,7 @@ void Web::begin() {
 
   // networksettings
   asyncServer.on("/networksettings", HTTP_GET, [](AsyncWebServerRequest *request) {
-    DynamicJsonDocument doc(2048);
+    JsonDocument doc;
     JsonObject obj = doc.to<JsonObject>();
     settings.toJSON(obj);
     obj["fwVersion"] = settings.fwVersion.name;
@@ -2186,11 +2184,11 @@ void Web::begin() {
         return;
       }
       JsonObject obj = json.as<JsonObject>();
-      Serial.print("Saving MQTT ");
+      ESP_LOGD(TAG, "Saving MQTT");
       mqtt.disconnect();
       settings.MQTT.fromJSON(obj);
       settings.MQTT.save();
-      DynamicJsonDocument sdoc(1024);
+      JsonDocument sdoc;
       JsonObject sobj = sdoc.to<JsonObject>();
       settings.MQTT.toJSON(sobj);
       serializeJson(sdoc, g_async_content, sizeof(g_async_content));
@@ -2199,7 +2197,7 @@ void Web::begin() {
 
   // mqttsettings
   asyncServer.on("/mqttsettings", HTTP_GET, [](AsyncWebServerRequest *request) {
-    DynamicJsonDocument doc(1024);
+    JsonDocument doc;
     JsonObject obj = doc.to<JsonObject>();
     settings.MQTT.toJSON(obj);
     serializeJson(doc, g_async_content, sizeof(g_async_content));
