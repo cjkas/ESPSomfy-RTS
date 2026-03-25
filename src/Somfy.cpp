@@ -2926,11 +2926,12 @@ void SomfyShade::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSiz
 }
 void SomfyGroup::sendCommand(somfy_commands cmd) { this->sendCommand(cmd, this->repeats); }
 void SomfyGroup::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize) {
+  ESP_LOGI(TAG, "[Group %u] sendCommand cmd=%s repeat=%u", this->getGroupId(), translateSomfyCommand(cmd).c_str(), repeat);
   // This sendCommand function will always be called externally. sendCommand at the remote level
   // is expected to be called internally when the motor needs commanded.
   if(this->bitLength == 0) this->bitLength = somfy.transceiver.config.type;
   SomfyRemote::sendCommand(cmd, repeat, stepSize);
-  
+
   switch(cmd) {
     case somfy_commands::My:
       this->p_direction(0);
@@ -2949,6 +2950,7 @@ void SomfyGroup::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSiz
     if(this->linkedShades[i] != 0) {
       SomfyShade *shade = somfy.getShadeById(this->linkedShades[i]);
       if(shade) {
+        ESP_LOGI(TAG, "[Group %u] processInternalCommand on shade %u cmd=%s", this->getGroupId(), shade->getShadeId(), translateSomfyCommand(cmd).c_str());
         shade->processInternalCommand(cmd, repeat);
         shade->emitCommand(cmd, "group", this->getRemoteAddress());
       }
@@ -2994,6 +2996,8 @@ void SomfyShade::moveToTiltTarget(float target) {
   if(cmd != somfy_commands::My) this->settingTiltPos = true;
 }
 void SomfyShade::moveToTarget(float pos, float tilt) {
+  ESP_LOGI(TAG, "[Shade %u] moveToTarget(pos=%.2f, tilt=%.2f) settingPos=%d direction=%d currentTarget=%.2f currentPos=%.2f",
+      this->getShadeId(), pos, tilt, this->settingPos, this->direction, this->target, this->currentPos);
   somfy_commands cmd = somfy_commands::My;
   if(this->isToggle()) {
     // Overload this as we cannot seek a position on a garage door or single button device.
@@ -3042,7 +3046,9 @@ bool SomfyShade::save() {
   if(somfy.useNVS()) {
     char shadeKey[15];
     snprintf(shadeKey, sizeof(shadeKey), "SomfyShade%u", this->getShadeId());
-    pref.begin(shadeKey);
+    if(!pref.begin(shadeKey)) {
+      ESP_LOGE(TAG, "[Shade %u] save() pref.begin(%s) FAILED", this->getShadeId(), shadeKey);
+    }
     pref.clear();
     pref.putChar("shadeType", static_cast<uint8_t>(this->shadeType));
     pref.putUInt("remoteAddress", this->getRemoteAddress());
@@ -3915,7 +3921,9 @@ bool SomfyShadeController::deleteGroup(uint8_t groupId) {
 
 bool SomfyShadeController::loadShadesFile(const char *filename) { return ShadeConfigFile::load(this, filename); }
 uint16_t SomfyRemote::getNextRollingCode() {
-  pref.begin("ShadeCodes");
+  if(!pref.begin("ShadeCodes")) {
+    ESP_LOGE(TAG, "getNextRollingCode() pref.begin(ShadeCodes) FAILED");
+  }
   uint16_t code = pref.getUShort(this->m_remotePrefId, 0);
   code++;
   pref.putUShort(this->m_remotePrefId, code);

@@ -43,10 +43,15 @@ static const char _encoding_json[] = "application/json";
 
 static const char *TAG = "Web";
 
+static QueueHandle_t webCmdQueue = nullptr;
+static SemaphoreHandle_t webCmdDone = nullptr;
+
 AsyncWebServer asyncServer(80);
 AsyncWebServer asyncApiServer(8081);
 void Web::startup() {
   ESP_LOGI(TAG, "Launching web server...");
+  if(!webCmdQueue) webCmdQueue = xQueueCreate(WEB_CMD_QUEUE_SIZE, sizeof(web_command_t));
+  if(!webCmdDone) webCmdDone = xSemaphoreCreateBinary();
 
   asyncServer.on("/loginContext", HTTP_GET, [](AsyncWebServerRequest *request) {
     AsyncJsonResponse *response = new AsyncJsonResponse();
@@ -64,7 +69,95 @@ void Web::startup() {
   ESP_LOGI(TAG, "Async API server started on port 8081");
 }
 void Web::loop() {
+  this->processQueue();
   delay(1);
+}
+bool Web::queueCommand(const web_command_t &cmd) {
+  if(!webCmdQueue || !webCmdDone) return false;
+  // Clear any stale signal
+  xSemaphoreTake(webCmdDone, 0);
+  if(xQueueSend(webCmdQueue, &cmd, pdMS_TO_TICKS(100)) != pdTRUE) {
+    ESP_LOGE(TAG, "Command queue full, dropping command");
+    return false;
+  }
+  // Wait for main loop to process it
+  if(xSemaphoreTake(webCmdDone, pdMS_TO_TICKS(WEB_CMD_TIMEOUT_MS)) != pdTRUE) {
+    ESP_LOGW(TAG, "Command queue timeout waiting for processing");
+    return false;
+  }
+  return true;
+}
+void Web::processQueue() {
+  if(!webCmdQueue || !webCmdDone) return;
+  web_command_t cmd;
+  while(xQueueReceive(webCmdQueue, &cmd, 0) == pdTRUE) {
+    switch(cmd.type) {
+      case web_cmd_t::shade_command: {
+        SomfyShade *shade = somfy.getShadeById(cmd.shadeId);
+        if(shade) {
+          if(cmd.target <= 100) shade->moveToTarget(shade->transformPosition(cmd.target));
+          else shade->sendCommand(cmd.command, cmd.repeat > 0 ? cmd.repeat : shade->repeats, cmd.stepSize);
+        }
+        break;
+      }
+      case web_cmd_t::group_command: {
+        SomfyGroup *group = somfy.getGroupById(cmd.groupId);
+        if(group) group->sendCommand(cmd.command, cmd.repeat >= 0 ? cmd.repeat : group->repeats, cmd.stepSize);
+        break;
+      }
+      case web_cmd_t::tilt_command: {
+        SomfyShade *shade = somfy.getShadeById(cmd.shadeId);
+        if(shade) {
+          if(cmd.target <= 100) shade->moveToTiltTarget(shade->transformPosition(cmd.target));
+          else shade->sendTiltCommand(cmd.command);
+        }
+        break;
+      }
+      case web_cmd_t::shade_repeat: {
+        SomfyShade *shade = somfy.getShadeById(cmd.shadeId);
+        if(shade) {
+          if(shade->shadeType == shade_types::garage1 && cmd.command == somfy_commands::Prog) cmd.command = somfy_commands::Toggle;
+          if(!shade->isLastCommand(cmd.command)) shade->sendCommand(cmd.command, cmd.repeat >= 0 ? cmd.repeat : shade->repeats, cmd.stepSize);
+          else shade->repeatFrame(cmd.repeat >= 0 ? cmd.repeat : shade->repeats);
+        }
+        break;
+      }
+      case web_cmd_t::group_repeat: {
+        SomfyGroup *group = somfy.getGroupById(cmd.groupId);
+        if(group) {
+          if(!group->isLastCommand(cmd.command)) group->sendCommand(cmd.command, cmd.repeat >= 0 ? cmd.repeat : group->repeats, cmd.stepSize);
+          else group->repeatFrame(cmd.repeat >= 0 ? cmd.repeat : group->repeats);
+        }
+        break;
+      }
+      case web_cmd_t::set_positions: {
+        SomfyShade *shade = somfy.getShadeById(cmd.shadeId);
+        if(shade) {
+          if(cmd.position >= 0) shade->target = shade->currentPos = cmd.position;
+          if(cmd.tiltPosition >= 0 && shade->tiltType != tilt_types::none) shade->tiltTarget = shade->currentTiltPos = cmd.tiltPosition;
+          shade->emitState();
+        }
+        break;
+      }
+      case web_cmd_t::shade_sensor: {
+        SomfyShade *shade = somfy.getShadeById(cmd.shadeId);
+        if(shade) {
+          shade->sendSensorCommand(cmd.windy, cmd.sunny, cmd.repeat >= 0 ? (uint8_t)cmd.repeat : shade->repeats);
+          shade->emitState();
+        }
+        break;
+      }
+      case web_cmd_t::group_sensor: {
+        SomfyGroup *group = somfy.getGroupById(cmd.groupId);
+        if(group) {
+          group->sendSensorCommand(cmd.windy, cmd.sunny, cmd.repeat >= 0 ? (uint8_t)cmd.repeat : group->repeats);
+          group->emitState();
+        }
+        break;
+      }
+    }
+    xSemaphoreGive(webCmdDone);
+  }
 }
 bool Web::isAuthenticated(AsyncWebServerRequest *request, bool cfg) {
   ESP_LOGD(TAG, "Checking async authentication");
@@ -521,8 +614,15 @@ void Web::handleShadeCommand(AsyncWebServerRequest *request, JsonVariant &json) 
   else { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No shade object supplied.\"}")); return; }
   SomfyShade *shade = somfy.getShadeById(shadeId);
   if(shade) {
-    if(target <= 100) shade->moveToTarget(shade->transformPosition(target));
-    else shade->sendCommand(command, repeat > 0 ? repeat : shade->repeats, stepSize);
+    ESP_LOGI(TAG, "handleShadeCommand shade=%u target=%u command=%s", shadeId, target, translateSomfyCommand(command).c_str());
+    web_command_t cmd = {};
+    cmd.type = web_cmd_t::shade_command;
+    cmd.shadeId = shadeId;
+    cmd.target = target;
+    cmd.command = command;
+    cmd.repeat = repeat;
+    cmd.stepSize = stepSize;
+    this->queueCommand(cmd);
     AsyncJsonResp resp;
     resp.beginResponse(request, g_async_content, sizeof(g_async_content));
     resp.beginObject();
@@ -556,7 +656,14 @@ void Web::handleGroupCommand(AsyncWebServerRequest *request, JsonVariant &json) 
   else { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No group object supplied.\"}")); return; }
   SomfyGroup *group = somfy.getGroupById(groupId);
   if(group) {
-    group->sendCommand(command, repeat >= 0 ? repeat : group->repeats, stepSize);
+    ESP_LOGI(TAG, "handleGroupCommand group=%u command=%s", groupId, translateSomfyCommand(command).c_str());
+    web_command_t cmd = {};
+    cmd.type = web_cmd_t::group_command;
+    cmd.groupId = groupId;
+    cmd.command = command;
+    cmd.repeat = repeat;
+    cmd.stepSize = stepSize;
+    this->queueCommand(cmd);
     AsyncJsonResp resp;
     resp.beginResponse(request, g_async_content, sizeof(g_async_content));
     resp.beginObject();
@@ -587,8 +694,13 @@ void Web::handleTiltCommand(AsyncWebServerRequest *request, JsonVariant &json) {
   else { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No shade object supplied.\"}")); return; }
   SomfyShade *shade = somfy.getShadeById(shadeId);
   if(shade) {
-    if(target <= 100) shade->moveToTiltTarget(shade->transformPosition(target));
-    else shade->sendTiltCommand(command);
+    ESP_LOGI(TAG, "handleTiltCommand shade=%u target=%u command=%s", shadeId, target, translateSomfyCommand(command).c_str());
+    web_command_t cmd = {};
+    cmd.type = web_cmd_t::tilt_command;
+    cmd.shadeId = shadeId;
+    cmd.target = target;
+    cmd.command = command;
+    this->queueCommand(cmd);
     AsyncJsonResp resp;
     resp.beginResponse(request, g_async_content, sizeof(g_async_content));
     resp.beginObject();
@@ -620,11 +732,16 @@ void Web::handleRepeatCommand(AsyncWebServerRequest *request, JsonVariant &json)
     if(!obj["repeat"].isNull()) repeat = obj["repeat"].as<uint8_t>();
   }
   if(shadeId != 255) {
+    ESP_LOGI(TAG, "handleRepeatCommand shade=%u command=%s", shadeId, translateSomfyCommand(command).c_str());
     SomfyShade *shade = somfy.getShadeById(shadeId);
     if(!shade) { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade reference could not be found.\"}")); return; }
-    if(shade->shadeType == shade_types::garage1 && command == somfy_commands::Prog) command = somfy_commands::Toggle;
-    if(!shade->isLastCommand(command)) shade->sendCommand(command, repeat >= 0 ? repeat : shade->repeats, stepSize);
-    else shade->repeatFrame(repeat >= 0 ? repeat : shade->repeats);
+    web_command_t cmd = {};
+    cmd.type = web_cmd_t::shade_repeat;
+    cmd.shadeId = shadeId;
+    cmd.command = command;
+    cmd.repeat = repeat;
+    cmd.stepSize = stepSize;
+    this->queueCommand(cmd);
     AsyncJsonResp resp;
     resp.beginResponse(request, g_async_content, sizeof(g_async_content));
     resp.beginArray();
@@ -633,10 +750,16 @@ void Web::handleRepeatCommand(AsyncWebServerRequest *request, JsonVariant &json)
     resp.endResponse();
   }
   else if(groupId != 255) {
+    ESP_LOGI(TAG, "handleRepeatCommand group=%u command=%s", groupId, translateSomfyCommand(command).c_str());
     SomfyGroup *group = somfy.getGroupById(groupId);
     if(!group) { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Group reference could not be found.\"}")); return; }
-    if(!group->isLastCommand(command)) group->sendCommand(command, repeat >= 0 ? repeat : group->repeats, stepSize);
-    else group->repeatFrame(repeat >= 0 ? repeat : group->repeats);
+    web_command_t cmd = {};
+    cmd.type = web_cmd_t::group_repeat;
+    cmd.groupId = groupId;
+    cmd.command = command;
+    cmd.repeat = repeat;
+    cmd.stepSize = stepSize;
+    this->queueCommand(cmd);
     AsyncJsonResp resp;
     resp.beginResponse(request, g_async_content, sizeof(g_async_content));
     resp.beginObject();
@@ -722,11 +845,15 @@ void Web::handleSetPositions(AsyncWebServerRequest *request, JsonVariant &json) 
     if(!obj["tiltPosition"].isNull()) tiltPos = obj["tiltPosition"];
   }
   if(shadeId != 255) {
+    ESP_LOGI(TAG, "handleSetPositions shade=%u pos=%d tiltPos=%d", shadeId, pos, tiltPos);
     SomfyShade *shade = somfy.getShadeById(shadeId);
     if(shade) {
-      if(pos >= 0) shade->target = shade->currentPos = pos;
-      if(tiltPos >= 0 && shade->tiltType != tilt_types::none) shade->tiltTarget = shade->currentTiltPos = tiltPos;
-      shade->emitState();
+      web_command_t cmd = {};
+      cmd.type = web_cmd_t::set_positions;
+      cmd.shadeId = shadeId;
+      cmd.position = pos;
+      cmd.tiltPosition = tiltPos;
+      this->queueCommand(cmd);
       AsyncJsonResp resp;
       resp.beginResponse(request, g_async_content, sizeof(g_async_content));
       resp.beginObject();
@@ -763,8 +890,13 @@ void Web::handleSetSensor(AsyncWebServerRequest *request, JsonVariant &json) {
   if(shadeId != 255) {
     SomfyShade *shade = somfy.getShadeById(shadeId);
     if(shade) {
-      shade->sendSensorCommand(windy, sunny, repeat >= 0 ? (uint8_t)repeat : shade->repeats);
-      shade->emitState();
+      web_command_t cmd = {};
+      cmd.type = web_cmd_t::shade_sensor;
+      cmd.shadeId = shadeId;
+      cmd.sunny = sunny;
+      cmd.windy = windy;
+      cmd.repeat = repeat;
+      this->queueCommand(cmd);
       AsyncJsonResp resp;
       resp.beginResponse(request, g_async_content, sizeof(g_async_content));
       resp.beginObject();
@@ -777,8 +909,13 @@ void Web::handleSetSensor(AsyncWebServerRequest *request, JsonVariant &json) {
   else if(groupId != 255) {
     SomfyGroup *group = somfy.getGroupById(groupId);
     if(group) {
-      group->sendSensorCommand(windy, sunny, repeat >= 0 ? (uint8_t)repeat : group->repeats);
-      group->emitState();
+      web_command_t cmd = {};
+      cmd.type = web_cmd_t::group_sensor;
+      cmd.groupId = groupId;
+      cmd.sunny = sunny;
+      cmd.windy = windy;
+      cmd.repeat = repeat;
+      this->queueCommand(cmd);
       AsyncJsonResp resp;
       resp.beginResponse(request, g_async_content, sizeof(g_async_content));
       resp.beginObject();

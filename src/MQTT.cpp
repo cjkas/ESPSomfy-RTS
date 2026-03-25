@@ -101,8 +101,10 @@ void MQTTClass::receive(const char *topic, byte*payload, uint32_t length) {
     if (shade) {
       int val = atoi(value);
       if(strncmp(command, "target", sizeof(command)) == 0) {
-        if(val >= 0 && val <= 100)
+        if(val >= 0 && val <= 100) {
+          ESP_LOGI(TAG, "MQTT shade %s target=%d", entityId, val);
           shade->moveToTarget(shade->transformPosition(atoi(value)));
+        }
       }
       if(strncmp(command, "tiltTarget", sizeof(command)) == 0) {
         if(val >= 0 && val <= 100)
@@ -152,6 +154,7 @@ void MQTTClass::receive(const char *topic, byte*payload, uint32_t length) {
     SomfyGroup* group = somfy.getGroupById(atoi(entityId));
     if (group) {
       int val = atoi(value);
+      ESP_LOGI(TAG, "MQTT group %s command=%s value=%d", entityId, command, val);
       if(strncmp(command, "direction", sizeof(command)) == 0) {
         if(val < 0)
           group->sendCommand(somfy_commands::Up);
