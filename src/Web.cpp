@@ -463,9 +463,9 @@ void Web::handleLogin(AsyncWebServerRequest *request, JsonVariant &json) {
   // Override from JSON body if present
   if(!json.isNull()) {
     JsonObject obj = json.as<JsonObject>();
-    if(obj.containsKey("username")) strlcpy(username, obj["username"], sizeof(username));
-    if(obj.containsKey("password")) strlcpy(password, obj["password"], sizeof(password));
-    if(obj.containsKey("pin")) strlcpy(pin, obj["pin"], sizeof(pin));
+    if(!obj["username"].isNull()) strlcpy(username, obj["username"], sizeof(username));
+    if(!obj["password"].isNull()) strlcpy(password, obj["password"], sizeof(password));
+    if(!obj["pin"].isNull()) strlcpy(pin, obj["pin"], sizeof(pin));
   }
   bool success = false;
   if(settings.Security.type == security_types::PinEntry) {
@@ -511,12 +511,12 @@ void Web::handleShadeCommand(AsyncWebServerRequest *request, JsonVariant &json) 
   }
   else if(!json.isNull()) {
     JsonObject obj = json.as<JsonObject>();
-    if(obj.containsKey("shadeId")) shadeId = obj["shadeId"];
+    if(!obj["shadeId"].isNull()) shadeId = obj["shadeId"];
     else { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No shade id was supplied.\"}")); return; }
-    if(obj.containsKey("command")) { String scmd = obj["command"]; command = translateSomfyCommand(scmd); }
-    else if(obj.containsKey("target")) target = obj["target"].as<uint8_t>();
-    if(obj.containsKey("repeat")) repeat = obj["repeat"].as<uint8_t>();
-    if(obj.containsKey("stepSize")) stepSize = obj["stepSize"].as<uint8_t>();
+    if(!obj["command"].isNull()) { String scmd = obj["command"]; command = translateSomfyCommand(scmd); }
+    else if(!obj["target"].isNull()) target = obj["target"].as<uint8_t>();
+    if(!obj["repeat"].isNull()) repeat = obj["repeat"].as<uint8_t>();
+    if(!obj["stepSize"].isNull()) stepSize = obj["stepSize"].as<uint8_t>();
   }
   else { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No shade object supplied.\"}")); return; }
   SomfyShade *shade = somfy.getShadeById(shadeId);
@@ -547,11 +547,11 @@ void Web::handleGroupCommand(AsyncWebServerRequest *request, JsonVariant &json) 
   }
   else if(!json.isNull()) {
     JsonObject obj = json.as<JsonObject>();
-    if(obj.containsKey("groupId")) groupId = obj["groupId"];
+    if(!obj["groupId"].isNull()) groupId = obj["groupId"];
     else { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No group id was supplied.\"}")); return; }
-    if(obj.containsKey("command")) { String scmd = obj["command"]; command = translateSomfyCommand(scmd); }
-    if(obj.containsKey("repeat")) repeat = obj["repeat"].as<uint8_t>();
-    if(obj.containsKey("stepSize")) stepSize = obj["stepSize"].as<uint8_t>();
+    if(!obj["command"].isNull()) { String scmd = obj["command"]; command = translateSomfyCommand(scmd); }
+    if(!obj["repeat"].isNull()) repeat = obj["repeat"].as<uint8_t>();
+    if(!obj["stepSize"].isNull()) stepSize = obj["stepSize"].as<uint8_t>();
   }
   else { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No group object supplied.\"}")); return; }
   SomfyGroup *group = somfy.getGroupById(groupId);
@@ -579,10 +579,10 @@ void Web::handleTiltCommand(AsyncWebServerRequest *request, JsonVariant &json) {
   }
   else if(!json.isNull()) {
     JsonObject obj = json.as<JsonObject>();
-    if(obj.containsKey("shadeId")) shadeId = obj["shadeId"];
+    if(!obj["shadeId"].isNull()) shadeId = obj["shadeId"];
     else { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No shade id was supplied.\"}")); return; }
-    if(obj.containsKey("command")) { String scmd = obj["command"]; command = translateSomfyCommand(scmd); }
-    else if(obj.containsKey("target")) target = obj["target"].as<uint8_t>();
+    if(!obj["command"].isNull()) { String scmd = obj["command"]; command = translateSomfyCommand(scmd); }
+    else if(!obj["target"].isNull()) target = obj["target"].as<uint8_t>();
   }
   else { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No shade object supplied.\"}")); return; }
   SomfyShade *shade = somfy.getShadeById(shadeId);
@@ -613,11 +613,11 @@ void Web::handleRepeatCommand(AsyncWebServerRequest *request, JsonVariant &json)
   if(asyncHasParam(request, "stepSize")) stepSize = asyncParam(request, "stepSize").toInt();
   if(shadeId == 255 && groupId == 255 && !json.isNull()) {
     JsonObject obj = json.as<JsonObject>();
-    if(obj.containsKey("shadeId")) shadeId = obj["shadeId"];
-    if(obj.containsKey("groupId")) groupId = obj["groupId"];
-    if(obj.containsKey("stepSize")) stepSize = obj["stepSize"];
-    if(obj.containsKey("command")) { String scmd = obj["command"]; command = translateSomfyCommand(scmd); }
-    if(obj.containsKey("repeat")) repeat = obj["repeat"].as<uint8_t>();
+    if(!obj["shadeId"].isNull()) shadeId = obj["shadeId"];
+    if(!obj["groupId"].isNull()) groupId = obj["groupId"];
+    if(!obj["stepSize"].isNull()) stepSize = obj["stepSize"];
+    if(!obj["command"].isNull()) { String scmd = obj["command"]; command = translateSomfyCommand(scmd); }
+    if(!obj["repeat"].isNull()) repeat = obj["repeat"].as<uint8_t>();
   }
   if(shadeId != 255) {
     SomfyShade *shade = somfy.getShadeById(shadeId);
@@ -717,9 +717,9 @@ void Web::handleSetPositions(AsyncWebServerRequest *request, JsonVariant &json) 
   int8_t tiltPos = asyncHasParam(request, "tiltPosition") ? asyncParam(request, "tiltPosition").toInt() : -1;
   if(!json.isNull()) {
     JsonObject obj = json.as<JsonObject>();
-    if(obj.containsKey("shadeId")) shadeId = obj["shadeId"];
-    if(obj.containsKey("position")) pos = obj["position"];
-    if(obj.containsKey("tiltPosition")) tiltPos = obj["tiltPosition"];
+    if(!obj["shadeId"].isNull()) shadeId = obj["shadeId"];
+    if(!obj["position"].isNull()) pos = obj["position"];
+    if(!obj["tiltPosition"].isNull()) tiltPos = obj["tiltPosition"];
   }
   if(shadeId != 255) {
     SomfyShade *shade = somfy.getShadeById(shadeId);
@@ -748,17 +748,17 @@ void Web::handleSetSensor(AsyncWebServerRequest *request, JsonVariant &json) {
   int8_t repeat = asyncHasParam(request, "repeat") ? asyncParam(request, "repeat").toInt() : -1;
   if(!json.isNull()) {
     JsonObject obj = json.as<JsonObject>();
-    if(obj.containsKey("shadeId")) shadeId = obj["shadeId"].as<uint8_t>();
-    if(obj.containsKey("groupId")) groupId = obj["groupId"].as<uint8_t>();
-    if(obj.containsKey("sunny")) {
+    if(!obj["shadeId"].isNull()) shadeId = obj["shadeId"].as<uint8_t>();
+    if(!obj["groupId"].isNull()) groupId = obj["groupId"].as<uint8_t>();
+    if(!obj["sunny"].isNull()) {
       if(obj["sunny"].is<bool>()) sunny = obj["sunny"].as<bool>() ? 1 : 0;
       else sunny = obj["sunny"].as<int8_t>();
     }
-    if(obj.containsKey("windy")) {
+    if(!obj["windy"].isNull()) {
       if(obj["windy"].is<bool>()) windy = obj["windy"].as<bool>() ? 1 : 0;
       else windy = obj["windy"].as<int8_t>();
     }
-    if(obj.containsKey("repeat")) repeat = obj["repeat"].as<uint8_t>();
+    if(!obj["repeat"].isNull()) repeat = obj["repeat"].as<uint8_t>();
   }
   if(shadeId != 255) {
     SomfyShade *shade = somfy.getShadeById(shadeId);
@@ -1214,7 +1214,7 @@ void Web::begin() {
       if(json.isNull()) { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No room object supplied.\"}")); return; }
       ESP_LOGD(TAG, "Updating a room");
       JsonObject obj = json.as<JsonObject>();
-      if(obj.containsKey("roomId")) {
+      if(!obj["roomId"].isNull()) {
         SomfyRoom* room = somfy.getRoomById(obj["roomId"]);
         if(room) {
           room->fromJSON(obj);
@@ -1236,7 +1236,7 @@ void Web::begin() {
       if(json.isNull()) { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No shade object supplied.\"}")); return; }
       ESP_LOGD(TAG, "Updating a shade");
       JsonObject obj = json.as<JsonObject>();
-      if(obj.containsKey("shadeId")) {
+      if(!obj["shadeId"].isNull()) {
         SomfyShade* shade = somfy.getShadeById(obj["shadeId"]);
         if(shade) {
           int8_t err = shade->fromJSON(obj);
@@ -1264,7 +1264,7 @@ void Web::begin() {
       if(json.isNull()) { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No group object supplied.\"}")); return; }
       ESP_LOGD(TAG, "Updating a group");
       JsonObject obj = json.as<JsonObject>();
-      if(obj.containsKey("groupId")) {
+      if(!obj["groupId"].isNull()) {
         SomfyGroup* group = somfy.getGroupById(obj["groupId"]);
         if(group) {
           group->fromJSON(obj);
@@ -1289,10 +1289,10 @@ void Web::begin() {
       int8_t tilt = -1;
       if(!json.isNull()) {
         JsonObject obj = json.as<JsonObject>();
-        if(obj.containsKey("shadeId")) shadeId = obj["shadeId"];
+        if(!obj["shadeId"].isNull()) shadeId = obj["shadeId"];
         else { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No shade id was supplied.\"}")); return; }
-        if(obj.containsKey("pos")) pos = obj["pos"].as<int8_t>();
-        if(obj.containsKey("tilt")) tilt = obj["tilt"].as<int8_t>();
+        if(!obj["pos"].isNull()) pos = obj["pos"].as<int8_t>();
+        if(!obj["tilt"].isNull()) tilt = obj["tilt"].as<int8_t>();
       }
       SomfyShade* shade = somfy.getShadeById(shadeId);
       if(shade) {
@@ -1346,8 +1346,8 @@ void Web::begin() {
       uint16_t rollingCode = 0;
       if(!json.isNull()) {
         JsonObject obj = json.as<JsonObject>();
-        if(obj.containsKey("shadeId")) shadeId = obj["shadeId"];
-        if(obj.containsKey("rollingCode")) rollingCode = obj["rollingCode"];
+        if(!obj["shadeId"].isNull()) shadeId = obj["shadeId"];
+        if(!obj["rollingCode"].isNull()) rollingCode = obj["rollingCode"];
       }
       SomfyShade* shade = nullptr;
       if(shadeId != 255) shade = somfy.getShadeById(shadeId);
@@ -1394,8 +1394,8 @@ void Web::begin() {
       bool paired = false;
       if(!json.isNull()) {
         JsonObject obj = json.as<JsonObject>();
-        if(obj.containsKey("shadeId")) shadeId = obj["shadeId"];
-        if(obj.containsKey("paired")) paired = obj["paired"];
+        if(!obj["shadeId"].isNull()) shadeId = obj["shadeId"];
+        if(!obj["paired"].isNull()) paired = obj["paired"];
       }
       SomfyShade* shade = nullptr;
       if(shadeId != 255) shade = somfy.getShadeById(shadeId);
@@ -1443,7 +1443,7 @@ void Web::begin() {
       uint8_t shadeId = 255;
       if(!json.isNull()) {
         JsonObject obj = json.as<JsonObject>();
-        if(obj.containsKey("shadeId")) shadeId = obj["shadeId"];
+        if(!obj["shadeId"].isNull()) shadeId = obj["shadeId"];
       }
       SomfyShade* shade = nullptr;
       if(shadeId != 255) shade = somfy.getShadeById(shadeId);
@@ -1497,8 +1497,8 @@ void Web::begin() {
       if(!json.isNull()) {
         ESP_LOGD(TAG, "Linking a repeater");
         JsonObject obj = json.as<JsonObject>();
-        if(obj.containsKey("address")) address = obj["address"];
-        else if(obj.containsKey("remoteAddress")) address = obj["remoteAddress"];
+        if(!obj["address"].isNull()) address = obj["address"];
+        else if(!obj["remoteAddress"].isNull()) address = obj["remoteAddress"];
       }
       if(address == 0) {
         request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No repeater address was supplied.\"}"));
@@ -1538,8 +1538,8 @@ void Web::begin() {
       if(!json.isNull()) {
         ESP_LOGD(TAG, "Unlinking a repeater");
         JsonObject obj = json.as<JsonObject>();
-        if(obj.containsKey("address")) address = obj["address"];
-        else if(obj.containsKey("remoteAddress")) address = obj["remoteAddress"];
+        if(!obj["address"].isNull()) address = obj["address"];
+        else if(!obj["remoteAddress"].isNull()) address = obj["remoteAddress"];
       }
       if(address == 0) {
         request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No repeater address was supplied.\"}"));
@@ -1577,10 +1577,10 @@ void Web::begin() {
     [](AsyncWebServerRequest *request, JsonVariant &json) {
       if(json.isNull()) { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No remote object supplied.\"}")); return; }
       JsonObject obj = json.as<JsonObject>();
-      if(obj.containsKey("shadeId")) {
+      if(!obj["shadeId"].isNull()) {
         SomfyShade* shade = somfy.getShadeById(obj["shadeId"]);
         if(shade) {
-          if(obj.containsKey("remoteAddress")) {
+          if(!obj["remoteAddress"].isNull()) {
             shade->unlinkRemote(obj["remoteAddress"]);
           }
           else {
@@ -1604,11 +1604,11 @@ void Web::begin() {
       if(json.isNull()) { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No remote object supplied.\"}")); return; }
       ESP_LOGD(TAG, "Linking a remote");
       JsonObject obj = json.as<JsonObject>();
-      if(obj.containsKey("shadeId")) {
+      if(!obj["shadeId"].isNull()) {
         SomfyShade* shade = somfy.getShadeById(obj["shadeId"]);
         if(shade) {
-          if(obj.containsKey("remoteAddress")) {
-            if(obj.containsKey("rollingCode")) shade->linkRemote(obj["remoteAddress"], obj["rollingCode"]);
+          if(!obj["remoteAddress"].isNull()) {
+            if(!obj["rollingCode"].isNull()) shade->linkRemote(obj["remoteAddress"], obj["rollingCode"]);
             else shade->linkRemote(obj["remoteAddress"]);
           }
           else {
@@ -1632,8 +1632,8 @@ void Web::begin() {
       if(json.isNull()) { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No linking object supplied.\"}")); return; }
       ESP_LOGD(TAG, "Linking a shade to a group");
       JsonObject obj = json.as<JsonObject>();
-      uint8_t shadeId = obj.containsKey("shadeId") ? obj["shadeId"] : 0;
-      uint8_t groupId = obj.containsKey("groupId") ? obj["groupId"] : 0;
+      uint8_t shadeId = !obj["shadeId"].isNull() ? obj["shadeId"] : 0;
+      uint8_t groupId = !obj["groupId"].isNull() ? obj["groupId"] : 0;
       if(groupId == 0) {
         request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Group id not provided.\"}"));
         return;
@@ -1667,8 +1667,8 @@ void Web::begin() {
       if(json.isNull()) { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No unlinking object supplied.\"}")); return; }
       ESP_LOGD(TAG, "Unlinking a shade from a group");
       JsonObject obj = json.as<JsonObject>();
-      uint8_t shadeId = obj.containsKey("shadeId") ? obj["shadeId"] : 0;
-      uint8_t groupId = obj.containsKey("groupId") ? obj["groupId"] : 0;
+      uint8_t shadeId = !obj["shadeId"].isNull() ? obj["shadeId"] : 0;
+      uint8_t groupId = !obj["groupId"].isNull() ? obj["groupId"] : 0;
       if(groupId == 0) {
         request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Group id not provided.\"}"));
         return;
@@ -1703,7 +1703,7 @@ void Web::begin() {
       if(!json.isNull()) {
         ESP_LOGD(TAG, "Deleting a Room");
         JsonObject obj = json.as<JsonObject>();
-        if(obj.containsKey("roomId")) roomId = obj["roomId"];
+        if(!obj["roomId"].isNull()) roomId = obj["roomId"];
         else { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No room id was supplied.\"}")); return; }
       }
       SomfyRoom* room = somfy.getRoomById(roomId);
@@ -1734,7 +1734,7 @@ void Web::begin() {
       if(!json.isNull()) {
         ESP_LOGD(TAG, "Deleting a shade");
         JsonObject obj = json.as<JsonObject>();
-        if(obj.containsKey("shadeId")) shadeId = obj["shadeId"];
+        if(!obj["shadeId"].isNull()) shadeId = obj["shadeId"];
         else { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No shade id was supplied.\"}")); return; }
       }
       SomfyShade* shade = somfy.getShadeById(shadeId);
@@ -1771,7 +1771,7 @@ void Web::begin() {
       if(!json.isNull()) {
         ESP_LOGD(TAG, "Deleting a group");
         JsonObject obj = json.as<JsonObject>();
-        if(obj.containsKey("groupId")) groupId = obj["groupId"];
+        if(!obj["groupId"].isNull()) groupId = obj["groupId"];
         else { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No group id was supplied.\"}")); return; }
       }
       SomfyGroup *group = somfy.getGroupById(groupId);
@@ -2000,11 +2000,11 @@ void Web::begin() {
       if(!json.isNull()) {
         JsonObject obj = json.as<JsonObject>();
         String scmd;
-        if(obj.containsKey("address")) frame.remoteAddress = obj["address"];
-        if(obj.containsKey("command")) scmd = obj["command"].as<String>();
-        if(obj.containsKey("repeats")) repeats = obj["repeats"];
-        if(obj.containsKey("rcode")) frame.rollingCode = obj["rcode"];
-        if(obj.containsKey("encKey")) frame.encKey = obj["encKey"];
+        if(!obj["address"].isNull()) frame.remoteAddress = obj["address"];
+        if(!obj["command"].isNull()) scmd = obj["command"].as<String>();
+        if(!obj["repeats"].isNull()) repeats = obj["repeats"];
+        if(!obj["rcode"].isNull()) frame.rollingCode = obj["rcode"];
+        if(!obj["encKey"].isNull()) frame.encKey = obj["encKey"];
         frame.cmd = translateSomfyCommand(scmd.c_str());
       }
       if(frame.remoteAddress > 0 && frame.rollingCode > 0) {
@@ -2040,14 +2040,14 @@ void Web::begin() {
         return;
       }
       JsonObject obj = json.as<JsonObject>();
-      if(obj.containsKey("hostname") || obj.containsKey("ssdpBroadcast") || obj.containsKey("checkForUpdate")) {
+      if(!obj["hostname"].isNull() || !obj["ssdpBroadcast"].isNull() || !obj["checkForUpdate"].isNull()) {
         bool checkForUpdate = settings.checkForUpdate;
         settings.fromJSON(obj);
         settings.save();
         if(settings.checkForUpdate != checkForUpdate) git.emitUpdateCheck();
-        if(obj.containsKey("hostname")) net.updateHostname();
+        if(!obj["hostname"].isNull()) net.updateHostname();
       }
-      if(obj.containsKey("ntpServer") || obj.containsKey("ntpServer")) {
+      if(!obj["ntpServer"].isNull() || !obj["ntpServer"].isNull()) {
         settings.NTP.fromJSON(obj);
         settings.NTP.save();
       }
@@ -2063,25 +2063,25 @@ void Web::begin() {
       }
       JsonObject obj = json.as<JsonObject>();
       bool reboot = false;
-      if(obj.containsKey("connType") && obj["connType"].as<uint8_t>() != static_cast<uint8_t>(settings.connType)) {
+      if(!obj["connType"].isNull() && obj["connType"].as<uint8_t>() != static_cast<uint8_t>(settings.connType)) {
         settings.connType = static_cast<conn_types_t>(obj["connType"].as<uint8_t>());
         settings.save();
         reboot = true;
       }
-      if(obj.containsKey("wifi")) {
+      if(!obj["wifi"].isNull()) {
         JsonObject objWifi = obj["wifi"];
         if(settings.connType == conn_types_t::wifi) {
-          if(objWifi.containsKey("ssid") && objWifi["ssid"].as<String>().compareTo(settings.WIFI.ssid) != 0) {
+          if(!objWifi["ssid"].isNull() && objWifi["ssid"].as<String>().compareTo(settings.WIFI.ssid) != 0) {
             if(WiFi.softAPgetStationNum() == 0) reboot = true;
           }
-          if(objWifi.containsKey("passphrase") && objWifi["passphrase"].as<String>().compareTo(settings.WIFI.passphrase) != 0) {
+          if(!objWifi["passphrase"].isNull() && objWifi["passphrase"].as<String>().compareTo(settings.WIFI.passphrase) != 0) {
             if(WiFi.softAPgetStationNum() == 0) reboot = true;
           }
         }
         settings.WIFI.fromJSON(objWifi);
         settings.WIFI.save();
       }
-      if(obj.containsKey("ethernet")) {
+      if(!obj["ethernet"].isNull()) {
         JsonObject objEth = obj["ethernet"];
         if(settings.connType == conn_types_t::ethernet || settings.connType == conn_types_t::ethernetpref)
           reboot = true;
@@ -2121,8 +2121,8 @@ void Web::begin() {
       ESP_LOGD(TAG, "Settings WIFI connection...");
       String ssid = "";
       String passphrase = "";
-      if(obj.containsKey("ssid")) ssid = obj["ssid"].as<String>();
-      if(obj.containsKey("passphrase")) passphrase = obj["passphrase"].as<String>();
+      if(!obj["ssid"].isNull()) ssid = obj["ssid"].as<String>();
+      if(!obj["passphrase"].isNull()) passphrase = obj["passphrase"].as<String>();
       bool reboot = false;
       if(ssid.compareTo(settings.WIFI.ssid) != 0) reboot = true;
       if(passphrase.compareTo(settings.WIFI.passphrase) != 0) reboot = true;

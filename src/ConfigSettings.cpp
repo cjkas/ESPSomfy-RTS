@@ -13,12 +13,12 @@ static const char *TAG = "Config";
 Preferences pref;
 
 void restore_options_t::fromJSON(JsonObject &obj) {
-  if(obj.containsKey("shades")) this->shades = obj["shades"];
-  if(obj.containsKey("settings")) this->settings = obj["settings"];
-  if(obj.containsKey("network")) this->network = obj["network"];
-  if(obj.containsKey("transceiver")) this->transceiver = obj["transceiver"];
-  if(obj.containsKey("repeaters")) this->repeaters = obj["repeaters"];
-  if(obj.containsKey("mqtt")) this->mqtt = obj["mqtt"];
+  if(!obj["shades"].isNull()) this->shades = obj["shades"];
+  if(!obj["settings"].isNull()) this->settings = obj["settings"];
+  if(!obj["network"].isNull()) this->network = obj["network"];
+  if(!obj["transceiver"].isNull()) this->transceiver = obj["transceiver"];
+  if(!obj["repeaters"].isNull()) this->repeaters = obj["repeaters"];
+  if(!obj["mqtt"].isNull()) this->mqtt = obj["mqtt"];
 }
 int8_t appver_t::compare(appver_t &ver) {
   if(this->major == ver.major && this->minor == ver.minor && this->build == ver.build) return 0;
@@ -125,11 +125,11 @@ bool BaseSettings::saveFile(const char *filename) {
   return true;
 }
 bool BaseSettings::parseValueString(JsonObject &obj, const char *prop, char *pdest, size_t size) {
-  if(obj.containsKey(prop)) strlcpy(pdest, obj[prop], size);
+  if(!obj[prop].isNull()) strlcpy(pdest, obj[prop], size);
   return true;
 }
 bool BaseSettings::parseIPAddress(JsonObject &obj, const char *prop, IPAddress *pdest) {
-  if(obj.containsKey(prop)) {
+  if(!obj[prop].isNull()) {
     char buff[16];
     strlcpy(buff, obj[prop], sizeof(buff));
     pdest->fromString(buff);
@@ -137,11 +137,11 @@ bool BaseSettings::parseIPAddress(JsonObject &obj, const char *prop, IPAddress *
   return true;
 }
 int BaseSettings::parseValueInt(JsonObject &obj, const char *prop, int defVal) {
-  if(obj.containsKey(prop)) return obj[prop]; 
+  if(!obj[prop].isNull()) return obj[prop];
   return defVal;
 }
 double BaseSettings::parseValueDouble(JsonObject &obj, const char *prop, double defVal) {
-  if(obj.containsKey(prop)) return obj[prop];
+  if(!obj[prop].isNull()) return obj[prop];
   return defVal;
 }
 bool ConfigSettings::begin() {
@@ -247,10 +247,10 @@ bool ConfigSettings::toJSON(JsonObject &obj) {
 }
 bool ConfigSettings::requiresAuth() { return this->Security.type != security_types::None; }
 bool ConfigSettings::fromJSON(JsonObject &obj) {
-    if(obj.containsKey("ssdpBroadcast")) this->ssdpBroadcast = obj["ssdpBroadcast"];
-    if(obj.containsKey("hostname")) this->parseValueString(obj, "hostname", this->hostname, sizeof(this->hostname));
-    if(obj.containsKey("connType")) this->connType = static_cast<conn_types_t>(obj["connType"].as<uint8_t>());
-    if(obj.containsKey("checkForUpdate")) this->checkForUpdate = obj["checkForUpdate"];
+    if(!obj["ssdpBroadcast"].isNull()) this->ssdpBroadcast = obj["ssdpBroadcast"];
+    if(!obj["hostname"].isNull()) this->parseValueString(obj, "hostname", this->hostname, sizeof(this->hostname));
+    if(!obj["connType"].isNull()) this->connType = static_cast<conn_types_t>(obj["connType"].as<uint8_t>());
+    if(!obj["checkForUpdate"].isNull()) this->checkForUpdate = obj["checkForUpdate"];
     return true;
 }
 void ConfigSettings::print() {
@@ -309,15 +309,15 @@ bool MQTTSettings::toJSON(JsonObject &obj) {
   return true;
 }
 bool MQTTSettings::fromJSON(JsonObject &obj) {
-  if(obj.containsKey("enabled")) this->enabled = obj["enabled"];
-  if(obj.containsKey("pubDisco")) this->pubDisco = obj["pubDisco"];
+  if(!obj["enabled"].isNull()) this->enabled = obj["enabled"];
+  if(!obj["pubDisco"].isNull()) this->pubDisco = obj["pubDisco"];
   this->parseValueString(obj, "protocol", this->protocol, sizeof(this->protocol));
   this->parseValueString(obj, "hostname", this->hostname, sizeof(this->hostname));
   this->parseValueString(obj, "username", this->username, sizeof(this->username));
   this->parseValueString(obj, "password", this->password, sizeof(this->password));
   this->parseValueString(obj, "rootTopic", this->rootTopic, sizeof(this->rootTopic));
   this->parseValueString(obj, "discoTopic", this->discoTopic, sizeof(this->discoTopic));
-  if(obj.containsKey("port")) this->port = obj["port"];
+  if(!obj["port"].isNull()) this->port = obj["port"];
   return true;
 }
 bool MQTTSettings::save() {
@@ -409,7 +409,7 @@ bool IPSettings::begin() {
   return true;
 }
 bool IPSettings::fromJSON(JsonObject &obj) {
-  if(obj.containsKey("dhcp")) this->dhcp = obj["dhcp"];
+  if(!obj["dhcp"].isNull()) this->dhcp = obj["dhcp"];
   this->parseIPAddress(obj, "ip", &this->ip);
   this->parseIPAddress(obj, "gateway", &this->gateway);
   this->parseIPAddress(obj, "subnet", &this->subnet);
@@ -472,11 +472,11 @@ bool SecuritySettings::begin() {
   return true;
 }
 bool SecuritySettings::fromJSON(JsonObject &obj) {
-  if(obj.containsKey("type")) this->type = static_cast<security_types>(obj["type"].as<uint8_t>());
+  if(!obj["type"].isNull()) this->type = static_cast<security_types>(obj["type"].as<uint8_t>());
   this->parseValueString(obj, "username", this->username, sizeof(this->username));
   this->parseValueString(obj, "password", this->password, sizeof(this->password));
   this->parseValueString(obj, "pin", this->pin, sizeof(this->pin));
-  if(obj.containsKey("permissions")) this->permissions = obj["permissions"];
+  if(!obj["permissions"].isNull()) this->permissions = obj["permissions"];
   return true;
 }
 bool SecuritySettings::toJSON(JsonObject &obj) {
@@ -521,8 +521,8 @@ bool WifiSettings::begin() {
 bool WifiSettings::fromJSON(JsonObject &obj) {
   this->parseValueString(obj, "ssid", this->ssid, sizeof(this->ssid));
   this->parseValueString(obj, "passphrase", this->passphrase, sizeof(this->passphrase));
-  if(obj.containsKey("roaming")) this->roaming = obj["roaming"];
-  if(obj.containsKey("hidden")) this->hidden = obj["hidden"];
+  if(!obj["roaming"].isNull()) this->roaming = obj["roaming"];
+  if(!obj["hidden"].isNull()) this->hidden = obj["hidden"];
   return true;
 }
 bool WifiSettings::toJSON(JsonObject &obj) {
@@ -596,13 +596,13 @@ bool EthernetSettings::begin() {
   return true;
 }
 bool EthernetSettings::fromJSON(JsonObject &obj) {
-  if(obj.containsKey("boardType")) this->boardType = obj["boardType"];
-  if(obj.containsKey("phyAddress")) this->phyAddress = obj["phyAddress"];
-  if(obj.containsKey("CLKMode")) this->CLKMode = static_cast<eth_clock_mode_t>(obj["CLKMode"]);
-  if(obj.containsKey("phyType")) this->phyType = static_cast<eth_phy_type_t>(obj["phyType"]);
-  if(obj.containsKey("PWRPin")) this->PWRPin = obj["PWRPin"];
-  if(obj.containsKey("MDCPin")) this->MDCPin = obj["MDCPin"];
-  if(obj.containsKey("MDIOPin")) this->MDIOPin = obj["MDIOPin"];
+  if(!obj["boardType"].isNull()) this->boardType = obj["boardType"];
+  if(!obj["phyAddress"].isNull()) this->phyAddress = obj["phyAddress"];
+  if(!obj["CLKMode"].isNull()) this->CLKMode = static_cast<eth_clock_mode_t>(obj["CLKMode"]);
+  if(!obj["phyType"].isNull()) this->phyType = static_cast<eth_phy_type_t>(obj["phyType"]);
+  if(!obj["PWRPin"].isNull()) this->PWRPin = obj["PWRPin"];
+  if(!obj["MDCPin"].isNull()) this->MDCPin = obj["MDCPin"];
+  if(!obj["MDIOPin"].isNull()) this->MDIOPin = obj["MDIOPin"];
   return true;
 }
 bool EthernetSettings::toJSON(JsonObject &obj) {
