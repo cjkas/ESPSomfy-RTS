@@ -13,13 +13,36 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # fwname: firmware-only binary for OTA updates
+        # obname: onboard image (bootloader + partitions + firmware + littlefs merged)
+        #         for flashing a new chip via USB/serial
+        # addr_bootloader: chip-dependent (ESP32: 0x1000, C3/S3: 0x0)
+        # addr_fs: must match spiffs/littlefs offset in huge_app.csv
         include:
           - env: esp32dev
             name: ESP32
             chip: ESP32
             addr_bootloader: "0x1000"
+            addr_fs: "0x310000"
             fwname: SomfyController.esp32.bin
+            fsname: SomfyController.littlefs.esp32.bin
             obname: SomfyController.onboard.esp32.bin
+          - env: esp32c3
+            name: ESP32-C3
+            chip: ESP32-C3
+            addr_bootloader: "0x0"
+            addr_fs: "0x310000"
+            fwname: SomfyController.esp32c3.bin
+            fsname: SomfyController.littlefs.esp32c3.bin
+            obname: SomfyController.onboard.esp32c3.bin
+          - env: esp32s3
+            name: ESP32-S3
+            chip: ESP32-S3
+            addr_bootloader: "0x0"
+            addr_fs: "0x310000"
+            fwname: SomfyController.esp32s3.bin
+            fsname: SomfyController.littlefs.esp32s3.bin
+            obname: SomfyController.onboard.esp32s3.bin
 
     steps:
       - name: Get Release
@@ -52,7 +75,7 @@ jobs:
             ${{ matrix.addr_bootloader }} .pio/build/${{ matrix.env }}/bootloader.bin \
             0x8000 .pio/build/${{ matrix.env }}/partitions.bin \
             0x10000 .pio/build/${{ matrix.env }}/firmware.bin \
-            0x310000 .pio/build/${{ matrix.env }}/littlefs.bin
+            ${{ matrix.addr_fs }} .pio/build/${{ matrix.env }}/littlefs.bin
 
       - name: Compress onboard image
         run: zip ${{ matrix.obname }}.zip ${{ matrix.obname }}
@@ -62,7 +85,7 @@ jobs:
         with:
           github_token: ${{ github.token }}
           upload_url: ${{ steps.get_release.outputs.upload_url }}
-          asset_name: SomfyController.littlefs.bin
+          asset_name: ${{ matrix.fsname }}
           asset_path: .pio/build/${{ matrix.env }}/littlefs.bin
           overwrite: true
 
