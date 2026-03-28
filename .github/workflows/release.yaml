@@ -54,6 +54,15 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v4
 
+      - name: Update version from release tag
+        run: |
+          VERSION="${{ github.event.release.tag_name }}"
+          VERSION="${VERSION#v}"
+          sed -i "s/#define FW_VERSION \"v[0-9.]*\"/#define FW_VERSION \"v${VERSION}\"/" src/ConfigSettings.h
+          sed -i "s/^[0-9.].*/${VERSION}/" data-src/appversion
+          sed -i "s/\?v=[0-9.]*c/?v=${VERSION}c/g" data-src/index.html
+          sed -i "s/appVersion = 'v[0-9.]*'/appVersion = 'v${VERSION}'/" data-src/index.js
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
