@@ -24,7 +24,7 @@ jobs:
             chip: ESP32
             addr_bootloader: "0x1000"
             addr_fs: "0x310000"
-            fwname: SomfyController.esp32.bin
+            fwname: SomfyController.ino.esp32.bin
             fsname: SomfyController.littlefs.esp32.bin
             obname: SomfyController.onboard.esp32.bin
           - env: esp32c3
@@ -32,7 +32,7 @@ jobs:
             chip: ESP32-C3
             addr_bootloader: "0x0"
             addr_fs: "0x310000"
-            fwname: SomfyController.esp32c3.bin
+            fwname: SomfyController.ino.esp32c3.bin
             fsname: SomfyController.littlefs.esp32c3.bin
             obname: SomfyController.onboard.esp32c3.bin
           - env: esp32s3
@@ -40,7 +40,7 @@ jobs:
             chip: ESP32-S3
             addr_bootloader: "0x0"
             addr_fs: "0x310000"
-            fwname: SomfyController.esp32s3.bin
+            fwname: SomfyController.ino.esp32s3.bin
             fsname: SomfyController.littlefs.esp32s3.bin
             obname: SomfyController.onboard.esp32s3.bin
 
