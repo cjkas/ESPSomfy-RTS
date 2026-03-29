@@ -17,7 +17,7 @@ jobs:
         # obname: onboard image (bootloader + partitions + firmware + littlefs merged)
         #         for flashing a new chip via USB/serial
         # addr_bootloader: chip-dependent (ESP32: 0x1000, C3/S3: 0x0)
-        # addr_fs: must match spiffs/littlefs offset in huge_app.csv
+        # addr_fs: must match spiffs/littlefs offset in esp32_3MB.csv
         include:
           - env: esp32dev
             name: ESP32
@@ -39,7 +39,7 @@ jobs:
             name: ESP32-S3
             chip: ESP32-S3
             addr_bootloader: "0x0"
-            addr_fs: "0x310000"
+            addr_fs: "0x670000"
             fwname: SomfyController.ino.esp32s3.bin
             fsname: SomfyController.littlefs.esp32s3.bin
             obname: SomfyController.onboard.esp32s3.bin
