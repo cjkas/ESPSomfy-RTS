@@ -13,7 +13,7 @@
 #include "Web.h"
 #include "MQTT.h"
 #include "GitOTA.h"
-#include "Network.h"
+#include "ESPNetwork.h"
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 #include <AsyncJson.h>
@@ -25,7 +25,7 @@ extern SomfyShadeController somfy;
 extern Web webServer;
 extern MQTTClass mqtt;
 extern GitUpdater git;
-extern Network net;
+extern ESPNetwork net;
 
 //#define WEB_MAX_RESPONSE 34768
 #define WEB_MAX_RESPONSE 4096
@@ -2222,8 +2222,10 @@ void Web::begin() {
         JsonObject objEth = obj["ethernet"];
         if(settings.connType == conn_types_t::ethernet || settings.connType == conn_types_t::ethernetpref)
           reboot = true;
+#ifndef CONFIG_IDF_TARGET_ESP32C6
         settings.Ethernet.fromJSON(objEth);
         settings.Ethernet.save();
+#endif
       }
       if(reboot) {
         ESP_LOGI(TAG, "Rebooting ESP for new Network settings...");
@@ -2304,7 +2306,9 @@ void Web::begin() {
     settings.toJSON(obj);
     obj["fwVersion"] = settings.fwVersion.name;
     JsonObject eth = obj.createNestedObject("ethernet");
+#ifndef CONFIG_IDF_TARGET_ESP32C6
     settings.Ethernet.toJSON(eth);
+#endif
     JsonObject wifi = obj.createNestedObject("wifi");
     settings.WIFI.toJSON(wifi);
     JsonObject ip = obj.createNestedObject("ip");

@@ -1,13 +1,14 @@
 #include <Arduino.h>
+#include <WiFi.h>
 
-#ifndef Network_h
-#define Network_h
+#ifndef ESPNetwork_h
+#define ESPNetwork_h
 
 //enum class conn_types_t : byte;
 
 #define CONNECT_TIMEOUT 20000
 #define SSID_SCAN_INTERVAL 60000
-class Network {
+class ESPNetwork {
   protected:
     unsigned long lastEmit = 0;
     unsigned long lastMDNS = 0;

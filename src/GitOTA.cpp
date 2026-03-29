@@ -3,6 +3,7 @@
 #include <Update.h>
 #include <HTTPClient.h>
 #include <esp_task_wdt.h>
+#include <esp_chip_info.h>
 #include "esp_log.h"
 #include "ConfigSettings.h"
 #include "GitOTA.h"
@@ -11,7 +12,7 @@
 #include "Somfy.h"
 #include "Web.h"
 #include "WResp.h"
-#include "Network.h"
+#include "ESPNetwork.h"
 
 
 
@@ -21,7 +22,7 @@ extern SocketEmitter sockEmit;
 extern SomfyShadeController somfy;
 extern rebootDelay_t rebootDelay;
 extern Web webServer;
-extern Network net;
+extern ESPNetwork net;
 
 static const char *TAG = "OTA";
 

@@ -2,6 +2,7 @@
 #include <ELECHOUSE_CC1101_SRC_DRV.h>
 #include <SPI.h>
 #include <esp_task_wdt.h>
+#include <esp_chip_info.h>
 #include "esp_log.h"
 #include "Utils.h"
 #include "ConfigSettings.h"
@@ -3159,12 +3160,14 @@ int8_t SomfyShade::validateJSON(JsonObject &obj) {
           (myPin != 255 && somfy.transceiver.usesPin(myPin)))
           ret = -10;
       }
+#ifndef CONFIG_IDF_TARGET_ESP32C6
       if(settings.connType == conn_types_t::ethernet || settings.connType == conn_types_t::ethernetpref) {
         if((upPin != 255 && settings.Ethernet.usesPin(upPin)) ||
           (downPin != 255 && somfy.transceiver.usesPin(downPin)) ||
           (myPin != 255 && somfy.transceiver.usesPin(myPin)))
           ret = -11;
       }
+#endif
       if(ret == 0) {
         for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
           SomfyShade *shade = &somfy.shades[i];
@@ -4688,6 +4691,16 @@ void transceiver_config_t::load() {
         this->SCKPin = 15;
         this->CSNPin = 14;
         break;
+#ifdef CHIP_ESP32C6
+      case esp_chip_model_t::CHIP_ESP32C6:
+        this->TXPin = 13;
+        this->RXPin = 12;
+        this->MOSIPin = 16;
+        this->MISOPin = 17;
+        this->SCKPin = 15;
+        this->CSNPin = 14;
+        break;
+#endif
       default:
         this->TXPin = 13;
         this->RXPin = 12;

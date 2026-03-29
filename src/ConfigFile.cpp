@@ -616,7 +616,9 @@ bool ShadeConfigFile::restoreFile(SomfyShadeController *s, const char *filename,
   if(opts.network) {
     settings.IP.save();
     settings.WIFI.save();
+#ifndef CONFIG_IDF_TARGET_ESP32C6
     settings.Ethernet.save();
+#endif
   }
   if(opts.mqtt) settings.MQTT.save();
   return true;
@@ -672,6 +674,7 @@ bool ShadeConfigFile::readNetRecord(restore_options_t &opts) {
     if(opts.network) {
       if(strncmp(settings.serverId, this->header.serverId, sizeof(settings.serverId)) == 0) {
         ESP_LOGI(TAG, "Restoring Ethernet adapter settings");
+#ifndef CONFIG_IDF_TARGET_ESP32C6
         settings.Ethernet.boardType = this->readUInt8(1);
         settings.Ethernet.phyType = static_cast<eth_phy_type_t>(this->readUInt8(0));
         settings.Ethernet.CLKMode = static_cast<eth_clock_mode_t>(this->readUInt8(0));
@@ -679,6 +682,7 @@ bool ShadeConfigFile::readNetRecord(restore_options_t &opts) {
         settings.Ethernet.PWRPin = this->readInt8(1);
         settings.Ethernet.MDCPin = this->readInt8(16);
         settings.Ethernet.MDIOPin = this->readInt8(23);
+#endif
       }
     }
     if(this->file.position() != startPos + this->header.netRecordSize) {
@@ -1035,6 +1039,7 @@ bool ShadeConfigFile::writeNetRecord() {
   this->writeBool(settings.MQTT.pubDisco);
   this->writeVarString(settings.MQTT.rootTopic);
   this->writeVarString(settings.MQTT.discoTopic);
+#ifndef CONFIG_IDF_TARGET_ESP32C6
   this->writeUInt8(settings.Ethernet.boardType);
   this->writeUInt8(static_cast<uint8_t>(settings.Ethernet.phyType));
   this->writeUInt8(static_cast<uint8_t>(settings.Ethernet.CLKMode));
@@ -1042,6 +1047,9 @@ bool ShadeConfigFile::writeNetRecord() {
   this->writeInt8(settings.Ethernet.PWRPin);
   this->writeInt8(settings.Ethernet.MDCPin);
   this->writeInt8(settings.Ethernet.MDIOPin, CFG_REC_END);
+#else
+  this->writeUInt8(0, CFG_REC_END);
+#endif
   return true;
 }
 bool ShadeConfigFile::writeTransRecord(transceiver_config_t &cfg) {

@@ -155,21 +155,14 @@ bool ConfigSettings::begin() {
     case esp_chip_model_t::CHIP_ESP32S3:
       strcpy(this->chipModel, "s3");
       break;
-    case esp_chip_model_t::CHIP_ESP32S2:
-      strcpy(this->chipModel, "s2");
-      break;
     case esp_chip_model_t::CHIP_ESP32C3:
       strcpy(this->chipModel, "c3");
       break;
-//    case esp_chip_model_t::CHIP_ESP32C2:
-//      strcpy(this->chipModel, "c2");
-//      break;
-//    case esp_chip_model_t::CHIP_ESP32C6:
-//      strcpy(this->chipModel, "c6");
-//      break;
-    case esp_chip_model_t::CHIP_ESP32H2:
-      strcpy(this->chipModel, "h2");
+#ifdef CHIP_ESP32C6
+    case esp_chip_model_t::CHIP_ESP32C6:
+      strcpy(this->chipModel, "c6");
       break;
+#endif
     default:
       sprintf(this->chipModel, "UNK%d", static_cast<int>(ci.model));
       break;
@@ -188,7 +181,9 @@ bool ConfigSettings::begin() {
   this->Security.begin();
   this->IP.begin();
   this->WIFI.begin();
+#ifndef CONFIG_IDF_TARGET_ESP32C6
   this->Ethernet.begin();
+#endif
   this->NTP.begin();
   this->MQTT.begin();
   this->print();
@@ -258,7 +253,9 @@ void ConfigSettings::print() {
   ESP_LOGD(TAG, "Connection Type: %u", (unsigned int) this->connType);
   this->NTP.print();
   if(this->connType == conn_types_t::wifi || this->connType == conn_types_t::unset) this->WIFI.print();
+#ifndef CONFIG_IDF_TARGET_ESP32C6
   if(this->connType == conn_types_t::ethernet || this->connType == conn_types_t::ethernetpref) this->Ethernet.print();
+#endif
 }
 void ConfigSettings::emitSockets() {}
 void ConfigSettings::emitSockets(uint8_t num) {}
@@ -590,6 +587,7 @@ bool WifiSettings::ssidExists(const char *ssid) {
   }
   return false;
 }
+#ifndef CONFIG_IDF_TARGET_ESP32C6
 EthernetSettings::EthernetSettings() {}
 bool EthernetSettings::begin() {
   this->load();
@@ -653,6 +651,7 @@ void EthernetSettings::print() {
   ESP_LOGD(TAG, "Ethernet Settings Board:%d PHYType:%d CLK:%d ADDR:%d PWR:%d MDC:%d MDIO:%d",
     this->boardType, this->phyType, this->CLKMode, this->phyAddress, this->PWRPin, this->MDCPin, this->MDIOPin);
 }
+#endif // CONFIG_IDF_TARGET_ESP32C6
 void ConfigSettings::printAvailHeap() {
   ESP_LOGD(TAG, "Max Heap: %u", (unsigned int)ESP.getMaxAllocHeap());
   ESP_LOGD(TAG, "Free Heap: %u", (unsigned int)ESP.getFreeHeap());

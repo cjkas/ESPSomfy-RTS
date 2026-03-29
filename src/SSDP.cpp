@@ -383,6 +383,9 @@ void SSDPClass::_parsePacket(ssdp_packet_t *pkt, AsyncUDPPacket &p) {
 IPAddress SSDPClass::localIP()
 {
     // Make sure we don't get a null IPAddress.
+#ifdef CONFIG_IDF_TARGET_ESP32C6
+    return WiFi.localIP();
+#else
     tcpip_adapter_ip_info_t ip;
     if (WiFi.getMode() == WIFI_STA) {
         if (tcpip_adapter_get_ip_info(TCPIP_ADAPTER_IF_STA, &ip)) {
@@ -394,6 +397,7 @@ IPAddress SSDPClass::localIP()
         }
     }
     return IPAddress(ip.ip.addr);
+#endif
 }    
 void SSDPClass::_sendResponse(IPAddress addr, uint16_t port, UPNPDeviceType *d, const char *st, response_types_t responseType) {
   char buffer[1460];

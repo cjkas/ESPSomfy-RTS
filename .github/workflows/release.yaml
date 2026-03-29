@@ -43,6 +43,14 @@ jobs:
             fwname: SomfyController.ino.esp32s3.bin
             fsname: SomfyController.littlefs.esp32s3.bin
             obname: SomfyController.onboard.esp32s3.bin
+          - env: esp32c6
+            name: ESP32-C6
+            chip: ESP32-C6
+            addr_bootloader: "0x0"
+            addr_fs: "0x310000"
+            fwname: SomfyController.ino.esp32c6.bin
+            fsname: SomfyController.littlefs.esp32c6.bin
+            obname: SomfyController.onboard.esp32c6.bin
 
     steps:
       - name: Get Release

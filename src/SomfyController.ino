@@ -3,7 +3,7 @@
 #include <LittleFS.h>
 #include <esp_task_wdt.h>
 #include "ConfigSettings.h"
-#include "Network.h"
+#include "ESPNetwork.h"
 #include "Web.h"
 #include "Sockets.h"
 #include "Utils.h"
@@ -17,7 +17,7 @@ static const char *TAG = "Main";
 ConfigSettings settings;
 Web webServer;
 SocketEmitter sockEmit;
-Network net;
+ESPNetwork net;
 rebootDelay_t rebootDelay;
 SomfyShadeController somfy;
 MQTTClass mqtt;
@@ -89,7 +89,12 @@ void setup() {
   net.setup();  
   somfy.begin();
   //git.checkForUpdate();
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+  const esp_task_wdt_config_t wdt_config = { .timeout_ms = 15000, .idle_core_mask = 1, .trigger_panic = true };
+  esp_task_wdt_init(&wdt_config);
+#else
   esp_task_wdt_init(15, true); //enable panic so ESP32 restarts
+#endif
   esp_task_wdt_add(NULL); //add current thread to WDT watch
 
 }

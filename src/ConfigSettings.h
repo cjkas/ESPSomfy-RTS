@@ -1,5 +1,7 @@
 #include <ArduinoJson.h>
+#ifndef CONFIG_IDF_TARGET_ESP32C6
 #include <ETH.h>
+#endif
 #ifndef configsettings_h
 #define configsettings_h
 #include "WResp.h"
@@ -88,6 +90,7 @@ class WifiSettings: BaseSettings {
     void print();
     
 };
+#ifndef CONFIG_IDF_TARGET_ESP32C6
 class EthernetSettings: BaseSettings {
   public:
     EthernetSettings();
@@ -98,7 +101,7 @@ class EthernetSettings: BaseSettings {
     int8_t PWRPin = ETH_PHY_POWER;
     int8_t MDCPin = ETH_PHY_MDC;
     int8_t MDIOPin = ETH_PHY_MDIO;
-    
+
     bool begin();
     bool fromJSON(JsonObject &obj);
     bool toJSON(JsonObject &obj);
@@ -108,6 +111,7 @@ class EthernetSettings: BaseSettings {
     void print();
     bool usesPin(uint8_t pin);
 };
+#endif
 class IPSettings: BaseSettings {
   public:
     IPSettings();
@@ -180,7 +184,9 @@ class ConfigSettings: BaseSettings {
     uint8_t status;
     IPSettings IP;
     WifiSettings WIFI;
+#ifndef CONFIG_IDF_TARGET_ESP32C6
     EthernetSettings Ethernet;
+#endif
     NTPSettings NTP;
     MQTTSettings MQTT;
     SecuritySettings Security;

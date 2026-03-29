@@ -1,10 +1,12 @@
+#ifndef CONFIG_IDF_TARGET_ESP32C6
 #include <ETH.h>
+#endif
 #include <WiFi.h>
 #include <ESPmDNS.h>
 #include <esp_task_wdt.h>
 #include "esp_log.h"
 #include "ConfigSettings.h"
-#include "Network.h"
+#include "ESPNetwork.h"
 #include "Web.h"
 #include "Sockets.h"
 #include "Utils.h"
@@ -18,7 +20,7 @@ extern Web webServer;
 extern SocketEmitter sockEmit;
 extern MQTTClass mqtt;
 extern rebootDelay_t rebootDelay;
-extern Network net;
+extern ESPNetwork net;
 extern SomfyShadeController somfy;
 
 static unsigned long _lastHeapEmit = 0;
@@ -27,13 +29,13 @@ static bool _apScanning = false;
 static uint32_t _lastMaxHeap = 0;
 static uint32_t _lastHeap = 0;
 int connectRetries = 0;
-void Network::end() {
+void ESPNetwork::end() {
   SSDP.end();
   mqtt.end();
   sockEmit.end();
   delay(100);
 }
-bool Network::setup() {
+bool ESPNetwork::setup() {
   WiFi.setScanMethod(WIFI_ALL_CHANNEL_SCAN);
   WiFi.setSortMethod(WIFI_CONNECT_AP_BY_SIGNAL);
   WiFi.persistent(false);
@@ -50,22 +52,24 @@ bool Network::setup() {
   sockEmit.begin();
   return true;
 }
-conn_types_t Network::preferredConnType() {
+conn_types_t ESPNetwork::preferredConnType() {
   switch(settings.connType) {
     case conn_types_t::wifi:    
       return settings.WIFI.ssid[0] != '\0' ? conn_types_t::wifi : conn_types_t::ap;
     case conn_types_t::unset:
     case conn_types_t::ap:
       return conn_types_t::ap;
+#ifndef CONFIG_IDF_TARGET_ESP32C6
     case conn_types_t::ethernetpref:
       return settings.WIFI.ssid[0] != '\0' && (!ETH.linkUp() && this->ethStarted) ? conn_types_t::wifi : conn_types_t::ethernet;
     case conn_types_t::ethernet:
       return ETH.linkUp() || !this->ethStarted ? conn_types_t::ethernet : conn_types_t::ap;
+#endif
     default:
       return settings.connType; 
   }
 }
-void Network::loop() {
+void ESPNetwork::loop() {
   // ORDER OF OPERATIONS:
   // ----------------------------------------------
   // 1. If we are in the middle of a connection process we need to simply bail after the connect method.  The
@@ -156,7 +160,7 @@ void Network::loop() {
   }
   else if(!settings.ssdpBroadcast && SSDP.isStarted) SSDP.end();
 }
-bool Network::changeAP(const uint8_t *bssid, const int32_t channel) {
+bool ESPNetwork::changeAP(const uint8_t *bssid, const int32_t channel) {
   esp_task_wdt_reset(); // Make sure we do not reboot here.
   if(SSDP.isStarted) SSDP.end();
   mqtt.disconnect();
@@ -169,7 +173,7 @@ bool Network::changeAP(const uint8_t *bssid, const int32_t channel) {
   this->connectStart = millis();
   return false;
 }
-void Network::emitSockets() {
+void ESPNetwork::emitSockets() {
   this->emitHeap();
   if(this->needsBroadcast || 
     (this->connType == conn_types_t::wifi && (abs(abs(WiFi.RSSI()) - abs(this->lastRSSI)) > 1 || WiFi.channel() != this->lastChannel))) {
@@ -178,7 +182,8 @@ void Network::emitSockets() {
     this->needsBroadcast = false;
   }
 }
-void Network::emitSockets(uint8_t num) {
+void ESPNetwork::emitSockets(uint8_t num) {
+#ifndef CONFIG_IDF_TARGET_ESP32C6
   if(this->connType == conn_types_t::ethernet) {
       JsonSockEvent *json = sockEmit.beginEmit("ethernet");
       json->beginObject();
@@ -188,7 +193,9 @@ void Network::emitSockets(uint8_t num) {
       json->endObject();
       sockEmit.endEmit(num);
   }
-  else {
+  else
+#endif
+  {
       if(WiFi.status() == WL_CONNECTED) {
         JsonSockEvent *json = sockEmit.beginEmit("wifiStrength");
         json->beginObject();
@@ -222,7 +229,7 @@ void Network::emitSockets(uint8_t num) {
   }
   this->emitHeap(num);
 }
-void Network::setConnected(conn_types_t connType) {
+void ESPNetwork::setConnected(conn_types_t connType) {
   esp_task_wdt_reset();
   this->connType = connType;
   this->connectTime = millis();
@@ -240,6 +247,7 @@ void Network::setConnected(conn_types_t connType) {
     this->channel = WiFi.channel();
     this->connectAttempts++;
   }
+#ifndef CONFIG_IDF_TARGET_ESP32C6
   else if(this->connType == conn_types_t::ethernet) {
     if(this->softAPOpened) {
       ESP_LOGI(TAG, "Disconnecting from SoftAP");
@@ -250,10 +258,11 @@ void Network::setConnected(conn_types_t connType) {
     this->_connecting = false;
     this->wifiFallback = false;
   }
+#endif // CONFIG_IDF_TARGET_ESP32C6
   // NET: Begin this in the startup.
   //sockEmit.begin();
   esp_task_wdt_reset();
-  
+
   if(this->connectAttempts == 1) {
     if(this->connType == conn_types_t::wifi) {
       ESP_LOGI(TAG, "Successfully Connected to WiFi!!!! %s (%ddbm)", WiFi.localIP().toString().c_str(), this->strength);
@@ -265,6 +274,7 @@ void Network::setConnected(conn_types_t connType) {
         settings.IP.dns2 = WiFi.dnsIP(1);
       }
     }
+#ifndef CONFIG_IDF_TARGET_ESP32C6
     else {
       ESP_LOGI(TAG, "Successfully Connected to Ethernet!!! %s%s %dMbps", ETH.localIP().toString().c_str(), ETH.fullDuplex() ? " FULL DUPLEX" : "", ETH.linkSpeed());
       if(settings.IP.dhcp) {
@@ -284,14 +294,17 @@ void Network::setConnected(conn_types_t connType) {
       sockEmit.endEmit();
       esp_task_wdt_reset();
     }
+#endif
   }
   else {
     if(this->connType == conn_types_t::wifi) {
       ESP_LOGI(TAG, "Reconnected after %.3fsec IP: %s %s CH:%d (%d dBm) Disconnected %d times", 1.0 * (millis() - this->connectStart)/1000, WiFi.localIP().toString().c_str(), this->mac.c_str(), this->channel, this->strength, this->connectAttempts - 1);
     }
+#ifndef CONFIG_IDF_TARGET_ESP32C6
     else {
       ESP_LOGI(TAG, "Reconnected after %.3fsec IP: %s%s %dMbps Disconnected %d times", 1.0 * (millis() - this->connectStart)/1000, ETH.localIP().toString().c_str(), ETH.fullDuplex() ? " FULL DUPLEX" : "", ETH.linkSpeed(), this->connectAttempts - 1);
     }
+#endif
   }
   SSDP.setHTTPPort(80);
   SSDP.setSchemaURL(0, "upnp.xml");
@@ -335,7 +348,8 @@ void Network::setConnected(conn_types_t connType) {
   settings.printAvailHeap();
   this->needsBroadcast = true;
 }
-bool Network::connectWired() {
+#ifndef CONFIG_IDF_TARGET_ESP32C6
+bool ESPNetwork::connectWired() {
   if(ETH.linkUp()) {
     // If the ethernet link is re-established then we need to shut down wifi.
     if(WiFi.status() == WL_CONNECTED) {
@@ -391,16 +405,20 @@ bool Network::connectWired() {
   this->connectStart = millis();
   return true;
 }
-void Network::updateHostname() {
+#endif // CONFIG_IDF_TARGET_ESP32C6
+void ESPNetwork::updateHostname() {
   if(settings.hostname[0] != '\0' && this->connected()) {
+#ifndef CONFIG_IDF_TARGET_ESP32C6
     if(this->connType == conn_types_t::ethernet &&
       strcmp(settings.hostname, ETH.getHostname()) != 0) {
       ESP_LOGD(TAG, "Updating host name to %s...", settings.hostname);
       ETH.setHostname(settings.hostname);
-      MDNS.setInstanceName(settings.hostname);        
+      MDNS.setInstanceName(settings.hostname);
       SSDP.setName(0, settings.hostname);
      }
-     else if(strcmp(settings.hostname, WiFi.getHostname()) != 0) {
+     else
+#endif
+     if(strcmp(settings.hostname, WiFi.getHostname()) != 0) {
       ESP_LOGD(TAG, "Updating host name to %s...", settings.hostname);
       WiFi.setHostname(settings.hostname);
       MDNS.setInstanceName(settings.hostname);        
@@ -408,7 +426,7 @@ void Network::updateHostname() {
      }
   }
 }
-bool Network::connectWiFi(const uint8_t *bssid, const int32_t channel) {
+bool ESPNetwork::connectWiFi(const uint8_t *bssid, const int32_t channel) {
   if(this->softAPOpened && WiFi.softAPgetStationNum() > 0) {
     // There is a client connected to the soft AP.  We do not want to close out the connection.  While both the
     // Soft AP and a wifi connection can coexist on ESP32 the performance is abysmal.
@@ -474,15 +492,18 @@ bool Network::connectWiFi(const uint8_t *bssid, const int32_t channel) {
   this->connectStart = millis();
   return true;
 }
-bool Network::connect(conn_types_t ctype) {
+bool ESPNetwork::connect(conn_types_t ctype) {
   esp_task_wdt_reset();
   if(this->connecting()) return true;
   if(this->disconnectTime == 0) this->disconnectTime = millis();
+#ifndef CONFIG_IDF_TARGET_ESP32C6
   if(ctype == conn_types_t::ethernet && this->connType != conn_types_t::ethernet) {
     // Here we need to call the connect to ethernet.
     this->connectWired();
   }
-  else if(ctype == conn_types_t::ap || (!this->connected() && millis() > this->disconnectTime + CONNECT_TIMEOUT)) {
+  else
+#endif
+  if(ctype == conn_types_t::ap || (!this->connected() && millis() > this->disconnectTime + CONNECT_TIMEOUT)) {
     if(!this->softAPOpened && !this->openingSoftAP) {
       this->disconnectTime = millis();
       this->openSoftAP();
@@ -499,7 +520,7 @@ bool Network::connect(conn_types_t ctype) {
   
   return true;
 }
-uint32_t Network::getChipId() {
+uint32_t ESPNetwork::getChipId() {
   uint32_t chipId = 0;
   uint64_t mac = ESP.getEfuseMac();
   for(int i=0; i<17; i=i+8) {
@@ -507,7 +528,7 @@ uint32_t Network::getChipId() {
   }
   return chipId;
 }
-bool Network::getStrongestAP(const char *ssid, uint8_t *bssid, int32_t *channel) {
+bool ESPNetwork::getStrongestAP(const char *ssid, uint8_t *bssid, int32_t *channel) {
   // The new AP must be at least 10dbm greater.
   int32_t strength = this->connected() ? WiFi.RSSI() + 10 : -127;
   int32_t chan = -1;
@@ -528,7 +549,7 @@ bool Network::getStrongestAP(const char *ssid, uint8_t *bssid, int32_t *channel)
   WiFi.scanDelete();
   return chan > 0;
 }
-bool Network::openSoftAP() {
+bool ESPNetwork::openSoftAP() {
   if(this->softAPOpened || this->openingSoftAP) return true;
   if(this->connected()) WiFi.disconnect(false);
   this->openingSoftAP = true;
@@ -538,20 +559,22 @@ bool Network::openSoftAP() {
   delay(200);
   return true;
 }
-bool Network::connected() {
+bool ESPNetwork::connected() {
   if(this->connecting()) return false;
   else if(this->connType == conn_types_t::unset) return false;
   else if(this->connType == conn_types_t::wifi) return WiFi.status() == WL_CONNECTED;
+#ifndef CONFIG_IDF_TARGET_ESP32C6
   else if(this->connType == conn_types_t::ethernet) return ETH.linkUp();
+#endif
   else return this->connType != conn_types_t::unset;
   return false;
 }
-bool Network::connecting() {
+bool ESPNetwork::connecting() {
   if(this->_connecting && millis() > this->connectStart + CONNECT_TIMEOUT) this->_connecting = false; 
   return this->_connecting; 
 }
-void Network::clearConnecting() { this->_connecting = false; }
-void Network::networkEvent(WiFiEvent_t event) {
+void ESPNetwork::clearConnecting() { this->_connecting = false; }
+void ESPNetwork::networkEvent(WiFiEvent_t event) {
   switch(event) {
     case ARDUINO_EVENT_WIFI_READY:               ESP_LOGI(TAG, "(evt) WiFi interface ready"); break;
     case ARDUINO_EVENT_WIFI_SCAN_DONE:           
@@ -579,6 +602,7 @@ void Network::networkEvent(WiFiEvent_t event) {
       net.setConnected(conn_types_t::wifi);
       break;
     case ARDUINO_EVENT_WIFI_STA_LOST_IP:        ESP_LOGW(TAG, "Lost IP address and IP address is reset to 0"); break;
+#ifndef CONFIG_IDF_TARGET_ESP32C6
     case ARDUINO_EVENT_ETH_GOT_IP:
       // If the Wifi is connected then drop that connection
       if(WiFi.status() == WL_CONNECTED) WiFi.disconnect(true);
@@ -591,7 +615,7 @@ void Network::networkEvent(WiFiEvent_t event) {
         settings.IP.gateway = ETH.gatewayIP();
         settings.IP.dns1 = ETH.dnsIP(0);
         settings.IP.dns2 = ETH.dnsIP(1);
-      }     
+      }
       net.setConnected(conn_types_t::ethernet);
       break;
     case ARDUINO_EVENT_ETH_CONNECTED:
@@ -603,7 +627,7 @@ void Network::networkEvent(WiFiEvent_t event) {
       net.disconnectTime = millis();
       net.clearConnecting();
       break;
-    case ARDUINO_EVENT_ETH_START:               
+    case ARDUINO_EVENT_ETH_START:
       ESP_LOGI(TAG, "(evt) Ethernet Started");
       net.ethStarted = true;
       break;
@@ -612,6 +636,7 @@ void Network::networkEvent(WiFiEvent_t event) {
       net.connType = conn_types_t::unset;
       net.ethStarted = false;
       break;
+#endif
     case ARDUINO_EVENT_WIFI_AP_START:
       ESP_LOGI(TAG, "(evt) WiFi SoftAP Started IP: %s", WiFi.softAPIP().toString().c_str());
       net.openingSoftAP = false;
@@ -622,12 +647,14 @@ void Network::networkEvent(WiFiEvent_t event) {
       net.softAPOpened = false;
       break;      
     default:
+#ifndef CONFIG_IDF_TARGET_ESP32C6
       if(event > ARDUINO_EVENT_ETH_START)
         ESP_LOGW(TAG, "(evt) Unknown Ethernet Event %d", event);
+#endif
       break;
   }
 }
-void Network::emitHeap(uint8_t num) {
+void ESPNetwork::emitHeap(uint8_t num) {
   bool bEmit = false;
   bool bTimeEmit = millis() - _lastHeapEmit > 15000;
   bool bRoomEmit = false;

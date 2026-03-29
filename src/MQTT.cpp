@@ -6,7 +6,7 @@
 #include "ConfigSettings.h"
 #include "MQTT.h"
 #include "Somfy.h"
-#include "Network.h"
+#include "ESPNetwork.h"
 #include "Utils.h"
 
 static const char *TAG = "MQTT";
@@ -19,7 +19,7 @@ static char g_content[MQTT_MAX_RESPONSE];
 
 extern ConfigSettings settings;
 extern SomfyShadeController somfy;
-extern Network net;
+extern ESPNetwork net;
 extern rebootDelay_t rebootDelay;
 
 
