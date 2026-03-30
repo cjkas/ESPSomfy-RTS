@@ -158,11 +158,9 @@ bool ConfigSettings::begin() {
     case esp_chip_model_t::CHIP_ESP32C3:
       strcpy(this->chipModel, "c3");
       break;
-#ifdef CHIP_ESP32C6
     case esp_chip_model_t::CHIP_ESP32C6:
       strcpy(this->chipModel, "c6");
       break;
-#endif
     default:
       sprintf(this->chipModel, "UNK%d", static_cast<int>(ci.model));
       break;
