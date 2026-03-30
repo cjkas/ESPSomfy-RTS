@@ -708,7 +708,8 @@ bool ShadeConfigFile::readTransRecord(transceiver_config_t &cfg) {
     cfg.frequency = this->readFloat(cfg.frequency);
     cfg.rxBandwidth = this->readFloat(cfg.rxBandwidth);
     cfg.deviation = this->readFloat(cfg.deviation);
-    cfg.txPower = this->readInt8(cfg.txPower);  
+    cfg.txPower = this->readInt8(cfg.txPower);
+    cfg.noiseDetection = this->readBool(false);
     if(this->file.position() != startPos + this->header.transRecordSize) {
       ESP_LOGD(TAG, "Reading to end of transceiver record");
       this->seekChar(CFG_REC_END);
@@ -1065,7 +1066,8 @@ bool ShadeConfigFile::writeTransRecord(transceiver_config_t &cfg) {
   this->writeFloat(cfg.frequency, 3);
   this->writeFloat(cfg.rxBandwidth, 2);
   this->writeFloat(cfg.deviation, 2);
-  this->writeInt8(cfg.txPower, CFG_REC_END);
+  this->writeInt8(cfg.txPower);
+  this->writeBool(cfg.noiseDetection, CFG_REC_END);
   return true;
 }
 bool ShadeConfigFile::exists() { return LittleFS.exists("/shades.cfg"); }

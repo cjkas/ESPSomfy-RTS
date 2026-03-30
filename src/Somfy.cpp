@@ -3,6 +3,7 @@
 #include <SPI.h>
 #include <esp_task_wdt.h>
 #include <esp_chip_info.h>
+#include "driver/gpio.h"
 #include "esp_log.h"
 #include "Utils.h"
 #include "ConfigSettings.h"
@@ -45,6 +46,9 @@ int sort_asc(const void *cmp1, const void *cmp2) {
 }
 
 static int interruptPin = 0;
+static volatile bool noiseDetected = false;
+static volatile unsigned long noiseStart = 0;
+static volatile uint32_t noiseCount = 0;
 static uint8_t bit_length = 56;
 somfy_commands translateSomfyCommand(const String& string) {
     if (string.equalsIgnoreCase("My")) return somfy_commands::My;
@@ -4187,6 +4191,21 @@ void Transceiver::sendFrame(byte *frame, uint8_t sync, uint8_t bitLength) {
   }
 }
 void RECEIVE_ATTR Transceiver::handleReceive() {
+    if (noiseDetected) return;
+    if (somfy.transceiver.config.noiseDetection) {
+        unsigned long now = millis();
+        if (noiseStart == 0) noiseStart = now;
+        if (now - noiseStart >= 10000) {
+            noiseStart = now;
+            noiseCount = 0;
+        }
+        noiseCount++;
+        if (noiseCount > 100) {
+            gpio_intr_disable((gpio_num_t)interruptPin);
+            noiseDetected = true;
+            return;
+        }
+    }
     static unsigned long last_time = 0;
     const long time = micros();
     const unsigned int duration = time - last_time;
@@ -4358,7 +4377,7 @@ void Transceiver::processFrequencyScan(bool received) {
       currRSSI = -100;
     }
     
-    if(millis() - lastScan > 100 && somfy_rx.status == waiting_synchro) {
+    if(millis() - lastScan > 100 && (somfy_rx.status == waiting_synchro || noiseDetected)) {
       lastScan = millis();
       this->emitFrequencyScan();
       currFreq += 0.01f;
@@ -4538,6 +4557,7 @@ void transceiver_config_t::fromJSON(JsonObject& obj) {
     if(!obj["enabled"].isNull()) this->enabled = obj["enabled"];
     if(!obj["txPower"].isNull()) this->txPower = obj["txPower"];
     if(!obj["proto"].isNull()) this->proto = static_cast<radio_proto>(obj["proto"].as<uint8_t>());
+    if(!obj["noiseDetection"].isNull()) this->noiseDetection = obj["noiseDetection"];
     /*
     if (!obj["internalCCMode"].isNull()) this->internalCCMode = obj["internalCCMode"];
     if (!obj["modulationMode"].isNull()) this->modulationMode = obj["modulationMode"];
@@ -4625,7 +4645,8 @@ void transceiver_config_t::save() {
     pref.putBool("radioInit", true);
     pref.putChar("txPower", this->txPower);
     pref.putChar("proto", static_cast<uint8_t>(this->proto));
-    
+    pref.putBool("noiseDetect", this->noiseDetection);
+
     /*
     pref.putBool("internalCCMode", this->internalCCMode);
     pref.putUChar("modulationMode", this->modulationMode);
@@ -4724,6 +4745,7 @@ void transceiver_config_t::load() {
     this->txPower = pref.getChar("txPower", this->txPower);
     this->rxBandwidth = pref.getFloat("rxBandwidth", this->rxBandwidth);
     this->proto = static_cast<radio_proto>(pref.getChar("proto", static_cast<uint8_t>(this->proto)));
+    this->noiseDetection = pref.getBool("noiseDetect", false);
     this->removeNVSKey("internalCCMode");
     this->removeNVSKey("modulationMode");
     this->removeNVSKey("channel");
@@ -4857,6 +4879,14 @@ bool Transceiver::begin() {
 }
 void Transceiver::loop() {
   somfy_rx_t rx;
+  if (noiseDetected && rxmode != 3 && this->config.noiseDetection) {
+    if (millis() - noiseStart > 100) {
+      gpio_intr_enable((gpio_num_t)interruptPin);
+      noiseDetected = false;
+      noiseStart = 0;
+      noiseCount = 0;
+    }
+  }
   if(rxmode == 3) {
     if(this->receive(&rx))
       this->processFrequencyScan(true);

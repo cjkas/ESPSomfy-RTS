@@ -374,6 +374,7 @@ static void serializeTransceiverConfig(JsonFormatter &json) {
   json.addElem("txPower", cfg.txPower);
   json.addElem("proto", static_cast<uint8_t>(cfg.proto));
   json.addElem("enabled", cfg.enabled);
+  json.addElem("noiseDetection", cfg.noiseDetection);
   json.addElem("radioInit", cfg.radioInit);
 }
 static void serializeAppVersion(JsonFormatter &json, appver_t &ver) {
