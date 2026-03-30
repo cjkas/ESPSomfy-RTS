@@ -1,6 +1,5 @@
 //var hst = '192.168.1.208';
-var hst = '192.168.1.152';
-//var hst = '192.168.1.159';
+var hst = '192.168.178.20';
 var _rooms = [{ roomId: 0, name: 'Home' }];
 
 var errors = [
