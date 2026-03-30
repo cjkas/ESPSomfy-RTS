@@ -913,6 +913,10 @@
                             <input id="cbEnableRadio" name="enableRadio" type="checkbox" data-bind="transceiver.config.enabled" style="display:inline-block;" />
                             <label for="cbEnableRadio" style="display:inline-block;cursor:pointer;">Enable Radio</label>
                         </div>
+                        <div class="field-group" style="vertical-align:middle;margin-left:7px;float:right;display:inline-block;width:auto;">
+                            <input id="cbNoiseDetection" name="noiseDetection" type="checkbox" data-bind="transceiver.config.noiseDetection" style="display:inline-block;" title="When enabled, the RX interrupt is automatically disabled if more than 100 pulses are detected within 10 seconds (RF noise burst). The interrupt is re-enabled after a 100ms cooldown. Enable this if your radio is frequently disrupted by nearby RF interference." />
+                            <label for="cbNoiseDetection" style="display:inline-block;cursor:pointer;" title="When enabled, the RX interrupt is automatically disabled if more than 100 pulses are detected within 10 seconds (RF noise burst). The interrupt is re-enabled after a 100ms cooldown. Enable this if your radio is frequently disrupted by nearby RF interference.">Noise Detection</label>
+                        </div>
                         <div class="field-group" style="margin-top:-18px;"><label style="font-size:12px;">(default when adding new motors)</label></div>
                         <div class="field-group1" style="white-space:nowrap">
                             <div class="field-group radioPins">
