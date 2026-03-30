@@ -4691,14 +4691,14 @@ void transceiver_config_t::load() {
         this->SCKPin = 15;
         this->CSNPin = 14;
         break;
-#ifdef CHIP_ESP32C6
+	#ifdef CHIP_ESP32C6
       case esp_chip_model_t::CHIP_ESP32C6:
-        this->TXPin = 13;
-        this->RXPin = 12;
-        this->MOSIPin = 16;
-        this->MISOPin = 17;
-        this->SCKPin = 15;
-        this->CSNPin = 14;
+        this->TXPin = 10;
+        this->RXPin = 10;
+        this->MOSIPin = 7;
+        this->MISOPin = 2;
+        this->SCKPin = 6;
+        this->CSNPin = 0;
         break;
 #endif
       default:
