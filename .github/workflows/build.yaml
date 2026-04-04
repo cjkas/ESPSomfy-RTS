@@ -1,6 +1,8 @@
-name: ESPSomfy-RTS Release
+name: ESPSomfy-RTS Build
 
 on:
+  push:
+  pull_request:
   release:
     types: [published]
 
@@ -16,7 +18,7 @@ jobs:
         # fwname: firmware-only binary for OTA updates
         # obname: onboard image (bootloader + partitions + firmware + littlefs merged)
         #         for flashing a new chip via USB/serial
-        # addr_bootloader: chip-dependent (ESP32: 0x1000, C3/S3: 0x0)
+        # addr_bootloader: chip-dependent (ESP32: 0x1000, C3/S3/C6: 0x0)
         # addr_fs: must match spiffs/littlefs offset in esp32_3MB.csv
         include:
           - env: esp32dev
@@ -54,6 +56,7 @@ jobs:
 
     steps:
       - name: Get Release
+        if: github.event_name == 'release'
         id: get_release
         uses: bruceadams/get-release@v1.3.2
         env:
@@ -63,6 +66,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Update version from release tag
+        if: github.event_name == 'release'
         run: |
           VERSION="${{ github.event.release.tag_name }}"
           VERSION="${VERSION#v}"
@@ -70,6 +74,15 @@ jobs:
           sed -i "s/^[0-9.].*/${VERSION}/" data-src/appversion
           sed -i "s/\?v=[0-9.]*c/?v=${VERSION}c/g" data-src/index.html
           sed -i "s/appVersion = 'v[0-9.]*'/appVersion = 'v${VERSION}'/" data-src/index.js
+
+      - name: Commit version update
+        if: github.event_name == 'release' && matrix.env == 'esp32dev'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/ConfigSettings.h data-src/appversion data-src/index.html data-src/index.js
+          git commit -m "chore: bump version to ${{ github.event.release.tag_name }}"
+          git push origin HEAD:${{ github.event.release.target_commitish }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -79,14 +92,14 @@ jobs:
       - name: Install PlatformIO and esptool
         run: pip install platformio esptool
 
-      - name: Build firmware
-        run: pio run -e ${{ matrix.env }}
-
       - name: Build LittleFS image
         run: pio run -e ${{ matrix.env }} -t buildfs
 
+      - name: Build firmware
+        run: pio run -e ${{ matrix.env }}
+
       - name: List build artifacts
-        run: ls -la .pio/build/${{ matrix.env }}/
+        run: find .pio/build/${{ matrix.env }} -maxdepth 1 -name "*.bin" | sort
 
       - name: Create onboard image
         run: |
@@ -100,7 +113,22 @@ jobs:
       - name: Compress onboard image
         run: zip ${{ matrix.obname }}.zip ${{ matrix.obname }}
 
+      - name: Upload artifacts
+        if: github.event_name != 'release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: |
+            .pio/build/${{ matrix.env }}/firmware.bin
+            .pio/build/${{ matrix.env }}/firmware.elf
+            .pio/build/${{ matrix.env }}/partitions.bin
+            .pio/build/${{ matrix.env }}/bootloader.bin
+            .pio/build/${{ matrix.env }}/littlefs.bin
+            ${{ matrix.obname }}.zip
+          retention-days: 5
+
       - name: Upload LittleFS
+        if: github.event_name == 'release'
         uses: shogo82148/actions-upload-release-asset@v1.7.5
         with:
           github_token: ${{ github.token }}
@@ -110,6 +138,7 @@ jobs:
           overwrite: true
 
       - name: Upload firmware
+        if: github.event_name == 'release'
         uses: shogo82148/actions-upload-release-asset@v1.7.5
         with:
           github_token: ${{ github.token }}
@@ -119,6 +148,7 @@ jobs:
           overwrite: true
 
       - name: Upload onboard image
+        if: github.event_name == 'release'
         uses: shogo82148/actions-upload-release-asset@v1.7.5
         with:
           github_token: ${{ github.token }}
