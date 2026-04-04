@@ -7,6 +7,8 @@
   * Backup does no longer use LITTLEFS. Only RAM is used. Storage should not wear out so quick.
   * Added uptime info in web UI
 
+## There is a partition layout modification it's just better to perform full ESP32 wipeout. Perform backup then wipeout the firmware and restore from the bkp.
+
 # ESPSomfy-RTS <image src="https://user-images.githubusercontent.com/47839015/218898940-3541b360-5c49-4e38-a918-392cd0408b76.png" align="right" style="width:177px;display:inline-block;float:right"></image>
 
 A controller for Somfy RTS blinds and shades that supports up to 32 individual shades and 16 groups over 433MHz RTx protocols.  If you have IO Home Control motors this project is not for you but you can use the IO Remote protocol to connect the ESPSomfy RTS device to a disected remote.  Look in the [Wiki](https://github.com/rstrouse/ESPSomfy-RTS/wiki/Controlling-Motors-with-GPIO) for options and verify whether the solution is workable for you.
