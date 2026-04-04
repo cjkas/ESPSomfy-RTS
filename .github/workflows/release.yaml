@@ -85,10 +85,13 @@ jobs:
       - name: Build LittleFS image
         run: pio run -e ${{ matrix.env }} -t buildfs
 
+      - name: List build artifacts
+        run: ls -la .pio/build/${{ matrix.env }}/
+
       - name: Create onboard image
         run: |
           python -m esptool --chip ${{ matrix.chip }} \
-            merge_bin -o ${{ matrix.obname }} \
+            merge-bin -o ${{ matrix.obname }} \
             ${{ matrix.addr_bootloader }} .pio/build/${{ matrix.env }}/bootloader.bin \
             0x8000 .pio/build/${{ matrix.env }}/partitions.bin \
             0x10000 .pio/build/${{ matrix.env }}/firmware.bin \
