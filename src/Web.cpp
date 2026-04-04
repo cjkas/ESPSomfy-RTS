@@ -2115,7 +2115,9 @@ void Web::begin() {
       AsyncJsonResp resp;
       resp.beginResponse(request, g_async_content, sizeof(g_async_content));
       resp.beginObject();
+      resp.beginObject("config");
       serializeTransceiverConfig(resp);
+      resp.endObject();
       resp.endObject();
       resp.endResponse();
     }));
