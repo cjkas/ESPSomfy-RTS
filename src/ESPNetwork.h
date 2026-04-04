@@ -7,7 +7,7 @@
 //enum class conn_types_t : byte;
 
 #define CONNECT_TIMEOUT 20000
-#define SSID_SCAN_INTERVAL 60000
+#define SSID_SCAN_INTERVAL 600000
 class ESPNetwork {
   protected:
     unsigned long lastEmit = 0;
