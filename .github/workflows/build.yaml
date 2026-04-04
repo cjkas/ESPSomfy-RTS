@@ -2,6 +2,7 @@ name: ESPSomfy-RTS Build
 
 on:
   push:
+    branches: [main]
   pull_request:
   release:
     types: [published]
