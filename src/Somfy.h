@@ -490,6 +490,10 @@ class Transceiver {
     bool _received = false;
     somfy_frame_t frame;
   public:
+    // -1 = none pending, 1 = beginFrequencyScan pending, 0 = endFrequencyScan pending.
+    // Set from the async_tcp task; consumed by loop() on the main task to avoid
+    // concurrent cross-core IPC races with the WiFi stack (EXCCAUSE_LOAD_PROHIBITED).
+    volatile int8_t _pendingScan = -1;
     transceiver_config_t config;
     bool printBuffer = false;
     //bool toJSON(JsonObject& obj);

@@ -16,3 +16,4 @@ coredump_report.txt
 coredump.bin
 logs/
 elf_archive/
+src/SomfyController.ino.cpp

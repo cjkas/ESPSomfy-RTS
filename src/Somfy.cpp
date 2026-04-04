@@ -4878,6 +4878,15 @@ bool Transceiver::begin() {
     return true;
 }
 void Transceiver::loop() {
+  // Dispatch deferred frequency scan requests from the main task so that
+  // attachInterrupt/detachInterrupt cross-core IPCs don't race with WiFi.
+  if(_pendingScan >= 0) {
+    int8_t pending = _pendingScan;
+    _pendingScan = -1;
+    if(pending == 1) this->beginFrequencyScan();
+    else this->endFrequencyScan();
+    return;
+  }
   somfy_rx_t rx;
   if (noiseDetected && rxmode != 3 && this->config.noiseDetection) {
     if (millis() - noiseStart > 100) {
