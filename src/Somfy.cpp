@@ -4712,8 +4712,9 @@ void transceiver_config_t::load() {
         this->SCKPin = 15;
         this->CSNPin = 14;
         break;
+#ifdef CONFIG_IDF_TARGET_ESP32C6
       case esp_chip_model_t::CHIP_ESP32C6:
-      // Pinout applicable for the ESP32-C6-WROOM-1 module (ESP32-C6-DevKitC-1-N4)      
+      // Pinout applicable for the ESP32-C6-WROOM-1 module (ESP32-C6-DevKitC-1-N4)
         this->TXPin = 10;
         this->RXPin = 10;
         this->MOSIPin = 7;
@@ -4721,6 +4722,7 @@ void transceiver_config_t::load() {
         this->SCKPin = 6;
         this->CSNPin = 0;
         break;
+#endif
       default:
         this->TXPin = 13;
         this->RXPin = 12;
