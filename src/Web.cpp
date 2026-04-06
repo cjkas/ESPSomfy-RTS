@@ -2406,7 +2406,7 @@ void Web::begin() {
     }));
 
   asyncServer.on("/beginFrequencyScan", HTTP_GET, [](AsyncWebServerRequest *request) {
-    somfy.transceiver.beginFrequencyScan();
+    somfy.transceiver._pendingScan = 1; // deferred to main task — see Transceiver::loop()
     AsyncJsonResp resp;
     resp.beginResponse(request, g_async_content, sizeof(g_async_content));
     resp.beginObject();
@@ -2416,7 +2416,7 @@ void Web::begin() {
   });
 
   asyncServer.on("/endFrequencyScan", HTTP_GET, [](AsyncWebServerRequest *request) {
-    somfy.transceiver.endFrequencyScan();
+    somfy.transceiver._pendingScan = 0; // deferred to main task — see Transceiver::loop()
     AsyncJsonResp resp;
     resp.beginResponse(request, g_async_content, sizeof(g_async_content));
     resp.beginObject();

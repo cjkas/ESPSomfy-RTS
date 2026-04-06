@@ -34,3 +34,10 @@ sdkconfig.*
 # Ignore temporary backup files
 *.orig
 *.bak
+data/
+build/
+coredump_report.txt
+coredump.bin
+logs/
+elf_archive/
+src/SomfyController.ino.cpp
