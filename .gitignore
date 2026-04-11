@@ -1,36 +1,40 @@
+# IDE and Tooling
 .theia/
+.vscode/
+.claude/
+.pio/
 debug_custom.json
+debug.cfg
+
+# Hardware / SVD Files
 esp32.vsd
 esp32s3.svd
-debug.cfg
-data/
+
+# Build and Output Folders
 build/
-coredump_report.txt
-coredump.bin
+data/
 logs/
 managed_components/
 
-#Ignore Somfy INO/Bin files
-SomfyController.ino.XIAO_ESP32S3.bin
-SomfyController.ino.esp32c3.bin
-SomfyController.ino.esp32s2.bin
-
-#Ignore IDE files
-.vscode/
-.claude/
-
-# Ignore ELF binary archives
-elf_archive/
-*.elf
-
-# Ignore PlatformIO build folder
-.pio/
-
-# Ignore auto-generated ESP-IDF files
+# ESP-IDF Specific
 sdkconfig
 sdkconfig.old
 sdkconfig.*
 
-# Ignore temporary backup files
+# Binary and Archive Files
+*.elf
+elf_archive/
+coredump_report.txt
+coredump.bin
+
+# Project Specific / Generated Source
+src/SomfyController.ino.cpp
+
+# Ignore Somfy INO/Bin files
+SomfyController.ino.XIAO_ESP32S3.bin
+SomfyController.ino.esp32c3.bin
+SomfyController.ino.esp32s2.bin
+
+# Temporary and Backup Files
 *.orig
 *.bak

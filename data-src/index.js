@@ -1,4 +1,8 @@
-//var hst = '192.168.1.208';
+/** 
+ * hst is a development convenience variable: it's a hardcoded IP address used when the HTML file is opened directly 
+ * from the filesystem (i.e., file:// protocol) rather than served from the ESP32.
+ * Adapt the IP accordingly based on your router configuration.
+**/
 var hst = '192.168.178.20';
 var _rooms = [{ roomId: 0, name: 'Home' }];
 
