@@ -5,6 +5,7 @@
 #ifndef configsettings_h
 #define configsettings_h
 #include "WResp.h"
+
 #ifndef FW_VERSION
   #define FW_VERSION "v0.0.0" // Fallback if app_version.py script fails
 #endif

@@ -10,7 +10,7 @@ debug.cfg
 esp32.vsd
 esp32s3.svd
 
-# Build and Output Folders
+# Build, Logs and Output Folders
 build/
 data/
 logs/
