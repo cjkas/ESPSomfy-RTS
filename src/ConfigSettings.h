@@ -7,7 +7,7 @@
 #include "WResp.h"
 
 #ifndef FW_VERSION
-  #define FW_VERSION "v0.0.0" // Fallback if app_version.py script fails
+  #define FW_VERSION "v3.0.11" // Fallback if app_version.py script fails
 #endif
 
 enum class conn_types_t : byte {
