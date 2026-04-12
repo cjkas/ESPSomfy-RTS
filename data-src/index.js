@@ -1,6 +1,9 @@
-//var hst = '192.168.1.208';
-var hst = '192.168.1.152';
-//var hst = '192.168.1.159';
+/** 
+ * hst is a development convenience variable: it's a hardcoded IP address used when the HTML file is opened directly 
+ * from the filesystem (i.e., file:// protocol) rather than served from the ESP32.
+ * Adapt the IP accordingly based on your router configuration.
+**/
+var hst = '192.168.178.20';
 var _rooms = [{ roomId: 0, name: 'Home' }];
 
 var errors = [
@@ -1268,9 +1271,27 @@ class Security {
 }
 var security = new Security();
 
+// let appVersion = 'v3.0.11'; // Default placeholder
+async function getAppVersion() {
+    try {
+        const response = await fetch('/appversion');
+        if (!response.ok) throw new Error('File not found');
+        
+        const data = await response.text();
+        appVersion = `v${data.trim()}`;
+        
+        console.log("Loaded Version:", appVersion);
+        // Trigger any UI updates here
+    } catch (error) {
+        console.error("Error loading App version:", error);
+        appVersion = 'v3.0.11'; // Default placeholder
+    }
+    return appVersion;
+}
+
 class General {
     initialized = false; 
-    appVersion = 'v3.0.11';
+    appVersion = getAppVersion();
     reloadApp = false;
     init() {
         if (this.initialized) return;
@@ -2795,16 +2816,17 @@ class Somfy {
         document.getElementById('divLinkedShadeList').innerHTML = divCfg;
     }
     pinMaps = [
-        { name: '', maxPins: 39, inputs: [0, 1, 6, 7, 8, 9, 10, 11, 37, 38], outputs: [3, 6, 7, 8, 9, 10, 11, 34, 35, 36, 37, 38, 39] },
+        { name: '', maxPins: 39, inputs: [], outputs: [] },
         { name: 's2', maxPins: 46, inputs: [0, 19, 20, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 45], outputs: [0, 19, 20, 26, 27, 28, 29, 30, 31, 32, 45, 46]},
         { name: 's3', maxPins: 48, inputs: [19, 20, 22, 23, 24, 25, 27, 28, 29, 30, 31, 32], outputs: [19, 20, 22, 23, 24, 25, 27, 28, 29, 30, 31, 32] },
-        { name: 'c3', maxPins: 21, inputs: [11, 12, 13, 14, 15, 16, 17, 18, 19, 20], outputs: [11, 12, 13, 14, 15, 16, 17, 21] }
+        { name: 'c3', maxPins: 21, inputs: [11, 12, 13, 14, 15, 16, 17, 18, 19, 20], outputs: [11, 12, 13, 14, 15, 16, 17, 21] },
+        { name: 'c6', maxPins: 23, inputs: [], outputs: [] }
     ];
 
     loadPins(type, sel, opt) {
         while (sel.firstChild) sel.removeChild(sel.firstChild);
         let cm = document.getElementById('divContainer').getAttribute('data-chipmodel');
-        let pm = this.pinMaps.find(x => x.name === cm) || { name: '', maxPins: 39, inputs: [0, 1, 6, 7, 8, 9, 10, 11, 37, 38], outputs: [3, 6, 7, 8, 9, 10, 11, 34, 35, 36, 37, 38, 39] };
+        let pm = this.pinMaps.find(x => x.name === cm) || { name: '', maxPins: 39, inputs: [], outputs: [] };
         //console.log({ cm: cm, pm: pm });
         for (let i = 0; i <= pm.maxPins; i++) {
             if (type.includes('in') && pm.inputs.includes(i)) continue;
@@ -4814,4 +4836,16 @@ class Firmware {
     }
 }
 var firmware = new Firmware();
+
+window.addEventListener('load', async () => {
+    // 1. Initialize your main application logic
+    // await init(); 
+    
+    // 2. Fetch and display the app version
+    appVersion = await getAppVersion();
+    const spanAppVersion = document.getElementById('spanAppVersion');
+    spanAppVersion.innerText = `${appVersion.trim()}`;
+    
+    console.log("Application fully loaded and version updated.");
+});
 

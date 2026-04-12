@@ -5,6 +5,12 @@
 #include <ESPmDNS.h>
 #include <esp_task_wdt.h>
 #include "esp_log.h"
+
+// Only reset the WDT if the current task is actually subscribed.
+// setConnected() is called from the WiFi event task which is not registered.
+static inline void safe_wdt_reset() {
+  if (esp_task_wdt_status(NULL) == ESP_OK) esp_task_wdt_reset();
+}
 #include "ConfigSettings.h"
 #include "ESPNetwork.h"
 #include "Web.h"
@@ -230,7 +236,7 @@ void ESPNetwork::emitSockets(uint8_t num) {
   this->emitHeap(num);
 }
 void ESPNetwork::setConnected(conn_types_t connType) {
-  esp_task_wdt_reset();
+  safe_wdt_reset();
   this->connType = connType;
   this->connectTime = millis();
   connectRetries = 0;
@@ -261,7 +267,7 @@ void ESPNetwork::setConnected(conn_types_t connType) {
 #endif // CONFIG_IDF_TARGET_ESP32C6
   // NET: Begin this in the startup.
   //sockEmit.begin();
-  esp_task_wdt_reset();
+  safe_wdt_reset();
 
   if(this->connectAttempts == 1) {
     if(this->connType == conn_types_t::wifi) {
@@ -284,7 +290,7 @@ void ESPNetwork::setConnected(conn_types_t connType) {
         settings.IP.dns1 = ETH.dnsIP(0);
         settings.IP.dns2 = ETH.dnsIP(1);
       }
-      esp_task_wdt_reset();
+      safe_wdt_reset();
       JsonSockEvent *json = sockEmit.beginEmit("ethernet");
       json->beginObject();
       json->addElem("connected", this->connected());
@@ -292,7 +298,7 @@ void ESPNetwork::setConnected(conn_types_t connType) {
       json->addElem("fullduplex", ETH.fullDuplex());
       json->endObject();
       sockEmit.endEmit();
-      esp_task_wdt_reset();
+      safe_wdt_reset();
     }
 #endif
   }
@@ -311,7 +317,7 @@ void ESPNetwork::setConnected(conn_types_t connType) {
   SSDP.setChipId(0, this->getChipId());
   SSDP.setDeviceType(0, "urn:schemas-rstrouse-org:device:ESPSomfyRTS:1");
   SSDP.setName(0, settings.hostname);
-  
+
   //SSDP.setSerialNumber(0, "C2496952-5610-47E6-A968-2FC19737A0DB");
   //SSDP.setUUID(0, settings.uuid);
   SSDP.setModelName(0, "ESPSomfy RTS");
@@ -326,24 +332,24 @@ void ESPNetwork::setConnected(conn_types_t connType) {
   SSDP.setManufacturerURL(0, "https://github.com/rstrouse");
   SSDP.setURL(0, "/");
   SSDP.setActive(0, true);
-  esp_task_wdt_reset();
+  safe_wdt_reset();
   if(MDNS.begin(settings.hostname)) {
     ESP_LOGI(TAG, "MDNS Responder Started: serverId=%s", settings.serverId);
     MDNS.addService("http", "tcp", 80);
     //MDNS.addServiceTxt("http", "tcp", "board", "ESP32");
     //MDNS.addServiceTxt("http", "tcp", "model", "ESPSomfyRTS");
-    
+
     MDNS.addService("espsomfy_rts", "tcp", 8080);
     MDNS.addServiceTxt("espsomfy_rts", "tcp", "serverId", String(settings.serverId));
     MDNS.addServiceTxt("espsomfy_rts", "tcp", "model", "ESPSomfyRTS");
     MDNS.addServiceTxt("espsomfy_rts", "tcp", "version", String(settings.fwVersion.name));
   }
   if(settings.ssdpBroadcast) {
-    esp_task_wdt_reset();
+    safe_wdt_reset();
     SSDP.begin();
   }
   else if(SSDP.isStarted) SSDP.end();
-  esp_task_wdt_reset();
+  safe_wdt_reset();
   this->emitSockets();
   settings.printAvailHeap();
   this->needsBroadcast = true;

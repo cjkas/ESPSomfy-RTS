@@ -5,7 +5,11 @@
 #ifndef configsettings_h
 #define configsettings_h
 #include "WResp.h"
-#define FW_VERSION "v3.0.11"
+
+#ifndef FW_VERSION
+  #define FW_VERSION "v3.0.11" // Fallback if app_version.py script fails
+#endif
+
 enum class conn_types_t : byte {
     unset = 0x00,
     wifi = 0x01,

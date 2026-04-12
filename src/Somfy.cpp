@@ -4712,14 +4712,15 @@ void transceiver_config_t::load() {
         this->SCKPin = 15;
         this->CSNPin = 14;
         break;
-#ifdef CHIP_ESP32C6
+#ifdef CONFIG_IDF_TARGET_ESP32C6
       case esp_chip_model_t::CHIP_ESP32C6:
-        this->TXPin = 13;
-        this->RXPin = 12;
-        this->MOSIPin = 16;
-        this->MISOPin = 17;
-        this->SCKPin = 15;
-        this->CSNPin = 14;
+      // Pinout applicable for the ESP32-C6-WROOM-1 module (ESP32-C6-DevKitC-1-N4)
+        this->TXPin = 10;
+        this->RXPin = 10;
+        this->MOSIPin = 7;
+        this->MISOPin = 2;
+        this->SCKPin = 6;
+        this->CSNPin = 0;
         break;
 #endif
       default:
@@ -4878,15 +4879,6 @@ bool Transceiver::begin() {
     return true;
 }
 void Transceiver::loop() {
-  // Dispatch deferred frequency scan requests from the main task so that
-  // attachInterrupt/detachInterrupt cross-core IPCs don't race with WiFi.
-  if(_pendingScan >= 0) {
-    int8_t pending = _pendingScan;
-    _pendingScan = -1;
-    if(pending == 1) this->beginFrequencyScan();
-    else this->endFrequencyScan();
-    return;
-  }
   somfy_rx_t rx;
   if (noiseDetected && rxmode != 3 && this->config.noiseDetection) {
     if (millis() - noiseStart > 100) {
