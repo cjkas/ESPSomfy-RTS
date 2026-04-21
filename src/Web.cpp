@@ -17,6 +17,7 @@
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 #include <AsyncJson.h>
+#include <memory>
 
 extern ConfigSettings settings;
 extern SSDPClass SSDP;
@@ -418,6 +419,194 @@ static void serializeGitRelease(GitRelease *rel, JsonFormatter &json) {
   json.endObject();
 }
 
+// Memory-bounded streaming builder for /controller. Produces the JSON payload
+// one small unit at a time into a fixed 3KB buffer, so a chunked HTTP response
+// can drain it as the TCP send window allows — no growing cbuf in the async
+// response stream.
+class ControllerChunker {
+public:
+  enum : uint8_t { S_HEADER, S_ROOMS, S_SHADES, S_GROUPS, S_REPEATERS, S_DONE };
+  static constexpr uint16_t LS_OPEN = 0xFFFF;
+
+  BufferedJsonFormatter fmt;
+  char unit[3072];
+  size_t unitLen = 0;
+  size_t consumed = 0;
+  uint8_t section = S_HEADER;
+  uint16_t idx = 0;
+  uint16_t lsIdx = LS_OPEN;
+  bool firstInArray = true;
+  bool firstInLSArray = true;
+
+  size_t generate(uint8_t *out, size_t maxLen) {
+    size_t written = 0;
+    while(written < maxLen) {
+      if(consumed < unitLen) {
+        size_t n = unitLen - consumed;
+        if(n > maxLen - written) n = maxLen - written;
+        memcpy(out + written, unit + consumed, n);
+        consumed += n;
+        written += n;
+      } else {
+        produceNext();
+        if(unitLen == 0) return written;
+      }
+    }
+    return written;
+  }
+
+private:
+  void resetFmt(size_t offset = 0) {
+    unit[offset] = 0;
+    fmt.setBuffer(unit + offset, sizeof(unit) - offset);
+  }
+
+  void produceNext() {
+    consumed = 0;
+    unitLen = 0;
+    switch(section) {
+      case S_HEADER: {
+        resetFmt();
+        fmt.beginObject();
+        fmt.addElem("maxRooms", (uint8_t)SOMFY_MAX_ROOMS);
+        fmt.addElem("maxShades", (uint8_t)SOMFY_MAX_SHADES);
+        fmt.addElem("maxGroups", (uint8_t)SOMFY_MAX_GROUPS);
+        fmt.addElem("maxGroupedShades", (uint8_t)SOMFY_MAX_GROUPED_SHADES);
+        fmt.addElem("maxLinkedRemotes", (uint8_t)SOMFY_MAX_LINKED_REMOTES);
+        fmt.addElem("startingAddress", (uint32_t)somfy.startingAddress);
+        fmt.beginObject("transceiver");
+        fmt.beginObject("config");
+        serializeTransceiverConfig(fmt);
+        fmt.endObject();
+        fmt.endObject();
+        fmt.beginObject("version");
+        serializeGitVersion(fmt);
+        fmt.endObject();
+        fmt.beginArray("rooms");
+        unitLen = strlen(unit);
+        section = S_ROOMS;
+        idx = 0;
+        firstInArray = true;
+        return;
+      }
+      case S_ROOMS: {
+        while(idx < SOMFY_MAX_ROOMS && somfy.rooms[idx].roomId == 0) idx++;
+        if(idx >= SOMFY_MAX_ROOMS) {
+          strcpy(unit, "],\"shades\":[");
+          unitLen = strlen(unit);
+          section = S_SHADES;
+          idx = 0;
+          firstInArray = true;
+          return;
+        }
+        size_t pos = 0;
+        if(!firstInArray) unit[pos++] = ',';
+        resetFmt(pos);
+        fmt.beginObject();
+        serializeRoom(&somfy.rooms[idx], fmt);
+        fmt.endObject();
+        unitLen = pos + strlen(unit + pos);
+        idx++;
+        firstInArray = false;
+        return;
+      }
+      case S_SHADES: {
+        while(idx < SOMFY_MAX_SHADES && somfy.shades[idx].getShadeId() == 255) idx++;
+        if(idx >= SOMFY_MAX_SHADES) {
+          strcpy(unit, "],\"groups\":[");
+          unitLen = strlen(unit);
+          section = S_GROUPS;
+          idx = 0;
+          lsIdx = LS_OPEN;
+          firstInArray = true;
+          return;
+        }
+        size_t pos = 0;
+        if(!firstInArray) unit[pos++] = ',';
+        resetFmt(pos);
+        fmt.beginObject();
+        serializeShade(&somfy.shades[idx], fmt);
+        fmt.endObject();
+        unitLen = pos + strlen(unit + pos);
+        idx++;
+        firstInArray = false;
+        return;
+      }
+      case S_GROUPS: {
+        while(idx < SOMFY_MAX_GROUPS && somfy.groups[idx].getGroupId() == 255) idx++;
+        if(idx >= SOMFY_MAX_GROUPS) {
+          strcpy(unit, "],\"repeaters\":[");
+          unitLen = strlen(unit);
+          section = S_REPEATERS;
+          idx = 0;
+          firstInArray = true;
+          return;
+        }
+        SomfyGroup *g = &somfy.groups[idx];
+        if(lsIdx == LS_OPEN) {
+          size_t pos = 0;
+          if(!firstInArray) unit[pos++] = ',';
+          resetFmt(pos);
+          fmt.beginObject();
+          serializeGroupRef(g, fmt);
+          fmt.beginArray("linkedShades");
+          unitLen = pos + strlen(unit + pos);
+          lsIdx = 0;
+          firstInArray = false;
+          firstInLSArray = true;
+          return;
+        }
+        SomfyShade *lshade = nullptr;
+        while(lsIdx < SOMFY_MAX_GROUPED_SHADES) {
+          uint8_t sid = g->linkedShades[lsIdx];
+          if(sid > 0 && sid < 255) {
+            lshade = somfy.getShadeById(sid);
+            if(lshade) break;
+          }
+          lsIdx++;
+        }
+        if(!lshade) {
+          strcpy(unit, "]}");
+          unitLen = 2;
+          idx++;
+          lsIdx = LS_OPEN;
+          return;
+        }
+        size_t pos = 0;
+        if(!firstInLSArray) unit[pos++] = ',';
+        resetFmt(pos);
+        fmt.beginObject();
+        serializeShadeRef(lshade, fmt);
+        fmt.endObject();
+        unitLen = pos + strlen(unit + pos);
+        lsIdx++;
+        firstInLSArray = false;
+        return;
+      }
+      case S_REPEATERS: {
+        while(idx < SOMFY_MAX_REPEATERS && somfy.repeaters[idx] == 0) idx++;
+        if(idx >= SOMFY_MAX_REPEATERS) {
+          strcpy(unit, "]}");
+          unitLen = 2;
+          section = S_DONE;
+          return;
+        }
+        size_t pos = 0;
+        if(!firstInArray) unit[pos++] = ',';
+        pos += snprintf(unit + pos, sizeof(unit) - pos, "%lu", (unsigned long)somfy.repeaters[idx]);
+        unitLen = pos;
+        idx++;
+        firstInArray = false;
+        return;
+      }
+      case S_DONE:
+      default:
+        unitLen = 0;
+        return;
+    }
+  }
+};
+
 // -- Async handler implementations --
 void Web::handleDiscovery(AsyncWebServerRequest *request) {
   if(request->method() == HTTP_POST || request->method() == HTTP_GET) {
@@ -501,37 +690,12 @@ void Web::handleController(AsyncWebServerRequest *request) {
   if(!this->isAuthenticated(request)) return;
   if(request->method() == HTTP_POST || request->method() == HTTP_GET) {
     settings.printAvailHeap();
-    AsyncJsonResp resp;
-    resp.beginResponse(request, g_async_content, sizeof(g_async_content));
-    resp.beginObject();
-    resp.addElem("maxRooms", (uint8_t)SOMFY_MAX_ROOMS);
-    resp.addElem("maxShades", (uint8_t)SOMFY_MAX_SHADES);
-    resp.addElem("maxGroups", (uint8_t)SOMFY_MAX_GROUPS);
-    resp.addElem("maxGroupedShades", (uint8_t)SOMFY_MAX_GROUPED_SHADES);
-    resp.addElem("maxLinkedRemotes", (uint8_t)SOMFY_MAX_LINKED_REMOTES);
-    resp.addElem("startingAddress", (uint32_t)somfy.startingAddress);
-    resp.beginObject("transceiver");
-    resp.beginObject("config");
-    serializeTransceiverConfig(resp);
-    resp.endObject();
-    resp.endObject();
-    resp.beginObject("version");
-    serializeGitVersion(resp);
-    resp.endObject();
-    resp.beginArray("rooms");
-    serializeRooms(resp);
-    resp.endArray();
-    resp.beginArray("shades");
-    serializeShades(resp);
-    resp.endArray();
-    resp.beginArray("groups");
-    serializeGroups(resp);
-    resp.endArray();
-    resp.beginArray("repeaters");
-    serializeRepeaters(resp);
-    resp.endArray();
-    resp.endObject();
-    resp.endResponse();
+    auto state = std::make_shared<ControllerChunker>();
+    AsyncWebServerResponse *response = request->beginChunkedResponse(_encoding_json,
+      [state](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
+        return state->generate(buffer, maxLen);
+      });
+    request->send(response);
   }
   else request->send(404, _encoding_text, _response_404);
 }

@@ -52,6 +52,11 @@ class JsonFormatter {
     void addElem(const char *name, const char *val);
     void addElem(const char* name, uint64_t lval);
 };
+class BufferedJsonFormatter : public JsonFormatter {
+  public:
+    void setBuffer(char *b, size_t sz);
+    size_t length() const;
+};
 class AsyncJsonResp : public JsonFormatter {
   protected:
     void _safecat(const char *val, bool escape = false) override;

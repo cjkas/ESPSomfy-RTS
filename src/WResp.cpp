@@ -35,6 +35,17 @@ void JsonSockEvent::_safecat(const char *val, bool escape) {
   else strcat(this->buff, val);
   if(escape) strcat(this->buff, "\"");
 }
+void BufferedJsonFormatter::setBuffer(char *b, size_t sz) {
+  this->buff = b;
+  this->buffSize = sz;
+  this->buff[0] = 0;
+  this->_nocomma = true;
+  this->_objects = 0;
+  this->_arrays = 0;
+}
+size_t BufferedJsonFormatter::length() const {
+  return strlen(this->buff);
+}
 void AsyncJsonResp::beginResponse(AsyncWebServerRequest *request, char *buff, size_t buffSize) {
   this->_request = request;
   this->buff = buff;
