@@ -1228,7 +1228,8 @@ class Security {
         document.getElementById('divUnauthenticated').style.display = 'none';
         document.getElementById('divContainer').dispatchEvent(evt);
     }
-    login() {
+    login(evt) {
+        if (evt && evt.preventDefault) evt.preventDefault();
         console.log('Logging in...');
         let pnl = document.getElementById('divUnauthenticated');
         let msg = pnl.querySelector('#spanLoginMessage');
@@ -1241,7 +1242,7 @@ class Security {
                 for (let i = 0; i < 4; i++) {
                     pin += sec.pin[`d${i}`];
                 }
-                if (pin.length !== 4) return;
+                if (pin.length !== 4) return false;
                 break;
             case 2:
                 break;
@@ -1252,6 +1253,16 @@ class Security {
             else {
                 console.log(log);
                 if (log.success) {
+                    if (sec.type === 2 && window.PasswordCredential && navigator.credentials) {
+                        try {
+                            const cred = new PasswordCredential({
+                                id: sec.username,
+                                password: sec.password,
+                                name: sec.username
+                            });
+                            navigator.credentials.store(cred);
+                        } catch (e) { /* ignore; browsers without support fall back to the form-submit heuristic */ }
+                    }
                     if (typeof socket === 'undefined' || !socket) (async () => { await initSockets(); })();
                     //ui.setMode(mode);
 
@@ -1260,13 +1271,14 @@ class Security {
                     document.getElementById('divContainer').setAttribute('data-auth', true);
                     this.apiKey = log.apiKey;
                     this.authenticated = true;
-                    let evt = new CustomEvent('afterlogin', { detail: { authenticated: true } });
-                    document.getElementById('divContainer').dispatchEvent(evt);
+                    let evt2 = new CustomEvent('afterlogin', { detail: { authenticated: true } });
+                    document.getElementById('divContainer').dispatchEvent(evt2);
                 }
                 else
                     msg.innerHTML = log.msg;
             }
         });
+        return false;
     }
 }
 var security = new Security();
@@ -1274,7 +1286,7 @@ var security = new Security();
 // let appVersion = 'v3.0.12'; // Default placeholder
 async function getAppVersion() {
     try {
-        const response = await fetch('/appversion');
+        const response = await fetch('/appversion?v='+Date.now());
         if (!response.ok) throw new Error('File not found');
         
         const data = await response.text();
@@ -1290,8 +1302,8 @@ async function getAppVersion() {
 }
 
 class General {
-    initialized = false; 
-    appVersion = getAppVersion();
+    initialized = false;
+    appVersion = '';
     reloadApp = false;
     init() {
         if (this.initialized) return;
@@ -1468,7 +1480,10 @@ class General {
             }
         });
     }
-    setAppVersion() { document.getElementById('spanAppVersion').innerText = this.appVersion; }
+    async setAppVersion() {
+        this.appVersion = await getAppVersion();
+        document.getElementById('spanAppVersion').innerText = this.appVersion;
+    }
     setTimeZones() {
         let dd = document.getElementById('selTimeZone');
         dd.length = 0;
