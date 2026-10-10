@@ -6,8 +6,9 @@
 #ifndef webserver_h
 #define webserver_h
 
-#define WEB_CMD_QUEUE_SIZE 8
-#define WEB_CMD_TIMEOUT_MS 3000
+// Commands are queued by the async web server and drained by the main loop.
+// Big enough for Home Assistant firing a command at every shade at once.
+#define WEB_CMD_QUEUE_SIZE 32
 
 enum class web_cmd_t : uint8_t {
     shade_command,      // moveToTarget or sendCommand
@@ -18,6 +19,8 @@ enum class web_cmd_t : uint8_t {
     set_positions,      // set shade position directly
     shade_sensor,       // shade sensor command
     group_sensor,       // group sensor command
+    set_my_position,    // shade setMyPosition (position/tiltPosition)
+    unpair_shade,       // shade unpair (Prog) and clear paired flag
 };
 
 struct web_command_t {
@@ -67,8 +70,8 @@ class Web {
     void handleBackup(AsyncWebServerRequest *request);
     void handleReboot(AsyncWebServerRequest *request);
     void handleNotFound(AsyncWebServerRequest *request);
+    bool queueCommand(const web_command_t &cmd);
   private:
     void processQueue();
-    bool queueCommand(const web_command_t &cmd);
 };
 #endif

@@ -45,14 +45,29 @@ static const char _encoding_json[] = "application/json";
 static const char *TAG = "Web";
 
 static QueueHandle_t webCmdQueue = nullptr;
-static SemaphoreHandle_t webCmdDone = nullptr;
+
+// Radio work for these handlers runs on the main loop via the command queue.
+static void queueSetMyPosition(SomfyShade *shade, int8_t pos, int8_t tilt) {
+  web_command_t cmd = {};
+  cmd.type = web_cmd_t::set_my_position;
+  cmd.shadeId = shade->getShadeId();
+  cmd.position = pos;
+  cmd.tiltPosition = tilt;
+  webServer.queueCommand(cmd);
+}
+static void queueUnpairShade(SomfyShade *shade) {
+  web_command_t cmd = {};
+  cmd.type = web_cmd_t::unpair_shade;
+  cmd.shadeId = shade->getShadeId();
+  // Reflect the change in the response; the main loop sets it again and saves.
+  if(webServer.queueCommand(cmd)) shade->paired = false;
+}
 
 AsyncWebServer asyncServer(80);
 AsyncWebServer asyncApiServer(8081);
 void Web::startup() {
   ESP_LOGI(TAG, "Launching web server...");
   if(!webCmdQueue) webCmdQueue = xQueueCreate(WEB_CMD_QUEUE_SIZE, sizeof(web_command_t));
-  if(!webCmdDone) webCmdDone = xSemaphoreCreateBinary();
 
   asyncServer.on("/loginContext", HTTP_GET, [](AsyncWebServerRequest *request) {
     AsyncJsonResponse *response = new AsyncJsonResponse();
@@ -74,22 +89,19 @@ void Web::loop() {
   delay(1);
 }
 bool Web::queueCommand(const web_command_t &cmd) {
-  if(!webCmdQueue || !webCmdDone) return false;
-  // Clear any stale signal
-  xSemaphoreTake(webCmdDone, 0);
-  if(xQueueSend(webCmdQueue, &cmd, pdMS_TO_TICKS(100)) != pdTRUE) {
+  if(!webCmdQueue) return false;
+  // This runs on the async_tcp task which also services the sockets so it must
+  // never wait on the main loop or the radio.
+  web_command_t c = cmd;
+  if(c.repeat > MAX_TX_REPEATS) c.repeat = MAX_TX_REPEATS;
+  if(xQueueSend(webCmdQueue, &c, 0) != pdTRUE) {
     ESP_LOGE(TAG, "Command queue full, dropping command");
-    return false;
-  }
-  // Wait for main loop to process it
-  if(xSemaphoreTake(webCmdDone, pdMS_TO_TICKS(WEB_CMD_TIMEOUT_MS)) != pdTRUE) {
-    ESP_LOGW(TAG, "Command queue timeout waiting for processing");
     return false;
   }
   return true;
 }
 void Web::processQueue() {
-  if(!webCmdQueue || !webCmdDone) return;
+  if(!webCmdQueue) return;
   web_command_t cmd;
   while(xQueueReceive(webCmdQueue, &cmd, 0) == pdTRUE) {
     switch(cmd.type) {
@@ -156,8 +168,21 @@ void Web::processQueue() {
         }
         break;
       }
+      case web_cmd_t::set_my_position: {
+        SomfyShade *shade = somfy.getShadeById(cmd.shadeId);
+        if(shade) shade->setMyPosition(cmd.position, cmd.tiltPosition);
+        break;
+      }
+      case web_cmd_t::unpair_shade: {
+        SomfyShade *shade = somfy.getShadeById(cmd.shadeId);
+        if(shade) {
+          shade->sendCommand(somfy_commands::Prog, shade->bitLength == 56 ? 7 : 1);
+          shade->paired = false;
+          shade->save();
+        }
+        break;
+      }
     }
-    xSemaphoreGive(webCmdDone);
   }
 }
 bool Web::isAuthenticated(AsyncWebServerRequest *request, bool cfg) {
@@ -1601,7 +1626,7 @@ void Web::begin() {
         if(tilt < 0) tilt = shade->myPos;
         if(shade->tiltType == tilt_types::none) tilt = -1;
         if(pos >= 0 && pos <= 100)
-          shade->setMyPosition(shade->transformPosition(pos), shade->transformPosition(tilt));
+          queueSetMyPosition(shade, shade->transformPosition(pos), shade->transformPosition(tilt));
         AsyncJsonResp resp;
         resp.beginResponse(request, g_async_content, sizeof(g_async_content));
         resp.beginObject();
@@ -1628,7 +1653,7 @@ void Web::begin() {
       if(tilt < 0) tilt = shade->myPos;
       if(shade->tiltType == tilt_types::none) tilt = -1;
       if(pos >= 0 && pos <= 100)
-        shade->setMyPosition(shade->transformPosition(pos), shade->transformPosition(tilt));
+        queueSetMyPosition(shade, shade->transformPosition(pos), shade->transformPosition(tilt));
       AsyncJsonResp resp;
       resp.beginResponse(request, g_async_content, sizeof(g_async_content));
       resp.beginObject();
@@ -1753,12 +1778,7 @@ void Web::begin() {
         request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade not found to unpair\"}"));
       }
       else {
-        if(shade->bitLength == 56)
-          shade->sendCommand(somfy_commands::Prog, 7);
-        else
-          shade->sendCommand(somfy_commands::Prog, 1);
-        shade->paired = false;
-        shade->save();
+        queueUnpairShade(shade);
         AsyncJsonResp resp;
         resp.beginResponse(request, g_async_content, sizeof(g_async_content));
         resp.beginObject();
@@ -1777,12 +1797,7 @@ void Web::begin() {
       request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade not found to unpair\"}"));
     }
     else {
-      if(shade->bitLength == 56)
-        shade->sendCommand(somfy_commands::Prog, 7);
-      else
-        shade->sendCommand(somfy_commands::Prog, 1);
-      shade->paired = false;
-      shade->save();
+      queueUnpairShade(shade);
       AsyncJsonResp resp;
       resp.beginResponse(request, g_async_content, sizeof(g_async_content));
       resp.beginObject();

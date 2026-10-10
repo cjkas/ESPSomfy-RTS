@@ -201,6 +201,19 @@ struct somfy_frame_t {
     bool isSynonym(somfy_frame_t &f);
     void copy(somfy_frame_t &f);
 };
+// Upper bound on repeats for a single transmission.  Each frame is ~140ms of
+// radio time so this keeps a single job to roughly 6 seconds.
+#define MAX_TX_REPEATS 40
+#define TX_JOB_QUEUE_SIZE 32
+// A transmission handed off to the radio task.  The frame is a copy so the
+// radio task never touches the remote's lastFrame.
+struct somfy_tx_job_t {
+  somfy_frame_t frame;
+  uint8_t repeats = 0;      // Number of repeat frames after the first frame.
+  uint8_t firstRepeat = 1;  // 80-bit repeat counter used for the first repeat frame.
+  bool raw = false;         // When true rawTx holds a pre-encoded frame (repeater).
+  somfy_tx_t rawTx;
+};
 
 class SomfyRoom {
   public:
@@ -488,8 +501,11 @@ struct transceiver_config_t {
 class Transceiver {
   private:
     static void handleReceive();
+    static void txTask(void *arg);
     bool _received = false;
     somfy_frame_t frame;
+    void startTxTask();
+    void transmitJob(somfy_tx_job_t &job);
   public:
     transceiver_config_t config;
     bool printBuffer = false;
@@ -505,6 +521,8 @@ class Transceiver {
     void disableReceive();
     somfy_frame_t& lastFrame();
     void sendFrame(byte *frame, uint8_t sync, uint8_t bitLength = 56);
+    bool queueTx(const somfy_tx_job_t &job);
+    void flushTx();
     void beginTransmit();
     void endTransmit();
     void emitFrame(somfy_frame_t *frame, somfy_rx_t *rx = nullptr);
