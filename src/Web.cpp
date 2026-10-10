@@ -47,20 +47,26 @@ static const char *TAG = "Web";
 static QueueHandle_t webCmdQueue = nullptr;
 
 // Radio work for these handlers runs on the main loop via the command queue.
-static void queueSetMyPosition(SomfyShade *shade, int8_t pos, int8_t tilt) {
+static bool queueSetMyPosition(SomfyShade *shade, int8_t pos, int8_t tilt) {
   web_command_t cmd = {};
   cmd.type = web_cmd_t::set_my_position;
   cmd.shadeId = shade->getShadeId();
   cmd.position = pos;
   cmd.tiltPosition = tilt;
-  webServer.queueCommand(cmd);
+  return webServer.queueCommand(cmd);
 }
-static void queueUnpairShade(SomfyShade *shade) {
+static bool queueUnpairShade(SomfyShade *shade) {
   web_command_t cmd = {};
   cmd.type = web_cmd_t::unpair_shade;
   cmd.shadeId = shade->getShadeId();
+  if(!webServer.queueCommand(cmd)) return false;
   // Reflect the change in the response; the main loop sets it again and saves.
-  if(webServer.queueCommand(cmd)) shade->paired = false;
+  shade->paired = false;
+  return true;
+}
+// Sent when a command can't be handed to the main loop.
+static void sendQueueFull(AsyncWebServerRequest *request) {
+  request->send(503, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Command queue full\"}"));
 }
 
 AsyncWebServer asyncServer(80);
@@ -92,9 +98,7 @@ bool Web::queueCommand(const web_command_t &cmd) {
   if(!webCmdQueue) return false;
   // This runs on the async_tcp task which also services the sockets so it must
   // never wait on the main loop or the radio.
-  web_command_t c = cmd;
-  if(c.repeat > MAX_TX_REPEATS) c.repeat = MAX_TX_REPEATS;
-  if(xQueueSend(webCmdQueue, &c, 0) != pdTRUE) {
+  if(xQueueSend(webCmdQueue, &cmd, 0) != pdTRUE) {
     ESP_LOGE(TAG, "Command queue full, dropping command");
     return false;
   }
@@ -812,7 +816,7 @@ void Web::handleShadeCommand(AsyncWebServerRequest *request, JsonVariant &json) 
     cmd.command = command;
     cmd.repeat = repeat;
     cmd.stepSize = stepSize;
-    this->queueCommand(cmd);
+    if(!this->queueCommand(cmd)) { sendQueueFull(request); return; }
     AsyncJsonResp resp;
     resp.beginResponse(request, g_async_content, sizeof(g_async_content));
     resp.beginObject();
@@ -853,7 +857,7 @@ void Web::handleGroupCommand(AsyncWebServerRequest *request, JsonVariant &json) 
     cmd.command = command;
     cmd.repeat = repeat;
     cmd.stepSize = stepSize;
-    this->queueCommand(cmd);
+    if(!this->queueCommand(cmd)) { sendQueueFull(request); return; }
     AsyncJsonResp resp;
     resp.beginResponse(request, g_async_content, sizeof(g_async_content));
     resp.beginObject();
@@ -890,7 +894,7 @@ void Web::handleTiltCommand(AsyncWebServerRequest *request, JsonVariant &json) {
     cmd.shadeId = shadeId;
     cmd.target = target;
     cmd.command = command;
-    this->queueCommand(cmd);
+    if(!this->queueCommand(cmd)) { sendQueueFull(request); return; }
     AsyncJsonResp resp;
     resp.beginResponse(request, g_async_content, sizeof(g_async_content));
     resp.beginObject();
@@ -931,7 +935,7 @@ void Web::handleRepeatCommand(AsyncWebServerRequest *request, JsonVariant &json)
     cmd.command = command;
     cmd.repeat = repeat;
     cmd.stepSize = stepSize;
-    this->queueCommand(cmd);
+    if(!this->queueCommand(cmd)) { sendQueueFull(request); return; }
     AsyncJsonResp resp;
     resp.beginResponse(request, g_async_content, sizeof(g_async_content));
     resp.beginArray();
@@ -949,7 +953,7 @@ void Web::handleRepeatCommand(AsyncWebServerRequest *request, JsonVariant &json)
     cmd.command = command;
     cmd.repeat = repeat;
     cmd.stepSize = stepSize;
-    this->queueCommand(cmd);
+    if(!this->queueCommand(cmd)) { sendQueueFull(request); return; }
     AsyncJsonResp resp;
     resp.beginResponse(request, g_async_content, sizeof(g_async_content));
     resp.beginObject();
@@ -1043,7 +1047,7 @@ void Web::handleSetPositions(AsyncWebServerRequest *request, JsonVariant &json) 
       cmd.shadeId = shadeId;
       cmd.position = pos;
       cmd.tiltPosition = tiltPos;
-      this->queueCommand(cmd);
+      if(!this->queueCommand(cmd)) { sendQueueFull(request); return; }
       AsyncJsonResp resp;
       resp.beginResponse(request, g_async_content, sizeof(g_async_content));
       resp.beginObject();
@@ -1086,7 +1090,7 @@ void Web::handleSetSensor(AsyncWebServerRequest *request, JsonVariant &json) {
       cmd.sunny = sunny;
       cmd.windy = windy;
       cmd.repeat = repeat;
-      this->queueCommand(cmd);
+      if(!this->queueCommand(cmd)) { sendQueueFull(request); return; }
       AsyncJsonResp resp;
       resp.beginResponse(request, g_async_content, sizeof(g_async_content));
       resp.beginObject();
@@ -1105,7 +1109,7 @@ void Web::handleSetSensor(AsyncWebServerRequest *request, JsonVariant &json) {
       cmd.sunny = sunny;
       cmd.windy = windy;
       cmd.repeat = repeat;
-      this->queueCommand(cmd);
+      if(!this->queueCommand(cmd)) { sendQueueFull(request); return; }
       AsyncJsonResp resp;
       resp.beginResponse(request, g_async_content, sizeof(g_async_content));
       resp.beginObject();
@@ -1626,7 +1630,7 @@ void Web::begin() {
         if(tilt < 0) tilt = shade->myPos;
         if(shade->tiltType == tilt_types::none) tilt = -1;
         if(pos >= 0 && pos <= 100)
-          queueSetMyPosition(shade, shade->transformPosition(pos), shade->transformPosition(tilt));
+          if(!queueSetMyPosition(shade, shade->transformPosition(pos), shade->transformPosition(tilt))) { sendQueueFull(request); return; }
         AsyncJsonResp resp;
         resp.beginResponse(request, g_async_content, sizeof(g_async_content));
         resp.beginObject();
@@ -1653,7 +1657,7 @@ void Web::begin() {
       if(tilt < 0) tilt = shade->myPos;
       if(shade->tiltType == tilt_types::none) tilt = -1;
       if(pos >= 0 && pos <= 100)
-        queueSetMyPosition(shade, shade->transformPosition(pos), shade->transformPosition(tilt));
+        if(!queueSetMyPosition(shade, shade->transformPosition(pos), shade->transformPosition(tilt))) { sendQueueFull(request); return; }
       AsyncJsonResp resp;
       resp.beginResponse(request, g_async_content, sizeof(g_async_content));
       resp.beginObject();
@@ -1778,7 +1782,7 @@ void Web::begin() {
         request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade not found to unpair\"}"));
       }
       else {
-        queueUnpairShade(shade);
+        if(!queueUnpairShade(shade)) { sendQueueFull(request); return; }
         AsyncJsonResp resp;
         resp.beginResponse(request, g_async_content, sizeof(g_async_content));
         resp.beginObject();
@@ -1797,7 +1801,7 @@ void Web::begin() {
       request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade not found to unpair\"}"));
     }
     else {
-      queueUnpairShade(shade);
+      if(!queueUnpairShade(shade)) { sendQueueFull(request); return; }
       AsyncJsonResp resp;
       resp.beginResponse(request, g_async_content, sizeof(g_async_content));
       resp.beginObject();

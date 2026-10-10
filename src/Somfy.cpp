@@ -4,6 +4,7 @@
 #include <esp_task_wdt.h>
 #include <freertos/queue.h>
 #include <freertos/semphr.h>
+#include <atomic>
 #include <esp_chip_info.h>
 #include "driver/gpio.h"
 #include "esp_log.h"
@@ -40,12 +41,20 @@ uint8_t rxmode = 0;  // Indicates whether the radio is in receive mode.  Just to
 #define TX_QUEUE_DELAY 100
 #define TX_TASK_PRIORITY 5
 #define TX_TASK_STACK 4096
+#define TX_RX_IDLE_WAIT 300  // Max ms a repeater frame waits for an incoming frame to finish.
 
 // Serializes all access to the CC1101 (SPI) and the TX/RX pins between the
 // radio task, the main loop and the async web server task.
 static SemaphoreHandle_t radioMutex = nullptr;
 static QueueHandle_t txJobQueue = nullptr;
+static QueueHandle_t txStartQueue = nullptr;
 static TaskHandle_t txTaskHandle = nullptr;
+// Bumped by flushTx().  Queued jobs from an older generation are dropped and a
+// job in flight stops after its current frame so nobody waits on the radio lock
+// for a whole transmission.
+static std::atomic<uint32_t> txGen{0};
+// Set while the radio must not transmit at all (frequency scan, OTA).
+static volatile bool txSuspended = false;
 struct RadioLock {
   bool locked = true;  // Before the mutex exists there is nothing to serialize against.
   bool owned = false;
@@ -54,6 +63,16 @@ struct RadioLock {
   }
   ~RadioLock() { if(owned) xSemaphoreGiveRecursive(radioMutex); }
 };
+// Encodes the first frame of a transmission into the job.  Encoding here keeps
+// its side effects on the frame (valid flag, default step size) visible to the
+// caller and the radio task only re-encodes the 80-bit repeat frames.
+static void encodeTxJob(somfy_tx_job_t &job, somfy_frame_t &frame, uint8_t repeat) {
+  frame.encodeFrame(job.tx.payload);
+  job.tx.hwsync = frame.bitLength == 56 ? 2 : 12;
+  job.tx.bit_length = frame.bitLength;
+  job.frame = frame;
+  job.repeats = repeat;
+}
 
 int sort_asc(const void *cmp1, const void *cmp2) {
   int a = *((uint8_t *)cmp1);
@@ -266,8 +285,9 @@ void somfy_frame_t::decodeFrame(somfy_rx_t *rx) {
   this->bitLength = rx->bit_length;
   {
     // Don't stall the main loop behind a transmission just to read the RSSI.
+    // The frame object is reused so clear the RSSI rather than reporting a stale one.
     RadioLock lock(0);
-    if(lock.locked) this->rssi = ELECHOUSE_cc1101.getRssi();
+    this->rssi = lock.locked ? ELECHOUSE_cc1101.getRssi() : 0;
   }
   this->decodeFrame(rx->payload);
 }
@@ -1347,7 +1367,8 @@ void SomfyShade::checkMovement() {
       if(this->myPos == this->currentPos) this->p_myPos(-1);
       else this->p_myPos(this->currentPos);
     }
-    SomfyRemote::sendCommand(somfy_commands::My, SETMY_REPEATS);
+    // Give the motor time to settle at the target before it is told to store it.
+    SomfyRemote::sendCommandAfter(somfy_commands::My, SETMY_REPEATS, 0, 200);
     this->settingMyPos = false;
     this->commitMyPosition();
     this->emitState();
@@ -2731,6 +2752,14 @@ void SomfyShade::setTiltMovement(int8_t dir) {
     this->emitState();
   }
 }
+void SomfyShade::shiftMovementStart(uint32_t queuedAt, uint32_t startedAt) {
+  // The movement was started when the command was queued but the motor only
+  // starts once the frame is on air.  Move the start forward so the simulated
+  // position does not run ahead of the motor.
+  const uint32_t wait = startedAt - queuedAt;
+  if(this->direction != 0 && (uint32_t)((uint32_t)this->moveStart - queuedAt) < wait) this->moveStart = startedAt;
+  if(this->tiltDirection != 0 && (uint32_t)((uint32_t)this->tiltStart - queuedAt) < wait) this->tiltStart = startedAt;
+}
 void SomfyShade::setMovement(int8_t dir) {
   int8_t currDir = this->direction;
   int8_t currTiltDir = this->tiltDirection;
@@ -2868,6 +2897,8 @@ void SomfyShade::moveToMyPosition() {
 void SomfyShade::sendCommand(somfy_commands cmd) { this->sendCommand(cmd, this->repeats); }
 void SomfyShade::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize) {
   ESP_LOGD(TAG, "Send command start");
+  // Don't move the simulated state for a command the radio can't take.
+  if(!this->canTransmit()) return;
   // This sendCommand function will always be called externally. sendCommand at the remote level
   // is expected to be called internally when the motor needs commanded.
   if(this->bitLength == 0) this->bitLength = somfy.transceiver.config.type;
@@ -2951,6 +2982,7 @@ void SomfyShade::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSiz
 void SomfyGroup::sendCommand(somfy_commands cmd) { this->sendCommand(cmd, this->repeats); }
 void SomfyGroup::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize) {
   ESP_LOGI(TAG, "[Group %u] sendCommand cmd=%s repeat=%u", this->getGroupId(), translateSomfyCommand(cmd).c_str(), repeat);
+  if(!this->canTransmit()) return;
   // This sendCommand function will always be called externally. sendCommand at the remote level
   // is expected to be called internally when the motor needs commanded.
   if(this->bitLength == 0) this->bitLength = somfy.transceiver.config.type;
@@ -2985,6 +3017,7 @@ void SomfyGroup::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSiz
   
 }  
 void SomfyShade::sendTiltCommand(somfy_commands cmd) {
+  if(!this->canTransmit()) return;
   if(cmd == somfy_commands::Up) {
     SomfyRemote::sendCommand(cmd, this->tiltType == tilt_types::tiltmotor ? TILT_REPEATS : this->repeats);
     this->p_tiltTarget(0.0f);
@@ -2999,6 +3032,7 @@ void SomfyShade::sendTiltCommand(somfy_commands cmd) {
   }
 }
 void SomfyShade::moveToTiltTarget(float target) {
+  if(!this->canTransmit()) return;
   somfy_commands cmd = somfy_commands::My;
   if(target < this->currentTiltPos)
     cmd = somfy_commands::Up;
@@ -3030,6 +3064,7 @@ void SomfyShade::moveToTarget(float pos, float tilt) {
     this->emitState();
     return;
   }
+  if(!this->canTransmit()) return;
   if(this->tiltType == tilt_types::tiltonly) {
     this->p_target(100.0f);
     this->p_myPos(-1.0f);
@@ -3438,6 +3473,27 @@ void SomfyShadeController::processFrame(somfy_frame_t &frame, bool internal) {
     if(this->shades[i].getShadeId() != 255) this->shades[i].processFrame(frame, internal);
   }
 }
+void SomfyShadeController::shiftMovementStart(uint32_t remoteAddress, uint32_t queuedAt, uint32_t startedAt) {
+  // Same matching as SomfyShade::processFrame for shade and linked remotes.
+  for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
+    SomfyShade *shade = &this->shades[i];
+    if(shade->getShadeId() == 255) continue;
+    bool hasRemote = shade->getRemoteAddress() == remoteAddress;
+    for(uint8_t j = 0; !hasRemote && j < SOMFY_MAX_LINKED_REMOTES; j++)
+      hasRemote = shade->linkedRemotes[j].getRemoteAddress() == remoteAddress;
+    if(hasRemote) shade->shiftMovementStart(queuedAt, startedAt);
+  }
+  // Group commands move their member shades through processInternalCommand.
+  for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++) {
+    SomfyGroup *group = &this->groups[i];
+    if(group->getGroupId() == 255 || group->getRemoteAddress() != remoteAddress) continue;
+    for(uint8_t j = 0; j < SOMFY_MAX_GROUPED_SHADES; j++) {
+      if(group->linkedShades[j] == 0) continue;
+      SomfyShade *shade = this->getShadeById(group->linkedShades[j]);
+      if(shade) shade->shiftMovementStart(queuedAt, startedAt);
+    }
+  }
+}
 void SomfyShadeController::processWaitingFrame() {
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++)
     if(this->shades[i].getShadeId() != 255) this->shades[i].processWaitingFrame();
@@ -3783,6 +3839,7 @@ somfy_commands SomfyRemote::transformCommand(somfy_commands cmd) {
   return cmd;
 }
 void SomfyRemote::sendSensorCommand(int8_t isWindy, int8_t isSunny, uint8_t repeat) {
+  if(!this->canTransmit()) return;
   uint8_t flags = (this->flags >> 4) & 0x0F;
   if(isWindy > 0) flags |= 0x01;
   if(isSunny > 0) flags |= 0x02;
@@ -3800,11 +3857,20 @@ void SomfyRemote::sendSensorCommand(int8_t isWindy, int8_t isSunny, uint8_t repe
   ESP_LOGD(TAG, "CMD:%s ADDR:%d RCODE:%d REPEAT:%d",
       translateSomfyCommand(this->lastFrame.cmd).c_str(),
       this->lastFrame.remoteAddress, this->lastFrame.rollingCode, repeat);
-  somfy.sendFrame(this->lastFrame, repeat);
-  somfy.processFrame(this->lastFrame, true);
+  if(somfy.sendFrame(this->lastFrame, repeat)) somfy.processFrame(this->lastFrame, true);
+}
+bool SomfyRemote::canTransmit() {
+  // GPIO remotes don't use the radio.
+  if(this->proto == radio_proto::GP_Relay || this->proto == radio_proto::GP_Remote) return true;
+  if(somfy.transceiver.canQueueTx()) return true;
+  ESP_LOGE(TAG, "Radio TX unavailable, dropping command for %d", this->getRemoteAddress());
+  return false;
 }
 void SomfyRemote::sendCommand(somfy_commands cmd) { this->sendCommand(cmd, this->repeats); }
-void SomfyRemote::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize) {
+void SomfyRemote::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize) { this->sendCommandAfter(cmd, repeat, stepSize, 0); }
+void SomfyRemote::sendCommandAfter(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs) {
+  // Check before taking a rolling code so a dropped command doesn't consume one.
+  if(!this->canTransmit()) return;
   this->lastFrame.rollingCode = this->getNextRollingCode();
   this->lastFrame.remoteAddress = this->getRemoteAddress();
   this->lastFrame.cmd = this->transformCommand(cmd);
@@ -3836,7 +3902,8 @@ void SomfyRemote::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSi
     ESP_LOGD(TAG, "CMD:%s ADDR:%d RCODE:%d REPEAT:%d",
         translateSomfyCommand(this->lastFrame.cmd).c_str(),
         this->lastFrame.remoteAddress, this->lastFrame.rollingCode, repeat);
-    somfy.sendFrame(this->lastFrame, repeat);
+    // Only simulate the command if it is actually going on air.
+    if(!somfy.sendFrame(this->lastFrame, repeat, delayMs)) return;
   }
   somfy.processFrame(this->lastFrame, true);
 }
@@ -3854,30 +3921,22 @@ void SomfyRemote::repeatFrame(uint8_t repeat) {
     this->triggerGPIOs(this->lastFrame);
     return;
   }
-  if(repeat > MAX_TX_REPEATS) repeat = MAX_TX_REPEATS;
-  // The radio task encodes the first frame with the current repeat counter and
-  // then counts up from there for each repeat frame.
-  byte frm[10];
-  this->lastFrame.encodeFrame(frm);
+  repeat = txRepeats(repeat);
+  // The first frame is encoded with the current repeat counter and the radio
+  // task counts up from there for each repeat frame.
   somfy_tx_job_t job;
-  job.frame = this->lastFrame;
-  job.repeats = repeat;
+  encodeTxJob(job, this->lastFrame, repeat);
   job.firstRepeat = this->lastFrame.repeats + 2;
   this->lastFrame.repeats += repeat + 1;
   somfy.transceiver.queueTx(job);
   //somfy.processFrame(this->lastFrame, true);
 }
-void SomfyShadeController::sendFrame(somfy_frame_t &frame, uint8_t repeat) {
-  if(repeat > MAX_TX_REPEATS) repeat = MAX_TX_REPEATS;
-  // Encode once here so any side effects of the encoding on the frame
-  // (valid flag, default step size) are visible to the caller immediately.
-  byte frm[10];
-  frame.encodeFrame(frm);
+bool SomfyShadeController::sendFrame(somfy_frame_t &frame, uint8_t repeat, uint16_t delayMs) {
   somfy_tx_job_t job;
-  job.frame = frame;
-  job.repeats = repeat;
+  encodeTxJob(job, frame, txRepeats(repeat));
   job.firstRepeat = 1;
-  this->transceiver.queueTx(job);
+  if(delayMs > 0) job.notBefore = millis() + delayMs;
+  return this->transceiver.queueTx(job);
 }
 bool SomfyShadeController::deleteShade(uint8_t shadeId) {
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
@@ -4360,6 +4419,9 @@ float markFreq = 433.0f;
 int markRSSI = -100;
 uint32_t lastScan = 0;
 void Transceiver::beginFrequencyScan() {
+  // The scan retunes the radio so nothing may transmit until it ends.  This
+  // also aborts a transmission in flight so the lock below is never held long.
+  if(this->config.enabled) this->suspendTx();
   RadioLock lock;
   if(this->config.enabled) {
     this->disableReceive();
@@ -4411,6 +4473,7 @@ void Transceiver::endFrequencyScan() {
     if(interruptPin > 0) detachInterrupt(interruptPin); 
     interruptPin = 0;
     this->config.apply();
+    this->resumeTx();
     this->emitFrequencyScan();
   }
 }
@@ -4542,7 +4605,14 @@ bool Transceiver::toJSON(JsonObject& obj) {
 bool Transceiver::fromJSON(JsonObject& obj) {
     if (!obj["config"].isNull()) {
       JsonObject objConfig = obj["config"];
-      this->config.fromJSON(objConfig);
+      // Parse into a copy so the radio task never sees a half updated config,
+      // then swap it in once any transmission in flight has stopped.
+      transceiver_config_t cfg = this->config;
+      cfg.fromJSON(objConfig);
+      this->flushTx();
+      RadioLock lock;
+      if(this->config.enabled && this->config.TXPin != cfg.TXPin) pinMode(this->config.TXPin, INPUT);
+      this->config = cfg;
     }
     return true;
 }
@@ -4564,7 +4634,9 @@ bool Transceiver::save() {
     return true;
 }
 bool Transceiver::end() {
-    this->flushTx();
+    // Nothing may transmit (and re-enable receive) after this.  It is not
+    // resumed since the only caller is OTA which always reboots.
+    this->suspendTx();
     RadioLock lock;
     this->disableReceive();
     return true;
@@ -4913,6 +4985,11 @@ bool Transceiver::begin() {
 }
 void Transceiver::loop() {
   somfy_rx_t rx;
+  // Jobs that went on air late.  The shades were set moving when the job was
+  // queued so line their movement up with the motor.
+  somfy_tx_start_t started;
+  while(txStartQueue && xQueueReceive(txStartQueue, &started, 0) == pdTRUE)
+    somfy.shiftMovementStart(started.remoteAddress, started.queuedAt, started.startedAt);
   if (noiseDetected && rxmode != 3 && this->config.noiseDetection) {
     if (millis() - noiseStart > 100) {
       gpio_intr_enable((gpio_num_t)interruptPin);
@@ -4944,51 +5021,64 @@ void Transceiver::loop() {
       // Repeater frames are handed to the radio task like any other transmission.
       somfy_tx_job_t job;
       job.raw = true;
-      tx_queue.pop(&job.rawTx);
+      tx_queue.pop(&job.tx);
+      {
+        somfy_tx_t &tx = job.tx;
+        char frame_buf[128];
+        int fpos = snprintf(frame_buf, sizeof(frame_buf), "Sending frame %d - %d-BIT [", tx.hwsync, tx.bit_length);
+        for(uint8_t j = 0; j < 10; j++) {
+          fpos += snprintf(frame_buf + fpos, sizeof(frame_buf) - fpos, "%d%s", tx.payload[j], j < 9 ? ", " : "");
+        }
+        snprintf(frame_buf + fpos, sizeof(frame_buf) - fpos, "]");
+        ESP_LOGD(TAG, "%s", frame_buf);
+      }
       this->queueTx(job);
       tx_queue.delay_time = millis() + TX_QUEUE_DELAY;
     }
   }
 }
-bool Transceiver::queueTx(const somfy_tx_job_t &job) {
+bool Transceiver::queueTx(somfy_tx_job_t &job) {
   if(!txJobQueue) {
     ESP_LOGE(TAG, "Radio task not started, dropping transmission");
     return false;
   }
+  if(txSuspended) {
+    ESP_LOGW(TAG, "Radio TX suspended, dropping transmission");
+    return false;
+  }
+  job.gen = txGen;
+  job.queuedAt = millis();
   if(xQueueSend(txJobQueue, &job, 0) != pdTRUE) {
     ESP_LOGE(TAG, "Radio TX queue full, dropping transmission");
     return false;
   }
   return true;
 }
+bool Transceiver::canQueueTx() {
+  return txJobQueue && txTaskHandle && !txSuspended && uxQueueSpacesAvailable(txJobQueue) > 0;
+}
 void Transceiver::flushTx() {
+  ++txGen;
   if(txJobQueue) xQueueReset(txJobQueue);
 }
+void Transceiver::suspendTx() {
+  txSuspended = true;
+  this->flushTx();
+}
+void Transceiver::resumeTx() { txSuspended = false; }
+// cpt_synchro_hw is updated by the RX interrupt and read here from the radio task.
+static bool rxInProgress() { return *(volatile uint8_t *)&somfy_rx.cpt_synchro_hw != 0; }
 void Transceiver::transmitJob(somfy_tx_job_t &job) {
-  if(job.raw) {
-    somfy_tx_t &tx = job.rawTx;
-    char frame_buf[128];
-    int fpos = snprintf(frame_buf, sizeof(frame_buf), "Sending frame %d - %d-BIT [", tx.hwsync, tx.bit_length);
-    for(uint8_t j = 0; j < 10; j++) {
-      fpos += snprintf(frame_buf + fpos, sizeof(frame_buf) - fpos, "%d%s", tx.payload[j], j < 9 ? ", " : "");
-    }
-    snprintf(frame_buf + fpos, sizeof(frame_buf) - fpos, "]");
-    ESP_LOGD(TAG, "%s", frame_buf);
-    this->beginTransmit();
-    this->sendFrame(tx.payload, tx.hwsync, tx.bit_length);
-    this->endTransmit();
-    return;
-  }
-  somfy_frame_t &frame = job.frame;
-  byte frm[10];
-  frame.encodeFrame(frm);
+  somfy_tx_t &tx = job.tx;
   this->beginTransmit();
-  this->sendFrame(frm, frame.bitLength == 56 ? 2 : 12, frame.bitLength);
+  this->sendFrame(tx.payload, tx.hwsync, tx.bit_length);
   for(uint8_t i = 0; i < job.repeats; i++) {
+    // Stop early when flushed so whoever flushed gets the radio within a frame.
+    if(job.gen != txGen) break;
     // For each 80-bit frame we need to adjust the byte encoding for the
     // silence.
-    if(frame.bitLength == 80) frame.encode80BitFrame(&frm[0], (uint8_t)(job.firstRepeat + i));
-    this->sendFrame(frm, frame.bitLength == 56 ? 7 : 6, frame.bitLength);
+    if(tx.bit_length == 80) job.frame.encode80BitFrame(tx.payload, (uint8_t)(job.firstRepeat + i));
+    this->sendFrame(tx.payload, tx.bit_length == 56 ? 7 : 6, tx.bit_length);
   }
   this->endTransmit();
 }
@@ -4997,8 +5087,28 @@ void Transceiver::txTask(void *arg) {
   somfy_tx_job_t job;
   for(;;) {
     if(xQueueReceive(txJobQueue, &job, portMAX_DELAY) != pdTRUE) continue;
+    if(txSuspended || job.gen != txGen) continue;
+    if(job.notBefore != 0) {
+      int32_t wait = (int32_t)(job.notBefore - millis());
+      if(wait > 0) vTaskDelay(pdMS_TO_TICKS(wait));
+    }
+    if(job.raw) {
+      // Don't step on a remote that is transmitting right now.
+      for(uint32_t waited = 0; rxInProgress() && waited < TX_RX_IDLE_WAIT; waited += 5)
+        vTaskDelay(pdMS_TO_TICKS(5));
+    }
     {
       RadioLock lock;
+      // The queue may have been flushed while we waited.
+      if(txSuspended || job.gen != txGen) continue;
+      const uint32_t startedAt = millis();
+      if(!job.raw && txStartQueue && startedAt - job.queuedAt > TX_QUEUE_DELAY * 2) {
+        somfy_tx_start_t started;
+        started.remoteAddress = job.frame.remoteAddress;
+        started.queuedAt = job.queuedAt;
+        started.startedAt = startedAt;
+        xQueueSend(txStartQueue, &started, 0);
+      }
       trans->transmitJob(job);
     }
     // Give the motors a full frame beat between separate transmissions.
@@ -5008,6 +5118,7 @@ void Transceiver::txTask(void *arg) {
 void Transceiver::startTxTask() {
   if(txTaskHandle) return;
   if(!txJobQueue) txJobQueue = xQueueCreate(TX_JOB_QUEUE_SIZE, sizeof(somfy_tx_job_t));
+  if(!txStartQueue) txStartQueue = xQueueCreate(TX_JOB_QUEUE_SIZE, sizeof(somfy_tx_start_t));
   if(!txJobQueue) {
     ESP_LOGE(TAG, "Unable to create radio TX queue");
     return;

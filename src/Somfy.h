@@ -205,14 +205,25 @@ struct somfy_frame_t {
 // radio time so this keeps a single job to roughly 6 seconds.
 #define MAX_TX_REPEATS 40
 #define TX_JOB_QUEUE_SIZE 32
-// A transmission handed off to the radio task.  The frame is a copy so the
-// radio task never touches the remote's lastFrame.
+inline uint8_t txRepeats(uint8_t repeat) { return repeat > MAX_TX_REPEATS ? MAX_TX_REPEATS : repeat; }
+// A transmission handed off to the radio task.  The first frame is encoded by
+// the producer into tx.  The frame is a copy so the radio task never touches the
+// remote's lastFrame and is only used to re-encode 80-bit repeat frames.
 struct somfy_tx_job_t {
+  somfy_tx_t tx;            // Encoded first frame with its hw sync count and bit length.
   somfy_frame_t frame;
   uint8_t repeats = 0;      // Number of repeat frames after the first frame.
   uint8_t firstRepeat = 1;  // 80-bit repeat counter used for the first repeat frame.
-  bool raw = false;         // When true rawTx holds a pre-encoded frame (repeater).
-  somfy_tx_t rawTx;
+  bool raw = false;         // Repeater frame.  Waits for the receiver to be idle.
+  uint32_t gen = 0;         // Flush generation when queued.  Stale jobs are dropped.
+  uint32_t queuedAt = 0;    // millis() when queued.
+  uint32_t notBefore = 0;   // millis() before which the job must not go on air (0 = none).
+};
+// Reported by the radio task when a queued job finally goes on air.
+struct somfy_tx_start_t {
+  uint32_t remoteAddress = 0;
+  uint32_t queuedAt = 0;
+  uint32_t startedAt = 0;
 };
 
 class SomfyRoom {
@@ -264,8 +275,10 @@ class SomfyRemote {
     void setSimMy(bool bSimMy);
     virtual void sendCommand(somfy_commands cmd);
     virtual void sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize = 0);
+    void sendCommandAfter(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs);
     void sendSensorCommand(int8_t isWindy, int8_t isSunny, uint8_t repeat);
     void repeatFrame(uint8_t repeat);
+    bool canTransmit();
     virtual uint16_t p_lastRollingCode(uint16_t code);
     somfy_commands transformCommand(somfy_commands cmd);
     virtual void triggerGPIOs(somfy_frame_t &frame);
@@ -331,6 +344,7 @@ class SomfyShade : public SomfyRemote {
     void checkMovement();
     void processFrame(somfy_frame_t &frame, bool internal = false);
     void processInternalCommand(somfy_commands cmd, uint8_t repeat = 1);
+    void shiftMovementStart(uint32_t queuedAt, uint32_t startedAt);
     void setTiltMovement(int8_t dir);
     void setMovement(int8_t dir);
     void setTarget(float target);
@@ -521,8 +535,11 @@ class Transceiver {
     void disableReceive();
     somfy_frame_t& lastFrame();
     void sendFrame(byte *frame, uint8_t sync, uint8_t bitLength = 56);
-    bool queueTx(const somfy_tx_job_t &job);
+    bool queueTx(somfy_tx_job_t &job);
+    bool canQueueTx();
     void flushTx();
+    void suspendTx();
+    void resumeTx();
     void beginTransmit();
     void endTransmit();
     void emitFrame(somfy_frame_t *frame, somfy_rx_t *rx = nullptr);
@@ -578,8 +595,9 @@ class SomfyShadeController {
     SomfyGroup * getGroupById(uint8_t groupId);
     SomfyShade * findShadeByRemoteAddress(uint32_t address);
     SomfyGroup * findGroupByRemoteAddress(uint32_t address);
-    void sendFrame(somfy_frame_t &frame, uint8_t repeats = 0);
+    bool sendFrame(somfy_frame_t &frame, uint8_t repeats = 0, uint16_t delayMs = 0);
     void processFrame(somfy_frame_t &frame, bool internal = false);
+    void shiftMovementStart(uint32_t remoteAddress, uint32_t queuedAt, uint32_t startedAt);
     void emitState(uint8_t num = 255);
     void publish();
     void processWaitingFrame();
