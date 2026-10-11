@@ -26,8 +26,6 @@ static uint32_t clientMap[MAX_WS_CLIENTS] = {0,0,0,0,0};
 // client stayed and how far apart its pings arrived.
 static uint32_t connectedAt[MAX_WS_CLIENTS] = {0,0,0,0,0};
 static uint32_t lastPing[MAX_WS_CLIENTS] = {0,0,0,0,0};
-#define PING_LATE_MS 25000
-
 static uint8_t mapClientId(uint32_t asyncId) {
   for(uint8_t i = 0; i < MAX_WS_CLIENTS; i++)
     if(clientMap[i] == asyncId) return i;
@@ -238,14 +236,13 @@ void SocketEmitter::wsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client
       break;
     case WS_EVT_PING:
       {
-        // Home Assistant pings every 20s and drops the socket when the pong is
-        // late, so only a late ping is worth a line; it points at a stalled
-        // network task or a lossy link.
+        // Home Assistant only pings after 20s without a message from us, so
+        // the gap depends on our own traffic and says nothing about the link.
+        // It is kept for the disconnect line.
         uint8_t slot = mapClientId(asyncId);
         if(slot != 255) {
           uint32_t now = millis();
-          if(lastPing[slot] && now - lastPing[slot] > PING_LATE_MS)
-            ESP_LOGW(TAG, "Socket [%lu] late ping, %lums since the last", asyncId, (unsigned long)(now - lastPing[slot]));
+          if(lastPing[slot]) ESP_LOGD(TAG, "Socket [%lu] ping, %lums since the last", asyncId, (unsigned long)(now - lastPing[slot]));
           lastPing[slot] = now;
         }
       }
