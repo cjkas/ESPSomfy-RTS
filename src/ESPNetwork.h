@@ -12,6 +12,8 @@
 // changes and not more often than this.
 #define RSSI_EMIT_MIN_DBM 3
 #define RSSI_EMIT_MIN_MS 10000
+// A roaming scan only moves to another AP this much stronger.
+#define ROAM_MIN_GAIN_DB 6
 class ESPNetwork {
   protected:
     unsigned long lastEmit = 0;

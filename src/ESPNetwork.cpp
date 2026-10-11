@@ -111,11 +111,11 @@ void ESPNetwork::loop() {
         if(this->getStrongestAP(settings.WIFI.ssid, bssid, &channel)) {
           if(!WiFi.BSSID() || memcmp(bssid, WiFi.BSSID(), sizeof(bssid)) != 0) {
             if(!this->connected()) {
-              ESP_LOGD(TAG, "Connecting to AP %02X:%02X:%02X:%02X:%02X:%02X CH: %d", bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5], channel);
+              ESP_LOGI(TAG, "Connecting to AP %02X:%02X:%02X:%02X:%02X:%02X CH: %d", bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5], channel);
               this->connectWiFi(bssid, channel);
             }
             else {
-              ESP_LOGD(TAG, "Found stronger AP %02X:%02X:%02X:%02X:%02X:%02X CH: %d", bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5], channel);
+              ESP_LOGI(TAG, "Found stronger AP %02X:%02X:%02X:%02X:%02X:%02X CH: %d", bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5], channel);
               this->changeAP(bssid, channel);
             }
           }
@@ -538,8 +538,9 @@ uint32_t ESPNetwork::getChipId() {
   return chipId;
 }
 bool ESPNetwork::getStrongestAP(const char *ssid, uint8_t *bssid, int32_t *channel) {
-  // The new AP must be at least 10dbm greater.
-  int32_t strength = this->connected() ? WiFi.RSSI() + 10 : -127;
+  // The new AP must be at least ROAM_MIN_GAIN_DB stronger.
+  const bool connected = this->connected();
+  int32_t strength = connected ? WiFi.RSSI() + ROAM_MIN_GAIN_DB : -127;
   int32_t chan = -1;
   memset(bssid, 0x00, 6);
   esp_task_wdt_delete(NULL);
@@ -548,6 +549,14 @@ bool ESPNetwork::getStrongestAP(const char *ssid, uint8_t *bssid, int32_t *chann
   esp_task_wdt_add(NULL);
   for(int16_t i = 0; i < n; i++) {
     if(WiFi.SSID(i).compareTo(ssid) == 0) {
+      // Only on the roaming scans, so the log shows whether a better AP is
+      // around without filling up while we scan to reconnect.
+      if(connected) {
+        const uint8_t *b = WiFi.BSSID(i);
+        const uint8_t *cur = WiFi.BSSID();
+        ESP_LOGI(TAG, "AP %02X:%02X:%02X:%02X:%02X:%02X ch %ld %ld dBm%s", b[0], b[1], b[2], b[3], b[4], b[5],
+          (long)WiFi.channel(i), (long)WiFi.RSSI(i), (cur && memcmp(b, cur, 6) == 0) ? " (connected)" : "");
+      }
       if(WiFi.RSSI(i) > strength) { 
         strength = WiFi.RSSI(i); 
         memcpy(bssid, WiFi.BSSID(i), 6); 
