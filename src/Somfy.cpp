@@ -1144,6 +1144,10 @@ void SomfyShade::checkMovement() {
   uint8_t currPos = floor(this->currentPos);
   uint8_t currTiltPos = floor(this->currentTiltPos);
   if(this->direction != 0) this->lastMovement = this->direction;
+  if(this->txPendingSeq != 0 && this->direction == 0 && this->tiltDirection == 0) {
+    // The command didn't set the shade moving so there is nothing to hold.
+    this->txPendingSeq = 0;
+  }
   if(this->txPendingSeq != 0) {
     // The command that set us moving hasn't gone on air yet so the motor hasn't
     // started.  Hold the simulated position until it does.
@@ -2817,8 +2821,13 @@ void SomfyShade::setTiltMovement(int8_t dir) {
   }
 }
 void SomfyShade::markTxPending(uint32_t seq) {
-  // Only a shade the command set moving has to wait for it.
-  if(this->isAtTarget()) return;
+  // The motor starts on the first of several queued commands to go on air.
+  if(this->txPendingSeq != 0) return;
+  // This runs before the caller sets the new target so direction still says
+  // whether the shade was moving.  A moving motor carries on with its earlier
+  // command so its simulation must not be held.  A reversal is simulated as
+  // soon as it is queued even though the motor turns once it is on air.
+  if(this->direction != 0 || this->tiltDirection != 0) return;
   this->txPendingSeq = seq;
   this->txPendingSince = millis();
 }
@@ -3129,8 +3138,6 @@ bool SomfyGroup::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSiz
       }
     }
   }
-  // The member shades only started moving above.
-  if(this->lastTxSeq != 0 && startsMovement(this->lastFrame.cmd)) somfy.markTxPending(this->getRemoteAddress(), this->lastTxSeq);
   this->updateFlags();
   this->emitState();
   return true;
@@ -4027,8 +4034,8 @@ bool SomfyRemote::sendCommandAfter(somfy_commands cmd, uint8_t repeat, uint8_t s
   this->lastFrame = frame;
   this->lastTxSeq = seq;
   somfy.processFrame(this->lastFrame, true);
-  // Shades this set moving wait for the frame to go on air.  Stops are sent
-  // ahead of everything else so they don't need to.
+  // Idle shades (and group members) this sets moving wait for the frame to go
+  // on air.  Stops are sent ahead of everything else so they don't need to.
   if(seq != 0 && !priority && startsMovement(frame.cmd)) somfy.markTxPending(frame.remoteAddress, seq);
   return true;
 }
