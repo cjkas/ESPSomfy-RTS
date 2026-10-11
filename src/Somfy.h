@@ -575,6 +575,8 @@ class Transceiver {
     void suspendTx(uint8_t reason);
     void resumeTx(uint8_t reason);
     bool isQueued(uint32_t seq);
+    bool txSuspended();
+    bool txHasRoom();
     void beginTransmit();
     void endTransmit();
     void emitFrame(somfy_frame_t *frame, somfy_rx_t *rx = nullptr);

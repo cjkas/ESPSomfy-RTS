@@ -46,21 +46,34 @@ static const char *TAG = "Web";
 
 static QueueHandle_t webCmdQueue = nullptr;
 
+static void sendQueueFull(AsyncWebServerRequest *request);
+static void sendRadioUnavailable(AsyncWebServerRequest *request);
+// Hands a command that transmits to the main loop.  When it can't be the
+// request is answered with the reason and false is returned.
+static bool queueRadioCommand(AsyncWebServerRequest *request, const web_command_t &cmd) {
+  // Nothing can go on air during a frequency scan so tell the client now rather
+  // than dropping the command once it reaches the radio.
+  if(somfy.transceiver.txSuspended()) { sendRadioUnavailable(request); return false; }
+  if(!webServer.queueCommand(cmd)) { sendQueueFull(request); return false; }
+  return true;
+}
 // Radio work for these handlers runs on the main loop via the command queue.
-static bool queueSetMyPosition(SomfyShade *shade, int8_t pos, int8_t tilt) {
+static bool queueSetMyPosition(AsyncWebServerRequest *request, SomfyShade *shade, int8_t pos, int8_t tilt) {
   web_command_t cmd = {};
   cmd.type = web_cmd_t::set_my_position;
   cmd.shadeId = shade->getShadeId();
   cmd.position = pos;
   cmd.tiltPosition = tilt;
-  return webServer.queueCommand(cmd);
+  return queueRadioCommand(request, cmd);
 }
-static bool queueUnpairShade(SomfyShade *shade) {
+static bool queueUnpairShade(AsyncWebServerRequest *request, SomfyShade *shade) {
   web_command_t cmd = {};
   cmd.type = web_cmd_t::unpair_shade;
   cmd.shadeId = shade->getShadeId();
-  if(!webServer.queueCommand(cmd)) return false;
-  // Reflect the change in the response; the main loop sets it again and saves.
+  cmd.wasPaired = shade->paired;
+  if(!queueRadioCommand(request, cmd)) return false;
+  // Reflect the change in the response.  The main loop saves it once the Prog
+  // is queued or puts it back if it can't be.
   shade->paired = false;
   return true;
 }
@@ -121,19 +134,24 @@ bool Web::queueCommand(const web_command_t &cmd) {
 void Web::processQueue() {
   if(!webCmdQueue) return;
   web_command_t cmd;
-  while(xQueueReceive(webCmdQueue, &cmd, 0) == pdTRUE) {
+  // The client was already told the command was accepted so leave it queued
+  // until the radio has room rather than have the radio drop it.  While TX is
+  // suspended nothing gets through anyway so don't hold anything back then.
+  while((somfy.transceiver.txSuspended() || somfy.transceiver.txHasRoom()) &&
+        xQueueReceive(webCmdQueue, &cmd, 0) == pdTRUE) {
+    bool sent = true;
     switch(cmd.type) {
       case web_cmd_t::shade_command: {
         SomfyShade *shade = somfy.getShadeById(cmd.shadeId);
         if(shade) {
-          if(cmd.target <= 100) shade->moveToTarget(shade->transformPosition(cmd.target));
-          else shade->sendCommand(cmd.command, cmd.repeat > 0 ? cmd.repeat : shade->repeats, cmd.stepSize);
+          if(cmd.target <= 100) sent = shade->moveToTarget(shade->transformPosition(cmd.target));
+          else sent = shade->sendCommand(cmd.command, cmd.repeat > 0 ? cmd.repeat : shade->repeats, cmd.stepSize);
         }
         break;
       }
       case web_cmd_t::group_command: {
         SomfyGroup *group = somfy.getGroupById(cmd.groupId);
-        if(group) group->sendCommand(cmd.command, cmd.repeat >= 0 ? cmd.repeat : group->repeats, cmd.stepSize);
+        if(group) sent = group->sendCommand(cmd.command, cmd.repeat >= 0 ? cmd.repeat : group->repeats, cmd.stepSize);
         break;
       }
       case web_cmd_t::tilt_command: {
@@ -148,16 +166,16 @@ void Web::processQueue() {
         SomfyShade *shade = somfy.getShadeById(cmd.shadeId);
         if(shade) {
           if(shade->shadeType == shade_types::garage1 && cmd.command == somfy_commands::Prog) cmd.command = somfy_commands::Toggle;
-          if(!shade->isLastCommand(cmd.command)) shade->sendCommand(cmd.command, cmd.repeat >= 0 ? cmd.repeat : shade->repeats, cmd.stepSize);
-          else shade->repeatFrame(cmd.repeat >= 0 ? cmd.repeat : shade->repeats);
+          if(!shade->isLastCommand(cmd.command)) sent = shade->sendCommand(cmd.command, cmd.repeat >= 0 ? cmd.repeat : shade->repeats, cmd.stepSize);
+          else sent = shade->repeatFrame(cmd.repeat >= 0 ? cmd.repeat : shade->repeats);
         }
         break;
       }
       case web_cmd_t::group_repeat: {
         SomfyGroup *group = somfy.getGroupById(cmd.groupId);
         if(group) {
-          if(!group->isLastCommand(cmd.command)) group->sendCommand(cmd.command, cmd.repeat >= 0 ? cmd.repeat : group->repeats, cmd.stepSize);
-          else group->repeatFrame(cmd.repeat >= 0 ? cmd.repeat : group->repeats);
+          if(!group->isLastCommand(cmd.command)) sent = group->sendCommand(cmd.command, cmd.repeat >= 0 ? cmd.repeat : group->repeats, cmd.stepSize);
+          else sent = group->repeatFrame(cmd.repeat >= 0 ? cmd.repeat : group->repeats);
         }
         break;
       }
@@ -173,7 +191,7 @@ void Web::processQueue() {
       case web_cmd_t::shade_sensor: {
         SomfyShade *shade = somfy.getShadeById(cmd.shadeId);
         if(shade) {
-          shade->sendSensorCommand(cmd.windy, cmd.sunny, cmd.repeat >= 0 ? (uint8_t)cmd.repeat : shade->repeats);
+          sent = shade->sendSensorCommand(cmd.windy, cmd.sunny, cmd.repeat >= 0 ? (uint8_t)cmd.repeat : shade->repeats);
           shade->emitState();
         }
         break;
@@ -181,7 +199,7 @@ void Web::processQueue() {
       case web_cmd_t::group_sensor: {
         SomfyGroup *group = somfy.getGroupById(cmd.groupId);
         if(group) {
-          group->sendSensorCommand(cmd.windy, cmd.sunny, cmd.repeat >= 0 ? (uint8_t)cmd.repeat : group->repeats);
+          sent = group->sendSensorCommand(cmd.windy, cmd.sunny, cmd.repeat >= 0 ? (uint8_t)cmd.repeat : group->repeats);
           group->emitState();
         }
         break;
@@ -194,13 +212,21 @@ void Web::processQueue() {
       case web_cmd_t::unpair_shade: {
         SomfyShade *shade = somfy.getShadeById(cmd.shadeId);
         if(shade) {
-          shade->sendCommand(somfy_commands::Prog, shade->bitLength == 56 ? 7 : 1);
-          shade->paired = false;
-          shade->save();
+          sent = shade->sendCommand(somfy_commands::Prog, shade->bitLength == 56 ? 7 : 1);
+          if(sent) {
+            shade->paired = false;
+            shade->save();
+          }
+          else {
+            // The motor is still paired so undo what the response showed.
+            shade->paired = cmd.wasPaired;
+            shade->emitState();
+          }
         }
         break;
       }
     }
+    if(!sent) ESP_LOGW(TAG, "Radio didn't take web command %u", static_cast<uint8_t>(cmd.type));
   }
 }
 bool Web::isAuthenticated(AsyncWebServerRequest *request, bool cfg) {
@@ -830,7 +856,7 @@ void Web::handleShadeCommand(AsyncWebServerRequest *request, JsonVariant &json) 
     cmd.command = command;
     cmd.repeat = repeat;
     cmd.stepSize = stepSize;
-    if(!this->queueCommand(cmd)) { sendQueueFull(request); return; }
+    if(!queueRadioCommand(request, cmd)) return;
     AsyncJsonResp resp;
     resp.beginResponse(request, g_async_content, sizeof(g_async_content));
     resp.beginObject();
@@ -871,7 +897,7 @@ void Web::handleGroupCommand(AsyncWebServerRequest *request, JsonVariant &json) 
     cmd.command = command;
     cmd.repeat = repeat;
     cmd.stepSize = stepSize;
-    if(!this->queueCommand(cmd)) { sendQueueFull(request); return; }
+    if(!queueRadioCommand(request, cmd)) return;
     AsyncJsonResp resp;
     resp.beginResponse(request, g_async_content, sizeof(g_async_content));
     resp.beginObject();
@@ -908,7 +934,7 @@ void Web::handleTiltCommand(AsyncWebServerRequest *request, JsonVariant &json) {
     cmd.shadeId = shadeId;
     cmd.target = target;
     cmd.command = command;
-    if(!this->queueCommand(cmd)) { sendQueueFull(request); return; }
+    if(!queueRadioCommand(request, cmd)) return;
     AsyncJsonResp resp;
     resp.beginResponse(request, g_async_content, sizeof(g_async_content));
     resp.beginObject();
@@ -949,7 +975,7 @@ void Web::handleRepeatCommand(AsyncWebServerRequest *request, JsonVariant &json)
     cmd.command = command;
     cmd.repeat = repeat;
     cmd.stepSize = stepSize;
-    if(!this->queueCommand(cmd)) { sendQueueFull(request); return; }
+    if(!queueRadioCommand(request, cmd)) return;
     AsyncJsonResp resp;
     resp.beginResponse(request, g_async_content, sizeof(g_async_content));
     resp.beginArray();
@@ -967,7 +993,7 @@ void Web::handleRepeatCommand(AsyncWebServerRequest *request, JsonVariant &json)
     cmd.command = command;
     cmd.repeat = repeat;
     cmd.stepSize = stepSize;
-    if(!this->queueCommand(cmd)) { sendQueueFull(request); return; }
+    if(!queueRadioCommand(request, cmd)) return;
     AsyncJsonResp resp;
     resp.beginResponse(request, g_async_content, sizeof(g_async_content));
     resp.beginObject();
@@ -1062,6 +1088,8 @@ void Web::handleSetPositions(AsyncWebServerRequest *request, JsonVariant &json) 
       cmd.position = pos;
       cmd.tiltPosition = tiltPos;
       if(!this->queueCommand(cmd)) { sendQueueFull(request); return; }
+      // The main loop applies the command after we answer so this is the state
+      // before it.  Clients get the result from the shadeState socket event.
       AsyncJsonResp resp;
       resp.beginResponse(request, g_async_content, sizeof(g_async_content));
       resp.beginObject();
@@ -1104,7 +1132,9 @@ void Web::handleSetSensor(AsyncWebServerRequest *request, JsonVariant &json) {
       cmd.sunny = sunny;
       cmd.windy = windy;
       cmd.repeat = repeat;
-      if(!this->queueCommand(cmd)) { sendQueueFull(request); return; }
+      if(!queueRadioCommand(request, cmd)) return;
+      // The main loop applies the command after we answer so this is the state
+      // before it.  Clients get the result from the shadeState socket event.
       AsyncJsonResp resp;
       resp.beginResponse(request, g_async_content, sizeof(g_async_content));
       resp.beginObject();
@@ -1123,7 +1153,8 @@ void Web::handleSetSensor(AsyncWebServerRequest *request, JsonVariant &json) {
       cmd.sunny = sunny;
       cmd.windy = windy;
       cmd.repeat = repeat;
-      if(!this->queueCommand(cmd)) { sendQueueFull(request); return; }
+      if(!queueRadioCommand(request, cmd)) return;
+      // As above, this is the state before the command and groupState follows.
       AsyncJsonResp resp;
       resp.beginResponse(request, g_async_content, sizeof(g_async_content));
       resp.beginObject();
@@ -1644,7 +1675,7 @@ void Web::begin() {
         if(tilt < 0) tilt = shade->myPos;
         if(shade->tiltType == tilt_types::none) tilt = -1;
         if(pos >= 0 && pos <= 100)
-          if(!queueSetMyPosition(shade, shade->transformPosition(pos), shade->transformPosition(tilt))) { sendQueueFull(request); return; }
+          if(!queueSetMyPosition(request, shade, shade->transformPosition(pos), shade->transformPosition(tilt))) return;
         AsyncJsonResp resp;
         resp.beginResponse(request, g_async_content, sizeof(g_async_content));
         resp.beginObject();
@@ -1671,7 +1702,7 @@ void Web::begin() {
       if(tilt < 0) tilt = shade->myPos;
       if(shade->tiltType == tilt_types::none) tilt = -1;
       if(pos >= 0 && pos <= 100)
-        if(!queueSetMyPosition(shade, shade->transformPosition(pos), shade->transformPosition(tilt))) { sendQueueFull(request); return; }
+        if(!queueSetMyPosition(request, shade, shade->transformPosition(pos), shade->transformPosition(tilt))) return;
       AsyncJsonResp resp;
       resp.beginResponse(request, g_async_content, sizeof(g_async_content));
       resp.beginObject();
@@ -1796,7 +1827,7 @@ void Web::begin() {
         request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade not found to unpair\"}"));
       }
       else {
-        if(!queueUnpairShade(shade)) { sendQueueFull(request); return; }
+        if(!queueUnpairShade(request, shade)) return;
         AsyncJsonResp resp;
         resp.beginResponse(request, g_async_content, sizeof(g_async_content));
         resp.beginObject();
@@ -1815,7 +1846,7 @@ void Web::begin() {
       request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade not found to unpair\"}"));
     }
     else {
-      if(!queueUnpairShade(shade)) { sendQueueFull(request); return; }
+      if(!queueUnpairShade(request, shade)) return;
       AsyncJsonResp resp;
       resp.beginResponse(request, g_async_content, sizeof(g_async_content));
       resp.beginObject();

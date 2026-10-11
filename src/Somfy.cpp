@@ -5291,6 +5291,12 @@ bool Transceiver::isQueued(uint32_t seq) {
   // Only meaningful for jobs queued at the back.
   return seq != 0 && (int32_t)(seq - txBackTaken) > 0;
 }
+bool Transceiver::txSuspended() { return txSuspendMask != 0; }
+bool Transceiver::txHasRoom() {
+  // Without a radio task queueTx() fails straight away so there is no point waiting.
+  if(!txJobQueue || !txTaskHandle) return true;
+  return uxQueueSpacesAvailable(txJobQueue) > TX_RESERVED_SLOTS;
+}
 void Transceiver::flushTx() {
   TxQueueLock lock;
   ++txGen;
