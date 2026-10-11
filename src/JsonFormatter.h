@@ -12,10 +12,13 @@ class JsonFormatter {
     uint8_t _objects = 0;
     uint8_t _arrays = 0;
     bool _nocomma = true;
+    // Something didn't fit and was left out so the JSON is incomplete.
+    bool _overflow = false;
     char _numbuff[25] = {0};
     virtual void _safecat(const char *val, bool escape = false);
     void _appendNumber(const char *name);
   public:
+    bool overflowed() const { return _overflow; }
     // Writes c as it must appear inside a JSON string (out needs 7 bytes) and
     // returns its length.
     static size_t escapeChar(char c, char *out);

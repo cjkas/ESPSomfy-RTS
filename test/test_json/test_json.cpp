@@ -140,6 +140,24 @@ static void test_value_needing_one_byte_too_many_is_refused() {
   TEST_ASSERT_TRUE(strlen(storage) < 11);
   assertCanary(11);
 }
+static void test_overflow_is_flagged() {
+  useBuffer(16);
+  fmt.beginObject();
+  fmt.addElem("name", "fits");
+  TEST_ASSERT_FALSE(fmt.overflowed());
+  fmt.addElem("long", "this value does not fit");
+  TEST_ASSERT_TRUE(fmt.overflowed());
+  // What was already written (here up to the comma) stays intact and terminated.
+  TEST_ASSERT_EQUAL_STRING("{\"name\":\"fits\",", storage);
+  assertCanary(16);
+}
+static void test_setBuffer_clears_overflow() {
+  useBuffer(4);
+  fmt.addElem("too long");
+  TEST_ASSERT_TRUE(fmt.overflowed());
+  useBuffer(BUFF_SIZE);
+  TEST_ASSERT_FALSE(fmt.overflowed());
+}
 
 int main(int argc, char **argv) {
   (void)argc;
@@ -157,5 +175,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_escaped_length);
   RUN_TEST(test_escaped_length_counts_first_character);
   RUN_TEST(test_value_needing_one_byte_too_many_is_refused);
+  RUN_TEST(test_overflow_is_flagged);
+  RUN_TEST(test_setBuffer_clears_overflow);
   return UNITY_END();
 }

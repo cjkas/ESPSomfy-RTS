@@ -8,18 +8,25 @@ void JsonSockEvent::beginEvent(AsyncWebSocket *server, const char *evt, char *bu
   this->buffSize = buffSize;
   this->_nocomma = true;
   this->_closed = false;
+  this->_overflow = false;
   snprintf(this->buff, buffSize, "42[%s,", evt);
 }
 void JsonSockEvent::closeEvent() {
   if(!this->_closed) {
-    if(strlen(this->buff) < buffSize) strcat(this->buff, "]");
-    else this->buff[buffSize - 1] = ']';
+    // The ] and the terminator both have to fit.
+    if(strlen(this->buff) + 1 < buffSize) strcat(this->buff, "]");
+    else this->_overflow = true;
   }
   this->_nocomma = true;
   this->_closed = true;
 }
 void JsonSockEvent::endEvent(uint32_t clientId) {
   this->closeEvent();
+  // Part of it is missing so clients would only fail to parse it.
+  if(this->_overflow) {
+    ESP_LOGE(TAG, "Socket event too large for %u bytes, not sent: %.32s", (unsigned)this->buffSize, this->buff);
+    return;
+  }
   if(clientId == 0) this->server->textAll(this->buff);
   else this->server->text(clientId, this->buff);
 }
@@ -27,7 +34,7 @@ void JsonSockEvent::_safecat(const char *val, bool escape) {
   size_t len = (escape ? this->calcEscapedLength(val) : strlen(val)) + strlen(this->buff);
   if(escape) len += 2;
   if(len >= this->buffSize) {
-    ESP_LOGE(TAG, "Socket exceeded buffer size %d - %d: %s", this->buffSize, len, this->buff);
+    this->_overflow = true;
     return;
   }
   if(escape) strcat(this->buff, "\"");
@@ -42,6 +49,7 @@ void AsyncJsonResp::beginResponse(AsyncWebServerRequest *request, char *buff, si
   this->buff[0] = 0x00;
   this->_nocomma = true;
   this->_headersSent = false;
+  this->_overflow = false;
   this->_stream = request->beginResponseStream("application/json");
 }
 void AsyncJsonResp::endResponse() {
@@ -57,10 +65,28 @@ void AsyncJsonResp::flush() {
   }
 }
 void AsyncJsonResp::_safecat(const char *val, bool escape) {
-  size_t len = (escape ? this->calcEscapedLength(val) : strlen(val)) + strlen(this->buff);
-  if(escape) len += 2;
-  if(len >= this->buffSize) {
+  const size_t vlen = escape ? this->calcEscapedLength(val) + 2 : strlen(val);
+  if(vlen + strlen(this->buff) >= this->buffSize) {
     this->flush();
+    if(vlen + strlen(this->buff) >= this->buffSize) {
+      // Bigger than the whole buffer so stream it straight out.
+      if(!this->_stream) {
+        this->_overflow = true;
+        return;
+      }
+      if(!escape) {
+        this->_stream->print(val);
+        return;
+      }
+      char esc[7];
+      this->_stream->print("\"");
+      for(size_t i = 0; val[i]; i++) {
+        escapeChar(val[i], esc);
+        this->_stream->print(esc);
+      }
+      this->_stream->print("\"");
+      return;
+    }
   }
   if(escape) strcat(this->buff, "\"");
   if(escape) this->escapeString(val, &this->buff[strlen(this->buff)]);

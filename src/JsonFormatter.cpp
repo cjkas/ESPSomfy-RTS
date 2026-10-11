@@ -1,10 +1,14 @@
 #include "JsonFormatter.h"
+#include "esp_log.h"
+
+static const char *TAG = "JSON";
 
 void BufferedJsonFormatter::setBuffer(char *b, size_t sz) {
   this->buff = b;
   this->buffSize = sz;
   this->buff[0] = 0;
   this->_nocomma = true;
+  this->_overflow = false;
   this->_objects = 0;
   this->_arrays = 0;
 }
@@ -86,6 +90,8 @@ void JsonFormatter::_safecat(const char *val, bool escape) {
   size_t len = (escape ? this->calcEscapedLength(val) : strlen(val)) + strlen(this->buff);
   if(escape) len += 2;
   if(len >= this->buffSize) {
+    if(!this->_overflow) ESP_LOGE(TAG, "JSON exceeded buffer size %u", (unsigned)this->buffSize);
+    this->_overflow = true;
     return;
   }
   if(escape) strcat(this->buff, "\"");
