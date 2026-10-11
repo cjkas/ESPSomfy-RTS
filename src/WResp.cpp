@@ -1,9 +1,12 @@
 #include "WResp.h"
 #include "esp_log.h"
+#include "Timing.h"
 
 static const char *TAG = "WResp";
+#define EMIT_SLOW_MS 20
 void JsonSockEvent::beginEvent(AsyncWebSocket *server, const char *evt, char *buff, size_t buffSize) {
   this->server = server;
+  this->_evt = evt;
   this->buff = buff;
   this->buffSize = buffSize;
   this->_nocomma = true;
@@ -27,8 +30,16 @@ void JsonSockEvent::endEvent(uint32_t clientId) {
     ESP_LOGE(TAG, "Socket event too large for %u bytes, not sent: %.32s", (unsigned)this->buffSize, this->buff);
     return;
   }
+  ElapsedTimer timer;
   if(clientId == 0) this->server->textAll(this->buff);
   else this->server->text(clientId, this->buff);
+  // Sends happen every few seconds, so only the slow ones are worth a line.
+  const uint32_t us = timer.us();
+  if(us < EMIT_SLOW_MS * 1000) return;
+  char what[80];
+  if(clientId == 0) snprintf(what, sizeof(what), "Socket emit %s (%u bytes) to all", this->_evt, (unsigned)strlen(this->buff));
+  else snprintf(what, sizeof(what), "Socket emit %s (%u bytes) to %lu", this->_evt, (unsigned)strlen(this->buff), (unsigned long)clientId);
+  logElapsed(TAG, what, us);
 }
 void JsonSockEvent::_safecat(const char *val, bool escape) {
   size_t len = (escape ? this->calcEscapedLength(val) : strlen(val)) + strlen(this->buff);

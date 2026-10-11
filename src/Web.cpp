@@ -14,6 +14,7 @@
 #include "MQTT.h"
 #include "GitOTA.h"
 #include "ESPNetwork.h"
+#include "Timing.h"
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 #include <AsyncJson.h>
@@ -1245,8 +1246,35 @@ void Web::handleNotFound(AsyncWebServerRequest *request) {
   request->send(404, _encoding_text, g_async_content);
 }
 
+// Logs how long a request takes to handle and, once the connection closes, how
+// long the whole exchange took.  The total includes chunked bodies like
+// /controller that are built while they are sent, after the handler returns.
+// The server name must be a literal as the disconnect handler keeps it.
+static void timeRequest(AsyncWebServerRequest *request, ArMiddlewareNext next, const char *server) {
+  ElapsedTimer timer;
+  // Taken now as the client may already be gone when the disconnect runs.
+  IPAddress ip = request->client() ? request->client()->remoteIP() : IPAddress();
+  // Uploads set their own disconnect handler while the body arrives, before
+  // this runs, and replacing it would stop the reboot after an update.
+  if(!request->multipart()) {
+    request->onDisconnect([request, timer, server, ip]() {
+      char what[112];
+      snprintf(what, sizeof(what), "%s %s %s from %u.%u.%u.%u total", server, request->methodToString(), request->url().c_str(),
+        ip[0], ip[1], ip[2], ip[3]);
+      logElapsed(TAG, what, timer.us());
+    });
+  }
+  next();
+  char what[112];
+  snprintf(what, sizeof(what), "%s %s %s from %u.%u.%u.%u handler", server, request->methodToString(), request->url().c_str(),
+    ip[0], ip[1], ip[2], ip[3]);
+  logElapsed(TAG, what, timer.us());
+}
+
 void Web::begin() {
   ESP_LOGI(TAG, "Creating Web MicroServices...");
+  asyncApiServer.addMiddleware([](AsyncWebServerRequest *r, ArMiddlewareNext next) { timeRequest(r, next, "api"); });
+  asyncServer.addMiddleware([](AsyncWebServerRequest *r, ArMiddlewareNext next) { timeRequest(r, next, "web"); });
   // Async API Server (port 8081)
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Methods", "PUT,POST,GET,OPTIONS");

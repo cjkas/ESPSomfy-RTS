@@ -11,8 +11,18 @@
 #include "MQTT.h"
 #include "GitOTA.h"
 #include "esp_core_dump.h"
+#include "esp_idf_version.h"
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+#include "esp_app_desc.h"
+#define getRunningElfSha esp_app_get_elf_sha256
+#else
+#include "esp_ota_ops.h"
+#define getRunningElfSha esp_ota_get_app_elf_sha256
+#endif
+#include "Timing.h"
 
 static const char *TAG = "Main";
+#define LOOP_SLOW_MS 100
 
 ConfigSettings settings;
 Web webServer;
@@ -65,21 +75,28 @@ void setup() {
     ESP_LOGW(TAG, "  MTVAL: 0x%08x  RA: 0x%08x  SP: 0x%08x",
              summary.ex_info.mtval, summary.ex_info.ra, summary.ex_info.sp);
 #endif
+    // The backtrace only decodes against the firmware.elf of the build that
+    // crashed, so say whether that is the one running now.
+    const char *crashedSha = (const char *)summary.app_elf_sha256;
+    char runningSha[APP_ELF_SHA256_SZ] = {0};
+    getRunningElfSha(runningSha, sizeof(runningSha));
+    if(strcmp(crashedSha, runningSha) == 0)
+      ESP_LOGW(TAG, "  Build: %s (running %s, same build)", crashedSha, runningSha);
+    else
+      ESP_LOGW(TAG, "  Build: %s (running %s, different build, decode the backtrace with the matching firmware.elf)", crashedSha, runningSha);
+    // Erase it so the next boot only reports a new crash.
+    if(esp_core_dump_image_erase() != ESP_OK) ESP_LOGE(TAG, "Could not erase the coredump");
   }
   ESP_LOGI(TAG, "Mounting File System...");
-
-
   if (LittleFS.begin()) {
       ESP_LOGI(TAG, "Total: %d bytes", LittleFS.totalBytes());
       ESP_LOGI(TAG, "Used:  %d bytes", LittleFS.usedBytes());
       ESP_LOGI(TAG, "Free:  %d bytes", LittleFS.totalBytes() - LittleFS.usedBytes());
       listDir("/", 3);
+      ESP_LOGI(TAG, "File system mounted successfully");
   } else {
       ESP_LOGE(TAG, "LittleFS mount failed!");
   }
-
-  if(LittleFS.begin()) ESP_LOGI(TAG, "File system mounted successfully");
-  else ESP_LOGE(TAG, "Error mounting file system");
   settings.begin();
   if(WiFi.status() == WL_CONNECTED) WiFi.disconnect(true);
   delay(10);
@@ -108,30 +125,30 @@ void loop() {
     ESP.restart();
     return;
   }
-  uint32_t timing = millis();
-  
+  // Each step only logs when it holds up the loop for LOOP_SLOW_MS or more.
+  ElapsedTimer timing;
   net.loop();
-  if(millis() - timing > 100) ESP_LOGD(TAG, "Timing Net: %ldms", millis() - timing);
-  timing = millis();
+  logIfSlow(TAG, "Loop net", timing.us(), LOOP_SLOW_MS);
+  timing.restart();
   esp_task_wdt_reset();
   somfy.loop();
-  if(millis() - timing > 100) ESP_LOGD(TAG, "Timing Somfy: %ldms", millis() - timing);
-  timing = millis();
+  logIfSlow(TAG, "Loop somfy", timing.us(), LOOP_SLOW_MS);
   esp_task_wdt_reset();
   if(net.connected() || net.softAPOpened) {
     if(!rebootDelay.reboot && net.connected() && !net.softAPOpened) {
+      timing.restart();
       git.loop();
+      logIfSlow(TAG, "Loop git", timing.us(), LOOP_SLOW_MS);
       esp_task_wdt_reset();
     }
+    timing.restart();
     webServer.loop();
+    logIfSlow(TAG, "Loop web server", timing.us(), LOOP_SLOW_MS);
     esp_task_wdt_reset();
-    if(millis() - timing > 100) ESP_LOGD(TAG, "Timing WebServer: %ldms", millis() - timing);
-    esp_task_wdt_reset();
-    timing = millis();
+    timing.restart();
     sockEmit.loop();
-    if(millis() - timing > 100) ESP_LOGD(TAG, "Timing Socket: %ldms", millis() - timing);
+    logIfSlow(TAG, "Loop sockets", timing.us(), LOOP_SLOW_MS);
     esp_task_wdt_reset();
-    timing = millis();
   }
   if(rebootDelay.reboot && millis() > rebootDelay.rebootTime) {
     net.end();

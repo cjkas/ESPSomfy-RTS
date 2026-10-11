@@ -7,6 +7,7 @@
 #include "Somfy.h"
 #include "ESPNetwork.h"
 #include "GitOTA.h"
+#include "Timing.h"
 
 static const char *TAG = "Sockets";
 
@@ -21,6 +22,11 @@ AsyncWebSocket ws("/");
 
 #define MAX_WS_CLIENTS 5
 static uint32_t clientMap[MAX_WS_CLIENTS] = {0,0,0,0,0};
+// When each slot connected and last saw a ping, so the logs show how long a
+// client stayed and how far apart its pings arrived.
+static uint32_t connectedAt[MAX_WS_CLIENTS] = {0,0,0,0,0};
+static uint32_t lastPing[MAX_WS_CLIENTS] = {0,0,0,0,0};
+#define PING_LATE_MS 25000
 
 static uint8_t mapClientId(uint32_t asyncId) {
   for(uint8_t i = 0; i < MAX_WS_CLIENTS; i++)
@@ -131,13 +137,22 @@ void SocketEmitter::initClients() {
       if(asyncId != 0 && ws.hasClient(asyncId)) {
         ESP_LOGD(TAG, "Initializing Socket Client %u (asyncId=%lu)", slot, asyncId);
         esp_task_wdt_reset();
+        ElapsedTimer total, step;
         settings.emitSockets(slot);
+        logElapsed(TAG, "Socket init settings", step.us());
         if(!ws.hasClient(asyncId)) { this->newClients[i] = 255; continue; }
+        step.restart();
         somfy.emitState(slot);
+        logElapsed(TAG, "Socket init somfy state", step.us());
         if(!ws.hasClient(asyncId)) { this->newClients[i] = 255; continue; }
+        step.restart();
         git.emitUpdateCheck(slot);
+        logElapsed(TAG, "Socket init update check", step.us());
         if(!ws.hasClient(asyncId)) { this->newClients[i] = 255; continue; }
+        step.restart();
         net.emitSockets(slot);
+        logElapsed(TAG, "Socket init network", step.us());
+        logElapsed(TAG, "Socket init total", total.us());
         esp_task_wdt_reset();
       }
       this->newClients[i] = 255;
@@ -176,7 +191,9 @@ void SocketEmitter::wsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client
           return;
         }
         IPAddress ip = client->remoteIP();
-        ESP_LOGD(TAG, "Socket [%lu] Connected from %d.%d.%d.%d (slot %u)", asyncId, ip[0], ip[1], ip[2], ip[3], slot);
+        ESP_LOGI(TAG, "Socket [%lu] Connected from %d.%d.%d.%d (slot %u)", asyncId, ip[0], ip[1], ip[2], ip[3], slot);
+        connectedAt[slot] = millis();
+        lastPing[slot] = 0;
         client->text("Connected");
         client->setCloseClientOnQueueFull(false);
         sockEmit.delayInit(slot);
@@ -185,8 +202,9 @@ void SocketEmitter::wsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client
     case WS_EVT_DISCONNECT:
       {
         uint8_t slot = mapClientId(asyncId);
-        ESP_LOGD(TAG, "Socket [%lu] Disconnected (slot %u)", asyncId, slot);
         if(slot != 255) {
+          ESP_LOGI(TAG, "Socket [%lu] Disconnected (slot %u) after %lums, last ping %lums ago", asyncId, slot,
+            (unsigned long)(millis() - connectedAt[slot]), lastPing[slot] ? (unsigned long)(millis() - lastPing[slot]) : 0UL);
           for(uint8_t i = 0; i < SOCK_MAX_ROOMS; i++)
             sockEmit.rooms[i].leave(slot);
         }
@@ -217,6 +235,20 @@ void SocketEmitter::wsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client
       break;
     case WS_EVT_ERROR:
       ESP_LOGE(TAG, "Socket [%lu] Error", asyncId);
+      break;
+    case WS_EVT_PING:
+      {
+        // Home Assistant pings every 20s and drops the socket when the pong is
+        // late, so only a late ping is worth a line; it points at a stalled
+        // network task or a lossy link.
+        uint8_t slot = mapClientId(asyncId);
+        if(slot != 255) {
+          uint32_t now = millis();
+          if(lastPing[slot] && now - lastPing[slot] > PING_LATE_MS)
+            ESP_LOGW(TAG, "Socket [%lu] late ping, %lums since the last", asyncId, (unsigned long)(now - lastPing[slot]));
+          lastPing[slot] = now;
+        }
+      }
       break;
     case WS_EVT_PONG:
       break;

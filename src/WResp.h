@@ -17,6 +17,7 @@ class AsyncJsonResp : public JsonFormatter {
 class JsonSockEvent : public JsonFormatter {
   protected:
     bool _closed = false;
+    const char *_evt = "";
     void _safecat(const char *val, bool escape = false) override;
   public:
     AsyncWebSocket *server = nullptr;
