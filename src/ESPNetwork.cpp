@@ -32,8 +32,6 @@ extern SomfyShadeController somfy;
 static unsigned long _lastHeapEmit = 0;
 
 static bool _apScanning = false;
-static uint32_t _lastMaxHeap = 0;
-static uint32_t _lastHeap = 0;
 int connectRetries = 0;
 void ESPNetwork::end() {
   SSDP.end();
@@ -673,20 +671,12 @@ void ESPNetwork::networkEvent(WiFiEvent_t event) {
   }
 }
 void ESPNetwork::emitHeap(uint8_t num) {
-  bool bEmit = false;
-  bool bTimeEmit = millis() - _lastHeapEmit > 15000;
-  bool bRoomEmit = false;
-  bool bValEmit = false;
-  if(num != 255 || this->needsBroadcast) bEmit = true;
-  if(millis() - _lastHeapEmit > 15000) bTimeEmit = true;
   uint32_t freeHeap = ESP.getFreeHeap();
   uint32_t maxHeap = ESP.getMaxAllocHeap();
   uint32_t minHeap = ESP.getMinFreeHeap();
-  if(abs((int)(freeHeap - _lastHeap)) > 1500) bValEmit = true;
-  if(abs((int)(maxHeap - _lastMaxHeap)) > 1500) bValEmit = true;
-  bRoomEmit = sockEmit.activeClients(0) > 0;
-  if(bValEmit) bTimeEmit = millis() - _lastHeapEmit > 7000;
-  if(bEmit || bTimeEmit || bRoomEmit || bValEmit) {
+  const bool bBroadcast = num == 255 && millis() - _lastHeapEmit >= HEAP_EMIT_MS;
+  const bool bRoomEmit = sockEmit.activeClients(0) > 0;
+  if(num != 255 || bBroadcast || bRoomEmit) {
     JsonSockEvent *json = sockEmit.beginEmit("memStatus");
     json->beginObject();
     json->addElem("max", maxHeap);
@@ -695,20 +685,11 @@ void ESPNetwork::emitHeap(uint8_t num) {
     json->addElem("total", ESP.getHeapSize());
     json->addElem("uptime", (uint64_t)millis());
     json->endObject();
-    if(num == 255 && bTimeEmit && bValEmit) {
+    if(bBroadcast) {
       sockEmit.endEmit(num);
       _lastHeapEmit = millis();
-      _lastHeap = freeHeap;
-      _lastMaxHeap = maxHeap;
-      //Serial.printf("BROAD HEAP: Emit:%d TimeEmit:%d ValEmit:%d\n", bEmit, bTimeEmit, bValEmit);
     }
-    else if(num != 255) {
-      sockEmit.endEmit(num);
-      //Serial.printf("TARGET HEAP %d: Emit:%d TimeEmit:%d ValEmit:%d\n", num, bEmit, bTimeEmit, bValEmit);
-    }
-    else if(bRoomEmit) {
-      sockEmit.endEmitRoom(0);
-      //Serial.printf("ROOM HEAP: Emit:%d TimeEmit:%d ValEmit:%d\n", bEmit, bTimeEmit, bValEmit);
-    }
+    else if(num != 255) sockEmit.endEmit(num);
+    else sockEmit.endEmitRoom(0);
   }
 }
