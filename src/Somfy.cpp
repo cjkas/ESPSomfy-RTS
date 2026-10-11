@@ -61,6 +61,11 @@ static std::atomic<uint32_t> txGen{0};
 static std::atomic<uint32_t> txPreemptWaiters{0};
 // TX_SUSPEND_* reasons the radio must not transmit for (frequency scan, OTA).
 static std::atomic<uint32_t> txSuspendMask{0};
+// Last sequence number handed to a queued job.  Only touched under TxQueueLock.
+static uint32_t txSeq = 0;
+// How long a shade's simulated movement waits for its command to go on air
+// before it starts anyway in case the event was lost.
+#define TX_PENDING_TIMEOUT 30000
 struct RadioLock {
   bool locked = true;  // Before the mutex exists there is nothing to serialize against.
   bool owned = false;
@@ -84,7 +89,7 @@ static void postTxEvent(tx_event_t type, const somfy_tx_job_t &job, uint32_t at)
   evt.type = type;
   evt.cmd = job.frame.cmd;
   evt.remoteAddress = job.frame.remoteAddress;
-  evt.queuedAt = job.queuedAt;
+  evt.seq = job.seq;
   evt.at = at;
   if(xQueueSend(txEventQueue, &evt, 0) != pdTRUE) ESP_LOGW(TAG, "Radio TX event queue full");
 }
@@ -97,6 +102,21 @@ static void encodeTxJob(somfy_tx_job_t &job, somfy_frame_t &frame, uint8_t repea
   job.tx.bit_length = frame.bitLength;
   job.frame = frame;
   job.repeats = repeat;
+}
+// Commands that can set a shade moving.
+static bool startsMovement(somfy_commands cmd) {
+  switch(cmd) {
+    case somfy_commands::My:
+    case somfy_commands::Up:
+    case somfy_commands::Down:
+    case somfy_commands::StepUp:
+    case somfy_commands::StepDown:
+    case somfy_commands::Toggle:
+    case somfy_commands::Favorite:
+      return true;
+    default:
+      return false;
+  }
 }
 
 int sort_asc(const void *cmp1, const void *cmp2) {
@@ -1124,6 +1144,17 @@ void SomfyShade::checkMovement() {
   uint8_t currPos = floor(this->currentPos);
   uint8_t currTiltPos = floor(this->currentTiltPos);
   if(this->direction != 0) this->lastMovement = this->direction;
+  if(this->txPendingSeq != 0) {
+    // The command that set us moving hasn't gone on air yet so the motor hasn't
+    // started.  Hold the simulated position until it does.
+    if((uint32_t)curTime - this->txPendingSince < TX_PENDING_TIMEOUT) {
+      this->moveStart = this->tiltStart = curTime;
+      if(currDir != this->direction || currTiltDir != this->tiltDirection) this->emitState();
+      return;
+    }
+    ESP_LOGW(TAG, "[Shade %u] Timed out waiting for the radio, moving anyway", this->shadeId);
+    this->txPendingSeq = 0;
+  }
   if (sunFlag) {
     if (isSunny && !isWindy) {  // It is sunny and there is no wind so we should be extended
       if (this->noWindDone
@@ -1211,14 +1242,15 @@ void SomfyShade::checkMovement() {
       // If we need to stop the shade do this before we indicate that we are
       // not moving otherwise the my function will kick in.
       if(this->settingPos) {
-        if(!isAtTarget()) {
-          ESP_LOGD(TAG, "We are not at our tilt target: %.2f", this->tiltTarget);
-          if(this->target != 100.0) SomfyRemote::sendCommand(somfy_commands::My, this->repeats);
-          // We now need to move the tilt to the position we requested.
-          this->moveToTiltTarget(this->tiltTarget);
+        // At the end limit the motor stops by itself.  If the stop doesn't go
+        // out the shade is now running on to the limit so leave the tilt be.
+        if(this->target == 100.0 || this->sendStop(1, false)) {
+          if(!isAtTarget()) {
+            ESP_LOGD(TAG, "We are not at our tilt target: %.2f", this->tiltTarget);
+            // We now need to move the tilt to the position we requested.
+            this->moveToTiltTarget(this->tiltTarget);
+          }
         }
-        else
-          if(this->target != 100.0) SomfyRemote::sendCommand(somfy_commands::My, this->repeats);
       }
       this->p_direction(0);
       this->tiltStart = curTime;
@@ -1262,14 +1294,15 @@ void SomfyShade::checkMovement() {
       // If we need to stop the shade do this before we indicate that we are
       // not moving otherwise the my function will kick in.
       if(this->settingPos) {
-        if(!isAtTarget()) {
-          ESP_LOGD(TAG, "We are not at our tilt target: %.2f", this->tiltTarget);
-          if(this->target != 0.0) SomfyRemote::sendCommand(somfy_commands::My, this->repeats);
-          // We now need to move the tilt to the position we requested.
-          this->moveToTiltTarget(this->tiltTarget);
+        // At the end limit the motor stops by itself.  If the stop doesn't go
+        // out the shade is now running on to the limit so leave the tilt be.
+        if(this->target == 0.0 || this->sendStop(-1, false)) {
+          if(!isAtTarget()) {
+            ESP_LOGD(TAG, "We are not at our tilt target: %.2f", this->tiltTarget);
+            // We now need to move the tilt to the position we requested.
+            this->moveToTiltTarget(this->tiltTarget);
+          }
         }
-        else
-          if(this->target != 0.0) SomfyRemote::sendCommand(somfy_commands::My, this->repeats);
       }
       this->p_direction(0);
       this->tiltStart = curTime;
@@ -1314,11 +1347,11 @@ void SomfyShade::checkMovement() {
         if(this->tiltType == tilt_types::integrated) {
           // If this is an integrated tilt mechanism the we will simply let it finish.  If it is not then we will stop it.
           //Serial.printf("Sending My -- tiltTarget: %.2f, tiltDirection: %d\n", this->tiltTarget, this->tiltDirection);
-          if(this->tiltTarget != 100.0f || this->currentPos != 100.0f) SomfyRemote::sendCommand(somfy_commands::My, this->repeats);
+          if(this->tiltTarget != 100.0f || this->currentPos != 100.0f) this->sendStop(1, true);
         }
         else {
           // This is a tilt motor so let it complete if it is going to 100.
-          if(this->tiltTarget != 100.0f) SomfyRemote::sendCommand(somfy_commands::My, this->repeats);
+          if(this->tiltTarget != 100.0f) this->sendStop(1, true);
         }
       }
       this->p_tiltDirection(0);
@@ -1364,11 +1397,11 @@ void SomfyShade::checkMovement() {
         if(this->tiltType == tilt_types::integrated) {
           // If this is an integrated tilt mechanism the we will simply let it finish.  If it is not then we will stop it.
           //Serial.printf("Sending My -- tiltTarget: %.2f, tiltDirection: %d\n", this->tiltTarget, this->tiltDirection);
-          if(this->tiltTarget != 0.0 || this->currentPos != 0.0) SomfyRemote::sendCommand(somfy_commands::My, this->repeats);
+          if(this->tiltTarget != 0.0 || this->currentPos != 0.0) this->sendStop(-1, true);
         }
         else {
           // This is a tilt motor so let it complete if it is going to 0.
-          if(this->tiltTarget != 0.0) SomfyRemote::sendCommand(somfy_commands::My, this->repeats);
+          if(this->tiltTarget != 0.0) this->sendStop(-1, true);
         }
       }
       this->p_tiltDirection(0);
@@ -1380,6 +1413,8 @@ void SomfyShade::checkMovement() {
   if(this->settingMyPos && this->isAtTarget()) {
     // Set this position before sending the command.  If you don't the processFrame function
     // will send the shade back to its original My position.
+    const float oldMyPos = this->myPos;
+    const float oldMyTiltPos = this->myTiltPos;
     if(this->tiltType != tilt_types::none) {
       if(this->myTiltPos == this->currentTiltPos && this->myPos == this->currentPos) this->myPos = this->myTiltPos = -1;
       else {
@@ -1393,9 +1428,13 @@ void SomfyShade::checkMovement() {
       else this->p_myPos(this->currentPos);
     }
     // Give the motor time to settle at the target before it is told to store it.
-    SomfyRemote::sendCommandAfter(somfy_commands::My, SETMY_REPEATS, 0, 200);
+    if(SomfyRemote::sendCommandAfter(somfy_commands::My, SETMY_REPEATS, 0, 200)) this->commitMyPosition();
+    else {
+      // The motor never learned it so keep the favorite it has.
+      this->p_myPos(oldMyPos);
+      this->p_myTiltPos(oldMyTiltPos);
+    }
     this->settingMyPos = false;
-    this->commitMyPosition();
     this->emitState();
   }
   else if(currDir != this->direction || currPos != floor(this->currentPos) || currTiltDir != this->tiltDirection || currTiltPos != floor(this->currentTiltPos)) {
@@ -2777,13 +2816,71 @@ void SomfyShade::setTiltMovement(int8_t dir) {
     this->emitState();
   }
 }
-void SomfyShade::shiftMovementStart(uint32_t queuedAt, uint32_t startedAt) {
-  // The movement was started when the command was queued but the motor only
-  // starts once the frame is on air.  Move the start forward so the simulated
-  // position does not run ahead of the motor.
-  const uint32_t wait = startedAt - queuedAt;
-  if(this->direction != 0 && (uint32_t)((uint32_t)this->moveStart - queuedAt) < wait) this->moveStart = startedAt;
-  if(this->tiltDirection != 0 && (uint32_t)((uint32_t)this->tiltStart - queuedAt) < wait) this->tiltStart = startedAt;
+void SomfyShade::markTxPending(uint32_t seq) {
+  // Only a shade the command set moving has to wait for it.
+  if(this->isAtTarget()) return;
+  this->txPendingSeq = seq;
+  this->txPendingSince = millis();
+}
+void SomfyShade::processTxEvent(const somfy_tx_event_t &evt) {
+  if(evt.seq == 0) return;
+  if(this->txPendingSeq == evt.seq) {
+    this->txPendingSeq = 0;
+    if(evt.type == tx_event_t::started) {
+      // The motor starts now so the simulated movement does too.
+      this->moveStart = this->tiltStart = evt.at;
+    }
+    else {
+      // The motor never got the command so it hasn't moved.
+      ESP_LOGW(TAG, "[Shade %u] Command dropped by the radio, staying at %.2f%%", this->shadeId, this->currentPos);
+      this->settingPos = this->settingTiltPos = this->settingMyPos = false;
+      this->p_target(this->currentPos);
+      this->p_tiltTarget(this->currentTiltPos);
+      this->emitState();
+    }
+  }
+  if(this->txStopSeq == evt.seq) {
+    this->txStopSeq = 0;
+    // Unless something has moved the shade since, the motor never got the stop
+    // and is still running.
+    if(evt.type == tx_event_t::dropped && this->direction == 0 && this->tiltDirection == 0) {
+      ESP_LOGW(TAG, "[Shade %u] Stop dropped by the radio, running on to the limit", this->shadeId);
+      this->runToLimit(this->txStopDir, this->txStopTilt, this->txStopAt);
+      this->emitState();
+    }
+  }
+}
+bool SomfyShade::sendStop(int8_t dir, bool tilt) {
+  const uint32_t now = millis();
+  // Stops jump the radio queue so the motor stops as close to the target as it can.
+  if(SomfyRemote::sendCommandAfter(somfy_commands::My, this->repeats, 0, 0, true)) {
+    this->txStopSeq = this->lastTxSeq;
+    this->txStopAt = now;
+    this->txStopDir = dir;
+    this->txStopTilt = tilt;
+    return true;
+  }
+  ESP_LOGW(TAG, "[Shade %u] Stop not sent, running on to the limit", this->shadeId);
+  this->runToLimit(dir, tilt, now);
+  return false;
+}
+void SomfyShade::runToLimit(int8_t dir, bool tilt, uint32_t since) {
+  // The motor didn't get a stop at the target so it keeps going until its end
+  // limit.  Carry on simulating that from where and when it should have stopped.
+  if(tilt) {
+    this->startTiltPos = this->currentTiltPos;
+    this->tiltStart = since;
+    this->settingTiltPos = false;
+    this->p_tiltTarget(dir > 0 ? 100.0f : 0.0f);
+  }
+  else {
+    this->startPos = this->currentPos;
+    this->moveStart = since;
+    this->settingPos = false;
+    this->p_target(dir > 0 ? 100.0f : 0.0f);
+  }
+  // The favorite can't be set where the shade won't stop.
+  this->settingMyPos = false;
 }
 void SomfyShade::setMovement(int8_t dir) {
   int8_t currDir = this->direction;
@@ -2805,28 +2902,26 @@ void SomfyShade::setMyPosition(int8_t pos, int8_t tilt) {
   if(this->tiltType == tilt_types::tiltonly) {
     this->p_myPos(-1.0f);    
     if(tilt != floor(this->currentTiltPos)) {
-      this->settingMyPos = true;
+      // The favorite is set once we get there, if the move went out.
       if(tilt == floor(this->myTiltPos))
-        this->moveToMyPosition();
-      else 
-        this->moveToTarget(100, tilt);
+        this->settingMyPos = this->moveToMyPosition();
+      else
+        this->settingMyPos = this->moveToTarget(100, tilt);
     }
     else if(tilt == floor(this->myTiltPos)) {
       // Of so we need to clear the my position. These motors are finicky so send
       // a my command to ensure we are actually at the my position then send the clear
       // command.  There really is no other way to do this.
       if(this->currentTiltPos != this->myTiltPos) {
-        this->settingMyPos = true;
-        this->moveToMyPosition();      
+        this->settingMyPos = this->moveToMyPosition();
       }
-      else {
-        SomfyRemote::sendCommand(somfy_commands::My, this->repeats);
+      else if(SomfyRemote::sendCommand(somfy_commands::My, this->repeats)) {
         this->settingPos = false;
         this->settingMyPos = true;
       }
     }
-    else {
-      SomfyRemote::sendCommand(somfy_commands::My, SETMY_REPEATS);
+    else if(SomfyRemote::sendCommand(somfy_commands::My, SETMY_REPEATS)) {
+      // Only store a favorite the motor was told about.
       this->p_myTiltPos(this->currentTiltPos);
     }
     this->commitMyPosition();
@@ -2835,28 +2930,26 @@ void SomfyShade::setMyPosition(int8_t pos, int8_t tilt) {
   else if(this->tiltType != tilt_types::none) {
       if(tilt < 0) tilt = 0;
       if(pos != floor(this->currentPos) || tilt != floor(this->currentTiltPos)) {
-        this->settingMyPos = true;
+        // The favorite is set once we get there, if the move went out.
         if(pos == floor(this->myPos) && tilt == floor(this->myTiltPos))
-          this->moveToMyPosition();
+          this->settingMyPos = this->moveToMyPosition();
         else
-          this->moveToTarget(pos, tilt);
+          this->settingMyPos = this->moveToTarget(pos, tilt);
       }
       else if(pos == floor(this->myPos) && tilt == floor(this->myTiltPos)) {
         // Of so we need to clear the my position. These motors are finicky so send
         // a my command to ensure we are actually at the my position then send the clear
         // command.  There really is no other way to do this.
         if(this->currentPos != this->myPos || this->currentTiltPos != this->myTiltPos) {
-          this->settingMyPos = true;
-          this->moveToMyPosition();      
+          this->settingMyPos = this->moveToMyPosition();
         }
-        else {
-          SomfyRemote::sendCommand(somfy_commands::My, this->repeats);
+        else if(SomfyRemote::sendCommand(somfy_commands::My, this->repeats)) {
           this->settingPos = false;
           this->settingMyPos = true;
         }
       }
-      else {
-        SomfyRemote::sendCommand(somfy_commands::My, SETMY_REPEATS);
+      else if(SomfyRemote::sendCommand(somfy_commands::My, SETMY_REPEATS)) {
+        // Only store a favorite the motor was told about.
         this->p_myPos(this->currentPos);
         this->p_myTiltPos(this->currentTiltPos);
       }
@@ -2865,28 +2958,26 @@ void SomfyShade::setMyPosition(int8_t pos, int8_t tilt) {
   }
   else {
     if(pos != floor(this->currentPos)) {
-      this->settingMyPos = true;
+      // The favorite is set once we get there, if the move went out.
       if(pos == floor(this->myPos))
-        this->moveToMyPosition();
+        this->settingMyPos = this->moveToMyPosition();
       else
-        this->moveToTarget(pos);
+        this->settingMyPos = this->moveToTarget(pos);
     }
     else if(pos == floor(this->myPos)) {
       // Of so we need to clear the my position. These motors are finicky so send
       // a my command to ensure we are actually at the my position then send the clear
       // command.  There really is no other way to do this.
       if(this->myPos != this->currentPos) {
-        this->settingMyPos = true;
-        this->moveToMyPosition();      
+        this->settingMyPos = this->moveToMyPosition();
       }
-      else {
-        SomfyRemote::sendCommand(somfy_commands::My, this->repeats);
+      else if(SomfyRemote::sendCommand(somfy_commands::My, this->repeats)) {
         this->settingPos = false;
         this->settingMyPos = true;
       }
     }
-    else {
-      SomfyRemote::sendCommand(somfy_commands::My, SETMY_REPEATS);
+    else if(SomfyRemote::sendCommand(somfy_commands::My, SETMY_REPEATS)) {
+      // Only store a favorite the motor was told about.
       this->p_myPos(currentPos);
       this->p_myTiltPos(-1);
       this->commitMyPosition();
@@ -3038,6 +3129,8 @@ bool SomfyGroup::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSiz
       }
     }
   }
+  // The member shades only started moving above.
+  if(this->lastTxSeq != 0 && startsMovement(this->lastFrame.cmd)) somfy.markTxPending(this->getRemoteAddress(), this->lastTxSeq);
   this->updateFlags();
   this->emitState();
   return true;
@@ -3496,7 +3589,7 @@ void SomfyShadeController::processFrame(somfy_frame_t &frame, bool internal) {
     if(this->shades[i].getShadeId() != 255) this->shades[i].processFrame(frame, internal);
   }
 }
-void SomfyShadeController::shiftMovementStart(uint32_t remoteAddress, uint32_t queuedAt, uint32_t startedAt) {
+void SomfyShadeController::markTxPending(uint32_t remoteAddress, uint32_t seq) {
   // Same matching as SomfyShade::processFrame for shade and linked remotes.
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
     SomfyShade *shade = &this->shades[i];
@@ -3504,7 +3597,7 @@ void SomfyShadeController::shiftMovementStart(uint32_t remoteAddress, uint32_t q
     bool hasRemote = shade->getRemoteAddress() == remoteAddress;
     for(uint8_t j = 0; !hasRemote && j < SOMFY_MAX_LINKED_REMOTES; j++)
       hasRemote = shade->linkedRemotes[j].getRemoteAddress() == remoteAddress;
-    if(hasRemote) shade->shiftMovementStart(queuedAt, startedAt);
+    if(hasRemote) shade->markTxPending(seq);
   }
   // Group commands move their member shades through processInternalCommand.
   for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++) {
@@ -3513,9 +3606,13 @@ void SomfyShadeController::shiftMovementStart(uint32_t remoteAddress, uint32_t q
     for(uint8_t j = 0; j < SOMFY_MAX_GROUPED_SHADES; j++) {
       if(group->linkedShades[j] == 0) continue;
       SomfyShade *shade = this->getShadeById(group->linkedShades[j]);
-      if(shade) shade->shiftMovementStart(queuedAt, startedAt);
+      if(shade) shade->markTxPending(seq);
     }
   }
+}
+void SomfyShadeController::processTxEvent(const somfy_tx_event_t &evt) {
+  for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++)
+    if(this->shades[i].getShadeId() != 255) this->shades[i].processTxEvent(evt);
 }
 void SomfyShadeController::processWaitingFrame() {
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++)
@@ -3888,7 +3985,7 @@ bool SomfyRemote::sendSensorCommand(int8_t isWindy, int8_t isSunny, uint8_t repe
 }
 bool SomfyRemote::sendCommand(somfy_commands cmd) { return this->sendCommand(cmd, this->repeats); }
 bool SomfyRemote::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize) { return this->sendCommandAfter(cmd, repeat, stepSize, 0); }
-bool SomfyRemote::sendCommandAfter(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs) {
+bool SomfyRemote::sendCommandAfter(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs, bool priority) {
   // Build the frame aside and only take the rolling code once the frame is
   // queued so a dropped command leaves the remote untouched.
   somfy_frame_t frame = this->lastFrame;
@@ -3907,6 +4004,7 @@ bool SomfyRemote::sendCommandAfter(somfy_commands cmd, uint8_t repeat, uint8_t s
   // We have to set the processed to clear this if we are sending
   // another command.
   frame.processed = false;
+  uint32_t seq = 0;
   if(this->proto == radio_proto::GP_Relay) {
     ESP_LOGD(TAG, "CMD:%s ADDR:%d RCODE:%d SETTING GPIO",
         translateSomfyCommand(frame.cmd).c_str(),
@@ -3923,11 +4021,15 @@ bool SomfyRemote::sendCommandAfter(somfy_commands cmd, uint8_t repeat, uint8_t s
         translateSomfyCommand(frame.cmd).c_str(),
         frame.remoteAddress, frame.rollingCode, repeat);
     // Only simulate the command if it is actually going on air.
-    if(!somfy.sendFrame(frame, repeat, delayMs)) return false;
+    if(!somfy.sendFrame(frame, repeat, delayMs, priority, &seq)) return false;
   }
   this->commitRollingCode(frame.rollingCode);
   this->lastFrame = frame;
+  this->lastTxSeq = seq;
   somfy.processFrame(this->lastFrame, true);
+  // Shades this set moving wait for the frame to go on air.  Stops are sent
+  // ahead of everything else so they don't need to.
+  if(seq != 0 && !priority && startsMovement(frame.cmd)) somfy.markTxPending(frame.remoteAddress, seq);
   return true;
 }
 bool SomfyRemote::isLastCommand(somfy_commands cmd) {
@@ -3955,13 +4057,15 @@ bool SomfyRemote::repeatFrame(uint8_t repeat) {
   //somfy.processFrame(this->lastFrame, true);
   return true;
 }
-bool SomfyShadeController::sendFrame(somfy_frame_t &frame, uint8_t repeat, uint16_t delayMs, bool priority) {
+bool SomfyShadeController::sendFrame(somfy_frame_t &frame, uint8_t repeat, uint16_t delayMs, bool priority, uint32_t *seq) {
   somfy_tx_job_t job;
   encodeTxJob(job, frame, repeat);
   job.firstRepeat = 1;
   job.priority = priority;
   if(delayMs > 0) job.notBefore = millis() + delayMs;
-  return this->transceiver.queueTx(job);
+  if(!this->transceiver.queueTx(job)) return false;
+  if(seq) *seq = job.seq;
+  return true;
 }
 bool SomfyShadeController::deleteShade(uint8_t shadeId) {
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
@@ -5019,13 +5123,10 @@ void Transceiver::loop() {
   somfy_rx_t rx;
   somfy_tx_event_t evt;
   while(txEventQueue && xQueueReceive(txEventQueue, &evt, 0) == pdTRUE) {
-    if(evt.type == tx_event_t::started) {
-      // The shades were set moving when the job was queued so line their
-      // movement up with the motor.
-      somfy.shiftMovementStart(evt.remoteAddress, evt.queuedAt, evt.at);
-    }
-    else
+    if(evt.type == tx_event_t::dropped)
       ESP_LOGW(TAG, "Radio TX dropped %s for %d", translateSomfyCommand(evt.cmd).c_str(), evt.remoteAddress);
+    // Line the simulated shades up with what actually went on air.
+    somfy.processTxEvent(evt);
   }
   if (noiseDetected && rxmode != 3 && this->config.noiseDetection) {
     if (millis() - noiseStart > 100) {
@@ -5090,7 +5191,8 @@ bool Transceiver::queueTx(somfy_tx_job_t &job) {
     return false;
   }
   job.gen = txGen;
-  job.queuedAt = millis();
+  if(++txSeq == 0) ++txSeq;  // 0 means no job.
+  job.seq = txSeq;
   // We are the only producer while holding the lock so the space check holds.
   if(job.priority) xQueueSendToFront(txJobQueue, &job, 0);
   else xQueueSendToBack(txJobQueue, &job, 0);

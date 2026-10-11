@@ -218,7 +218,7 @@ struct somfy_tx_job_t {
   bool raw = false;         // Repeater frame.  Waits for the receiver to be idle.
   bool priority = false;    // Goes to the front of the queue and may use the reserved slots.
   uint32_t gen = 0;         // Flush generation when queued.  Stale jobs are dropped.
-  uint32_t queuedAt = 0;    // millis() when queued.
+  uint32_t seq = 0;         // Assigned when queued so the job's events can be matched up.
   uint32_t notBefore = 0;   // millis() before which the job must not go on air (0 = none).
 };
 enum class tx_event_t : uint8_t {
@@ -230,7 +230,7 @@ struct somfy_tx_event_t {
   tx_event_t type = tx_event_t::started;
   somfy_commands cmd = somfy_commands::My;
   uint32_t remoteAddress = 0;
-  uint32_t queuedAt = 0;
+  uint32_t seq = 0;
   uint32_t at = 0;          // millis() when the job started or was dropped.
 };
 
@@ -266,6 +266,7 @@ class SomfyRemote {
     somfy_frame_t lastFrame;
     bool flipCommands = false;
     uint16_t lastRollingCode = 0;
+    uint32_t lastTxSeq = 0;  // Radio job of the last command sent, 0 if it didn't use the radio.
     uint8_t flags = 0;
     uint8_t bitLength = 0;
     uint8_t repeats = 1;
@@ -286,7 +287,7 @@ class SomfyRemote {
     // command.  Nothing about the remote or shade state has changed in that case.
     virtual bool sendCommand(somfy_commands cmd);
     virtual bool sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize = 0);
-    bool sendCommandAfter(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs);
+    bool sendCommandAfter(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs, bool priority = false);
     bool sendSensorCommand(int8_t isWindy, int8_t isSunny, uint8_t repeat);
     bool repeatFrame(uint8_t repeat);
     virtual uint16_t p_lastRollingCode(uint16_t code);
@@ -318,6 +319,18 @@ class SomfyShade : public SomfyRemote {
     bool settingPos = false;
     bool settingTiltPos = false;
     uint32_t awaitMy = 0;
+    // Radio job that set the shade moving.  The simulated position is held
+    // until it goes on air.  0 when nothing is waiting.
+    uint32_t txPendingSeq = 0;
+    uint32_t txPendingSince = 0;
+    // Stop sent when the simulated target was reached.  If it never goes on
+    // air the motor runs on to its end limit.  0 once it is on air.
+    uint32_t txStopSeq = 0;
+    uint32_t txStopAt = 0;
+    int8_t txStopDir = 0;
+    bool txStopTilt = false;
+    bool sendStop(int8_t dir, bool tilt);
+    void runToLimit(int8_t dir, bool tilt, uint32_t since);
   public:
     uint8_t roomId = 0;
     int8_t sortOrder = 0;
@@ -354,7 +367,8 @@ class SomfyShade : public SomfyRemote {
     void checkMovement();
     void processFrame(somfy_frame_t &frame, bool internal = false);
     void processInternalCommand(somfy_commands cmd, uint8_t repeat = 1);
-    void shiftMovementStart(uint32_t queuedAt, uint32_t startedAt);
+    void markTxPending(uint32_t seq);
+    void processTxEvent(const somfy_tx_event_t &evt);
     void setTiltMovement(int8_t dir);
     void setMovement(int8_t dir);
     void setTarget(float target);
@@ -604,9 +618,10 @@ class SomfyShadeController {
     SomfyGroup * getGroupById(uint8_t groupId);
     SomfyShade * findShadeByRemoteAddress(uint32_t address);
     SomfyGroup * findGroupByRemoteAddress(uint32_t address);
-    bool sendFrame(somfy_frame_t &frame, uint8_t repeats = 0, uint16_t delayMs = 0, bool priority = false);
+    bool sendFrame(somfy_frame_t &frame, uint8_t repeats = 0, uint16_t delayMs = 0, bool priority = false, uint32_t *seq = nullptr);
     void processFrame(somfy_frame_t &frame, bool internal = false);
-    void shiftMovementStart(uint32_t remoteAddress, uint32_t queuedAt, uint32_t startedAt);
+    void markTxPending(uint32_t remoteAddress, uint32_t seq);
+    void processTxEvent(const somfy_tx_event_t &evt);
     void emitState(uint8_t num = 255);
     void publish();
     void processWaitingFrame();
