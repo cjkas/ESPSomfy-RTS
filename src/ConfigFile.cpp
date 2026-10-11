@@ -608,7 +608,10 @@ bool ShadeConfigFile::restoreFile(SomfyShadeController *s, const char *filename,
   if(opts.shades) s->commit();
   if(opts.transceiver)
   {
-    this->readTransRecord(s->transceiver.config);
+    // Read into a copy so the radio task never transmits on a half restored config.
+    transceiver_config_t cfg = s->transceiver.config;
+    this->readTransRecord(cfg);
+    s->transceiver.setConfig(cfg);
     s->transceiver.save();
   }
   if(opts.settings || opts.network) settings.save();

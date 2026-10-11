@@ -4812,16 +4812,20 @@ bool Transceiver::toJSON(JsonObject& obj) {
 bool Transceiver::fromJSON(JsonObject& obj) {
     if (!obj["config"].isNull()) {
       JsonObject objConfig = obj["config"];
-      // Parse into a copy so the radio task never sees a half updated config,
-      // then swap it in once any transmission in flight has stopped.  Queued
-      // jobs are kept and go out with the new settings.
+      // Parse into a copy so the radio task never sees a half updated config.
       transceiver_config_t cfg = this->config;
       cfg.fromJSON(objConfig);
-      RadioLock lock(portMAX_DELAY, true);
-      if(this->config.enabled && this->config.TXPin != cfg.TXPin) pinMode(this->config.TXPin, INPUT);
-      this->config = cfg;
+      this->setConfig(cfg);
     }
     return true;
+}
+void Transceiver::setConfig(const transceiver_config_t &cfg) {
+  // Swap the whole config in once any transmission in flight has stopped so the
+  // radio task never sees a half updated one.  Queued jobs are kept and go out
+  // with the new settings.
+  RadioLock lock(portMAX_DELAY, true);
+  if(this->config.enabled && this->config.TXPin != cfg.TXPin) pinMode(this->config.TXPin, INPUT);
+  this->config = cfg;
 }
 bool Transceiver::usesPin(uint8_t pin) {
   if(this->config.enabled) {
