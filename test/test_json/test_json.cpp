@@ -1,0 +1,161 @@
+#include <unity.h>
+#include "JsonFormatter.h"
+
+// The formatter only gets told about the first BUFF_SIZE bytes.  The rest is a
+// canary that must never be written.
+#define STORAGE_SIZE 160
+#define BUFF_SIZE 128
+#define CANARY 'X'
+
+static char storage[STORAGE_SIZE];
+static BufferedJsonFormatter fmt;
+
+static void useBuffer(size_t size) {
+  memset(storage, CANARY, sizeof(storage));
+  fmt.setBuffer(storage, size);
+}
+static void assertCanary(size_t from) {
+  for(size_t i = from; i < STORAGE_SIZE; i++) {
+    char msg[48];
+    snprintf(msg, sizeof(msg), "wrote past the buffer at byte %u", (unsigned)i);
+    TEST_ASSERT_EQUAL_HEX8_MESSAGE(CANARY, storage[i], msg);
+  }
+}
+// The JSON written for a single top level string value.
+static const char *escaped(const char *val) {
+  useBuffer(BUFF_SIZE);
+  fmt.addElem(val);
+  return storage;
+}
+
+void setUp() { useBuffer(BUFF_SIZE); }
+void tearDown() { assertCanary(BUFF_SIZE); }
+
+/*********************************************************************
+ * Structure
+ ********************************************************************/
+static void test_empty_object() {
+  fmt.beginObject();
+  fmt.endObject();
+  TEST_ASSERT_EQUAL_STRING("{}", storage);
+}
+static void test_nested_objects_and_arrays() {
+  fmt.beginObject();
+  fmt.addElem("a", (uint8_t)1);
+  fmt.beginObject("b");
+  fmt.addElem("c", true);
+  fmt.endObject();
+  fmt.beginArray("d");
+  fmt.addElem((uint8_t)1);
+  fmt.addElem((uint8_t)2);
+  fmt.beginObject();
+  fmt.addElem("e", "x");
+  fmt.endObject();
+  fmt.endArray();
+  fmt.endObject();
+  TEST_ASSERT_EQUAL_STRING("{\"a\":1,\"b\":{\"c\":true},\"d\":[1,2,{\"e\":\"x\"}]}", storage);
+}
+static void test_array_of_objects() {
+  fmt.beginArray();
+  fmt.beginObject();
+  fmt.endObject();
+  fmt.beginObject();
+  fmt.endObject();
+  fmt.endArray();
+  TEST_ASSERT_EQUAL_STRING("[{},{}]", storage);
+}
+static void test_named_object_after_element() {
+  fmt.beginObject();
+  fmt.addElem("a", (uint8_t)1);
+  fmt.beginObject("o");
+  fmt.endObject();
+  fmt.endObject();
+  TEST_ASSERT_EQUAL_STRING("{\"a\":1,\"o\":{}}", storage);
+}
+
+/*********************************************************************
+ * Values
+ ********************************************************************/
+static void test_number_and_bool_values() {
+  fmt.beginArray();
+  fmt.addElem((int8_t)-5);
+  fmt.addElem((uint8_t)255);
+  fmt.addElem((int32_t)-100000);
+  fmt.addElem((uint32_t)4000000000u);
+  fmt.addElem(1.5f);
+  fmt.addElem(true);
+  fmt.addElem(false);
+  fmt.endArray();
+  TEST_ASSERT_EQUAL_STRING("[-5,255,-100000,4000000000,1.5000,true,false]", storage);
+}
+static void test_named_uint64() {
+  fmt.beginObject();
+  fmt.addElem("u", (uint64_t)18446744073709551615ULL);
+  fmt.endObject();
+  TEST_ASSERT_EQUAL_STRING("{\"u\":18446744073709551615}", storage);
+}
+static void test_null_string_is_skipped() {
+  fmt.beginObject();
+  fmt.addElem("a", (uint8_t)1);
+  fmt.addElem("n", (const char *)nullptr);
+  fmt.addElem("b", (uint8_t)2);
+  fmt.endObject();
+  TEST_ASSERT_EQUAL_STRING("{\"a\":1,\"b\":2}", storage);
+}
+
+/*********************************************************************
+ * Escaping
+ ********************************************************************/
+static void test_escapes_special_characters() {
+  TEST_ASSERT_EQUAL_STRING("\"plain\"", escaped("plain"));
+  TEST_ASSERT_EQUAL_STRING("\"\\\"\"", escaped("\""));
+  TEST_ASSERT_EQUAL_STRING("\"\\\\\"", escaped("\\"));
+  TEST_ASSERT_EQUAL_STRING("\"\\/\"", escaped("/"));
+  TEST_ASSERT_EQUAL_STRING("\"\\n\\t\\r\\b\\f\"", escaped("\n\t\r\b\f"));
+  TEST_ASSERT_EQUAL_STRING("\"Living \\\"Room\\\"\"", escaped("Living \"Room\""));
+}
+static void test_escapes_other_control_characters() {
+  // Raw control characters are not allowed in JSON strings.
+  TEST_ASSERT_EQUAL_STRING("\"a\\u0001b\"", escaped("a\x01" "b"));
+  TEST_ASSERT_EQUAL_STRING("\"\\u001f\"", escaped("\x1f"));
+}
+static void test_escaped_length() {
+  TEST_ASSERT_EQUAL_UINT32(0, fmt.calcEscapedLength(""));
+  TEST_ASSERT_EQUAL_UINT32(2, fmt.calcEscapedLength("ab"));
+  TEST_ASSERT_EQUAL_UINT32(4, fmt.calcEscapedLength("a\"b"));
+}
+static void test_escaped_length_counts_first_character() {
+  TEST_ASSERT_EQUAL_UINT32(4, fmt.calcEscapedLength("\"ab"));
+  TEST_ASSERT_EQUAL_UINT32(2, fmt.calcEscapedLength("/"));
+}
+
+/*********************************************************************
+ * Buffer limits
+ ********************************************************************/
+static void test_value_needing_one_byte_too_many_is_refused() {
+  // "\/abcdefg" with its quotes is 11 characters, so with the terminator it
+  // needs 12 bytes and must not be written into 11.
+  useBuffer(11);
+  fmt.addElem("/abcdefg");
+  TEST_ASSERT_TRUE(strlen(storage) < 11);
+  assertCanary(11);
+}
+
+int main(int argc, char **argv) {
+  (void)argc;
+  (void)argv;
+  UNITY_BEGIN();
+  RUN_TEST(test_empty_object);
+  RUN_TEST(test_nested_objects_and_arrays);
+  RUN_TEST(test_array_of_objects);
+  RUN_TEST(test_named_object_after_element);
+  RUN_TEST(test_number_and_bool_values);
+  RUN_TEST(test_named_uint64);
+  RUN_TEST(test_null_string_is_skipped);
+  RUN_TEST(test_escapes_special_characters);
+  RUN_TEST(test_escapes_other_control_characters);
+  RUN_TEST(test_escaped_length);
+  RUN_TEST(test_escaped_length_counts_first_character);
+  RUN_TEST(test_value_needing_one_byte_too_many_is_refused);
+  return UNITY_END();
+}
