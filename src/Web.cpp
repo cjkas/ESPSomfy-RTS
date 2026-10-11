@@ -32,6 +32,8 @@ extern ESPNetwork net;
 //#define WEB_MAX_RESPONSE 34768
 #define WEB_MAX_RESPONSE 4096
 static char g_async_content[WEB_MAX_RESPONSE];
+// /discovery logs where its time went when it takes at least this long.
+#define DISCOVERY_SLOW_MS 50
 
 
 // General responses
@@ -684,6 +686,10 @@ void Web::handleDiscovery(AsyncWebServerRequest *request) {
     char connType[10] = "Unknown";
     if(net.connType == conn_types_t::ethernet) strcpy(connType, "Ethernet");
     else if(net.connType == conn_types_t::wifi) strcpy(connType, "Wifi");
+    // This handler takes about 200ms on the async_tcp task for no obvious
+    // reason, so time each part to find out where it goes.
+    ElapsedTimer total, step;
+    uint32_t usHead, usMem, usRooms, usShades, usGroups, usSend;
     AsyncJsonResp resp;
     resp.beginResponse(request, g_async_content, sizeof(g_async_content));
     resp.beginObject();
@@ -697,6 +703,7 @@ void Web::handleDiscovery(AsyncWebServerRequest *request) {
     resp.addElem("chipModel", settings.chipModel);
     resp.addElem("connType", connType);
     resp.addElem("checkForUpdate", settings.checkForUpdate);
+    usHead = step.us(); step.restart();
     resp.beginObject("memory");
     resp.addElem("max", ESP.getMaxAllocHeap());
     resp.addElem("free", ESP.getFreeHeap());
@@ -704,18 +711,27 @@ void Web::handleDiscovery(AsyncWebServerRequest *request) {
     resp.addElem("total", ESP.getHeapSize());
     resp.addElem("uptime", (uint64_t)millis());
     resp.endObject();
+    usMem = step.us(); step.restart();
     resp.beginArray("rooms");
     serializeRooms(resp);
     resp.endArray();
+    usRooms = step.us(); step.restart();
     resp.beginArray("shades");
     serializeShades(resp);
     resp.endArray();
+    usShades = step.us(); step.restart();
     resp.beginArray("groups");
     serializeGroups(resp);
     resp.endArray();
     resp.endObject();
+    usGroups = step.us(); step.restart();
     resp.endResponse();
+    usSend = step.us();
     net.needsBroadcast = true;
+    if(total.us() >= DISCOVERY_SLOW_MS * 1000) {
+      ESP_LOGW(TAG, "discovery: head %.1f mem %.1f rooms %.1f shades %.1f groups %.1f send %.1f ms",
+        usHead / 1000.0f, usMem / 1000.0f, usRooms / 1000.0f, usShades / 1000.0f, usGroups / 1000.0f, usSend / 1000.0f);
+    }
   }
   else
     request->send(500, _encoding_text, "Invalid http method");
