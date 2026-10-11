@@ -4553,6 +4553,10 @@ int currRSSI = -100;
 float markFreq = 433.0f;
 int markRSSI = -100;
 uint32_t lastScan = 0;
+static uint32_t scanStart = 0;
+// A scan nobody ended (closed browser tab) stops on its own after this long so
+// the radio doesn't stay unable to transmit.
+#define SCAN_MAX_MS 300000
 void Transceiver::beginFrequencyScan() {
   // The scan retunes the radio so nothing may transmit until it ends.  This
   // also aborts a transmission in flight so the lock below is never held long.
@@ -4561,6 +4565,7 @@ void Transceiver::beginFrequencyScan() {
   if(this->config.enabled) {
     this->disableReceive();
     rxmode = 3;
+    scanStart = millis();
     pinMode(this->config.RXPin, INPUT);
     interruptPin = digitalPinToInterrupt(this->config.RXPin);
     ELECHOUSE_cc1101.setRxBW(this->config.rxBandwidth);              // Set the Receive Bandwidth in kHz. Value from 58.03 to 812.50. Default is 812.50 kHz.
@@ -4608,9 +4613,10 @@ void Transceiver::endFrequencyScan() {
     if(interruptPin > 0) detachInterrupt(interruptPin); 
     interruptPin = 0;
     this->config.apply();
-    this->resumeTx(TX_SUSPEND_SCAN);
     this->emitFrequencyScan();
   }
+  // Even if something else already ended the scan, nothing may keep TX suspended.
+  this->resumeTx(TX_SUSPEND_SCAN);
 }
 void Transceiver::emitFrequencyScan(uint8_t num) {
   JsonSockEvent *json = sockEmit.beginEmit("frequencyScan");
@@ -4770,7 +4776,8 @@ bool Transceiver::save() {
 }
 bool Transceiver::end() {
     // Nothing may transmit (and re-enable receive) after this.  It is not
-    // resumed since the only caller is OTA which always reboots.
+    // resumed since the only caller is OTA, which reboots when the upload
+    // completes, fails or is abandoned.
     this->suspendTx(TX_SUSPEND_OTA);
     RadioLock lock(portMAX_DELAY, true);
     this->disableReceive();
@@ -5011,7 +5018,13 @@ void transceiver_config_t::apply() {
     // be reconfigured.  Queued frames are already encoded and go out with the
     // new settings.
     RadioLock lock(portMAX_DELAY, true);
+    // Reconfiguring the radio ends a frequency scan so TX may resume.
+    const bool wasScanning = rxmode == 3;
     somfy.transceiver.disableReceive();
+    if(wasScanning) {
+      somfy.transceiver.resumeTx(TX_SUSPEND_SCAN);
+      somfy.transceiver.emitFrequencyScan();
+    }
     bit_length = this->type;    
     if(this->enabled) {
       bool radioInit = true;
@@ -5135,6 +5148,10 @@ void Transceiver::loop() {
       noiseStart = 0;
       noiseCount = 0;
     }
+  }
+  if(rxmode == 3 && millis() - scanStart > SCAN_MAX_MS) {
+    ESP_LOGW(TAG, "Frequency scan timed out");
+    this->endFrequencyScan();
   }
   if(rxmode == 3) {
     if(this->receive(&rx))

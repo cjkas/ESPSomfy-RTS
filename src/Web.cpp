@@ -64,9 +64,23 @@ static bool queueUnpairShade(SomfyShade *shade) {
   shade->paired = false;
   return true;
 }
+// The radio and MQTT are shut down once an upload starts and only a reboot
+// brings them back.  The completion handler schedules it but never runs if the
+// client goes away mid-upload, so make sure the device reboots then too.
+static void onUploadDisconnect() {
+  if(webServer.uploadSuccess || rebootDelay.reboot) return;
+  ESP_LOGW(TAG, "Upload abandoned, rebooting");
+  if(Update.isRunning()) Update.abort();
+  rebootDelay.reboot = true;
+  rebootDelay.rebootTime = millis() + 500;
+}
 // Sent when a command can't be handed to the main loop.
 static void sendQueueFull(AsyncWebServerRequest *request) {
   request->send(503, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Command queue full\"}"));
+}
+// Sent when the radio can't take a frame (suspended or queue full).
+static void sendRadioUnavailable(AsyncWebServerRequest *request) {
+  request->send(503, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Radio TX unavailable\"}"));
 }
 
 AsyncWebServer asyncServer(80);
@@ -2136,6 +2150,7 @@ void Web::begin() {
         else {
           somfy.transceiver.end();
           mqtt.end();
+          request->onDisconnect(onUploadDisconnect);
         }
       }
       if(len > 0) {
@@ -2201,6 +2216,7 @@ void Web::begin() {
         else {
           somfy.transceiver.end();
           mqtt.end();
+          request->onDisconnect(onUploadDisconnect);
         }
       }
       if(len > 0) {
@@ -2331,8 +2347,10 @@ void Web::begin() {
         frame.cmd = translateSomfyCommand(scmd.c_str());
       }
       if(frame.remoteAddress > 0 && frame.rollingCode > 0) {
-        somfy.sendFrame(frame, repeats);
-        request->send(200, _encoding_json, F("{\"status\":\"SUCCESS\",\"desc\":\"Command Sent\"}"));
+        if(somfy.sendFrame(frame, repeats))
+          request->send(200, _encoding_json, F("{\"status\":\"SUCCESS\",\"desc\":\"Command Sent\"}"));
+        else
+          sendRadioUnavailable(request);
       }
       else
         request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No address or rolling code provided\"}"));
@@ -2348,8 +2366,10 @@ void Web::begin() {
       if(asyncHasParam(request, "repeats")) repeats = atoi(asyncParam(request, "repeats").c_str());
     }
     if(frame.remoteAddress > 0 && frame.rollingCode > 0) {
-      somfy.sendFrame(frame, repeats);
-      request->send(200, _encoding_json, F("{\"status\":\"SUCCESS\",\"desc\":\"Command Sent\"}"));
+      if(somfy.sendFrame(frame, repeats))
+        request->send(200, _encoding_json, F("{\"status\":\"SUCCESS\",\"desc\":\"Command Sent\"}"));
+      else
+        sendRadioUnavailable(request);
     }
     else
       request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No address or rolling code provided\"}"));
