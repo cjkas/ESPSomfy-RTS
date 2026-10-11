@@ -85,6 +85,24 @@ String translateSomfyCommand(const somfy_commands cmd) {
         return "Unknown(" + String((uint8_t)cmd) + ")";
     }
 }
+somfy_commands flipCommand(somfy_commands cmd) {
+  switch(cmd) {
+    case somfy_commands::Up:
+      return somfy_commands::Down;
+    case somfy_commands::MyUp:
+      return somfy_commands::MyDown;
+    case somfy_commands::Down:
+      return somfy_commands::Up;
+    case somfy_commands::MyDown:
+      return somfy_commands::MyUp;
+    case somfy_commands::StepUp:
+      return somfy_commands::StepDown;
+    case somfy_commands::StepDown:
+      return somfy_commands::StepUp;
+    default:
+      return cmd;
+  }
+}
 byte somfy_frame_t::calc80Checksum(byte b0, byte b1, byte b2) {
   byte cs80 = 0;
   cs80 = (((b0 & 0xF0) >> 4) ^ ((b1 & 0xF0) >> 4));

@@ -11,6 +11,7 @@
 #include "Utils.h"
 #include "ConfigSettings.h"
 #include "Somfy.h"
+#include "ShadeMotion.h"
 #include "Sockets.h"
 #include "MQTT.h"
 #include "ConfigFile.h"
@@ -822,41 +823,7 @@ void SomfyShade::checkMovement() {
   }
 
   if(!tilt_first && this->direction > 0) {
-    if(downTime == 0) {
-      this->p_currentPos(100.0);
-      //this->p_direction(0);
-    }
-    else {
-      // The shade is moving down so we need to calculate its position through the down position.
-      // 10000ms from 0 to 100
-      // The starting posion is a float value from 0-1 that indicates how much the shade is open. So
-      // if we take the starting position * the total down time then this will tell us how many ms it
-      // has moved in the down position.
-      int32_t msFrom0 = (int32_t)floor((this->startPos/100) * downTime);
-      
-      // So if the start position is .1 it is 10% closed so we have a 1000ms (1sec) of time to account for
-      // before we add any more time.
-      msFrom0 += (curTime - this->moveStart);
-      // Now we should have the total number of ms that the shade moved from the top.  But just so we
-      // don't have any rounding errors make sure that it is not greater than the max down time.
-      msFrom0 = min(downTime, msFrom0);
-      if(msFrom0 >= downTime) {
-        this->p_currentPos(100.0f);
-        //this->p_direction(0);        
-      }
-      else {
-        // So now we know how much time has elapsed from the 0 position to down.  The current position should be
-        // a ratio of how much time has travelled over the total time to go 100%.
-  
-        // We should now have the number of ms it will take to reach the shade fully close.
-        this->p_currentPos((min(max((float)0.0, (float)msFrom0 / (float)downTime), (float)1.0)) * 100);
-        // If the current position is >= 1 then we are at the bottom of the shade.
-        if(this->currentPos >= 100) {
-          this->p_currentPos(100.0);
-          //this->p_direction(0);
-        }
-      }
-    }
+    this->p_currentPos(travelPosition(this->startPos, 1, (uint32_t)(curTime - this->moveStart), downTime));
     if(this->currentPos >= this->target) {
       this->p_currentPos(this->target);
       //if(this->settingMyPos) Serial.printf("IsAtTarget: %d  %f=%f\n", this->isAtTarget(), this->currentPos, this->target);
@@ -880,34 +847,8 @@ void SomfyShade::checkMovement() {
     }
   }
   else if(!tilt_first && this->direction < 0) {
-    if(upTime == 0) {
-      this->p_currentPos(0);
-      //this->p_direction(0);
-    }
-    else {
-      // The shade is moving up so we need to calculate its position through the up position. Shades
-      // often move slower in the up position so since we are using a relative position the up time
-      // can be calculated.
-      // 10000ms from 100 to 0;
-      int32_t msFrom100 = upTime - (int32_t)floor((this->startPos/100) * upTime);
-      msFrom100 += (curTime - this->moveStart);
-      msFrom100 = min(upTime, msFrom100);
-      if(msFrom100 >= upTime) {
-        this->p_currentPos(0.0f);
-        //this->p_direction(0);
-      }
-      else {
-        float fpos = ((float)1.0 - min(max((float)0.0, (float)msFrom100 / (float)upTime), (float)1.0)) * 100;
-        // We should now have the number of ms it will take to reach the shade fully open.
-        // If we are at the top of the shade then set the movement to 0.
-        if(fpos <= 0.0) {
-          this->p_currentPos(0.0f);
-          //this->p_direction(0);
-        }
-        else 
-          this->p_currentPos(fpos);
-      }
-    }
+    // Shades often move slower up so this uses its own travel time.
+    this->p_currentPos(travelPosition(this->startPos, -1, (uint32_t)(curTime - this->moveStart), upTime));
     if(this->currentPos <= this->target) {
       this->p_currentPos(this->target);
       //if(this->settingMyPos) Serial.printf("IsAtTarget: %d  %f=%f\n", this->isAtTarget(), this->currentPos, this->target);
@@ -933,24 +874,7 @@ void SomfyShade::checkMovement() {
   }
   if(this->tiltDirection > 0) {
     if(tilt_first) this->moveStart = curTime;
-    int32_t msFrom0 = (int32_t)floor((this->startTiltPos/100) * tiltTime);
-    msFrom0 += (curTime - this->tiltStart);
-    msFrom0 = min(tiltTime, msFrom0);
-    if(msFrom0 >= tiltTime) {
-      this->p_currentTiltPos(100.0f);
-      //this->p_tiltDirection(0);        
-      //Serial.printf("Setting tiltDirection to 0 (not enough time) %.4f %.4f\n", msFrom0, tiltTime);
-    }
-    else {
-      float fpos = (min(max((float)0.0, (float)msFrom0 / (float)tiltTime), (float)1.0)) * 100;
-      
-      if(fpos > 100.0f) {
-        this->p_currentTiltPos(100.0f);
-        //this->p_tiltDirection(0);
-        //Serial.println("Setting tiltDirection to 0 (100%)");
-      }
-      else this->p_currentTiltPos(fpos);
-    }
+    this->p_currentTiltPos(travelPosition(this->startTiltPos, 1, (uint32_t)(curTime - this->tiltStart), tiltTime));
     if(tilt_first) {
       if(this->currentTiltPos >= 100.0f) {
         this->p_currentTiltPos(100.0f);
@@ -982,26 +906,8 @@ void SomfyShade::checkMovement() {
   }
   else if(this->tiltDirection < 0) {
     if(tilt_first) this->moveStart = curTime;
-    if(tiltTime == 0) {
-      this->p_tiltDirection(0);
-      this->p_currentTiltPos(0.0f);
-    }
-    else {
-      int32_t msFrom100 = tiltTime - (int32_t)floor((this->startTiltPos/100) * tiltTime);
-      msFrom100 += (curTime - this->tiltStart);
-      msFrom100 = min(tiltTime, msFrom100);
-      if(msFrom100 >= tiltTime) {
-        this->p_currentTiltPos(0.0f);
-        //this->p_tiltDirection(0);
-      }
-      float fpos = ((float)1.0 - min(max((float)0.0, (float)msFrom100 / (float)tiltTime), (float)1.0)) * 100;
-      // If we are at the top of the shade then set the movement to 0.
-      if(fpos <= 0.0f) {
-        this->p_currentTiltPos(0.0f);
-        //this->p_tiltDirection(0);
-      }
-      else this->p_currentTiltPos(fpos);
-    }
+    if(tiltTime == 0) this->p_tiltDirection(0);
+    this->p_currentTiltPos(travelPosition(this->startTiltPos, -1, (uint32_t)(curTime - this->tiltStart), tiltTime));
     if(tilt_first) {
       if(this->currentTiltPos <= 0.0f) {
         this->p_currentTiltPos(0.0f);
@@ -1743,10 +1649,7 @@ void SomfyGroup::emitState(uint8_t num, const char *evt) {
   */
   this->publish();
 }
-int8_t SomfyShade::transformPosition(float fpos) { 
-  if(fpos < 0) return -1;
-  return static_cast<int8_t>(this->flipPosition && fpos >= 0.00f ? floor(100.0f - fpos) : floor(fpos)); 
-}
+int8_t SomfyShade::transformPosition(float fpos) { return displayPosition(fpos, this->flipPosition); }
 bool SomfyShade::isIdle() { 
   return this->isAtTarget() && this->direction == 0 && this->tiltDirection == 0; 
 }
@@ -3596,27 +3499,7 @@ SomfyGroup *SomfyShadeController::addGroup() {
   }
   return group;
 }
-somfy_commands SomfyRemote::transformCommand(somfy_commands cmd) {
-  if(this->flipCommands) {
-    switch(cmd) {
-      case somfy_commands::Up:
-        return somfy_commands::Down;
-      case somfy_commands::MyUp:
-        return somfy_commands::MyDown;
-      case somfy_commands::Down:
-        return somfy_commands::Up;
-      case somfy_commands::MyDown:
-        return somfy_commands::MyUp;
-      case somfy_commands::StepUp:
-        return somfy_commands::StepDown;
-      case somfy_commands::StepDown:
-        return somfy_commands::StepUp;
-      default:
-        break;
-    }
-  }
-  return cmd;
-}
+somfy_commands SomfyRemote::transformCommand(somfy_commands cmd) { return this->flipCommands ? flipCommand(cmd) : cmd; }
 bool SomfyRemote::sendSensorCommand(int8_t isWindy, int8_t isSunny, uint8_t repeat) {
   uint8_t flags = (this->flags >> 4) & 0x0F;
   if(isWindy > 0) flags |= 0x01;

@@ -35,6 +35,8 @@ enum class somfy_commands : byte {
 };
 String translateSomfyCommand(const somfy_commands cmd);
 somfy_commands translateSomfyCommand(const String& string);
+// The command with up and down swapped, for motors wired the other way round.
+somfy_commands flipCommand(somfy_commands cmd);
 
 struct somfy_rx_t;
 struct somfy_frame_t {
