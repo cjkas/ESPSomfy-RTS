@@ -38,6 +38,10 @@ uint8_t rxmode = 0;  // Indicates whether the radio is in receive mode.  Just to
 
 #define SETMY_REPEATS 35
 #define TILT_REPEATS 15
+// The radio task bit-bangs a whole job on loop()'s core at a higher priority
+// so loop() only runs between jobs.  A frame takes about 140ms so this keeps a
+// job around 7s, well inside the 15s task watchdog loop() is subscribed to.
+#define TX_MAX_REPEATS 50
 #define TX_QUEUE_DELAY 100
 #define TX_TASK_PRIORITY 5
 #define TX_TASK_STACK 4096
@@ -110,6 +114,10 @@ static void encodeTxJob(somfy_tx_job_t &job, somfy_frame_t &frame, uint8_t repea
   job.tx.hwsync = frame.bitLength == 56 ? 2 : 12;
   job.tx.bit_length = frame.bitLength;
   job.frame = frame;
+  if(repeat > TX_MAX_REPEATS) {
+    ESP_LOGW(TAG, "Limiting %u repeats to %u", repeat, TX_MAX_REPEATS);
+    repeat = TX_MAX_REPEATS;
+  }
   job.repeats = repeat;
 }
 // Commands that can set a shade moving.
@@ -4074,8 +4082,8 @@ bool SomfyRemote::repeatFrame(uint8_t repeat) {
   job.firstRepeat = this->lastFrame.repeats + 2;
   // Only advance the counter for frames that will go on air.
   if(!somfy.transceiver.queueTx(job)) return false;
-  this->lastFrame.repeats += repeat + 1;
   this->lastBackTxSeq = job.seq;
+  this->lastFrame.repeats += job.repeats + 1;
   //somfy.processFrame(this->lastFrame, true);
   return true;
 }
