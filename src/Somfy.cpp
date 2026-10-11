@@ -1449,12 +1449,7 @@ void SomfyShade::checkMovement() {
       else this->p_myPos(this->currentPos);
     }
     // Give the motor time to settle at the target before it is told to store it.
-    if(SomfyRemote::sendCommandAfter(somfy_commands::My, SETMY_REPEATS, 0, 200)) this->commitMyPosition();
-    else {
-      // The motor never learned it so keep the favorite it has.
-      this->p_myPos(oldMyPos);
-      this->p_myTiltPos(oldMyTiltPos);
-    }
+    this->sendSetMy(200, oldMyPos, oldMyTiltPos);
     this->settingMyPos = false;
     this->emitState();
   }
@@ -2865,6 +2860,17 @@ void SomfyShade::processTxEvent(const somfy_tx_event_t &evt) {
       this->emitState();
     }
   }
+  if(this->txMySeq == evt.seq && evt.type != tx_event_t::started) {
+    this->txMySeq = 0;
+    if(evt.type == tx_event_t::finished) this->commitMyPosition();
+    else {
+      // The motor only stores the favorite when it gets the whole long press.
+      ESP_LOGW(TAG, "[Shade %u] Favorite not sent in full, keeping the previous one", this->shadeId);
+      this->p_myPos(this->txMyOldPos);
+      this->p_myTiltPos(this->txMyOldTiltPos);
+      this->emitState();
+    }
+  }
   if(this->txStopSeq == evt.seq) {
     this->txStopSeq = 0;
     // Unless something has moved the shade since, the motor never got the stop
@@ -2888,6 +2894,22 @@ bool SomfyShade::sendStop(int8_t dir, bool tilt) {
   }
   ESP_LOGW(TAG, "[Shade %u] Stop not sent, running on to the limit", this->shadeId);
   this->runToLimit(dir, tilt, now);
+  return false;
+}
+bool SomfyShade::sendSetMy(uint16_t delayMs, float oldPos, float oldTiltPos) {
+  // The new favorite is already in myPos/myTiltPos.  It is committed once the
+  // whole long press is on air, see processTxEvent.
+  if(SomfyRemote::sendCommandAfter(somfy_commands::My, SETMY_REPEATS, 0, delayMs)) {
+    this->txMySeq = this->lastTxSeq;
+    this->txMyOldPos = oldPos;
+    this->txMyOldTiltPos = oldTiltPos;
+    // Without the radio (GPIO remotes) there is nothing to wait for.
+    if(this->txMySeq == 0) this->commitMyPosition();
+    return true;
+  }
+  // The motor never learned it so keep the favorite it has.
+  this->p_myPos(oldPos);
+  this->p_myTiltPos(oldTiltPos);
   return false;
 }
 void SomfyShade::runToLimit(int8_t dir, bool tilt, uint32_t since) {
@@ -2946,9 +2968,14 @@ void SomfyShade::setMyPosition(int8_t pos, int8_t tilt) {
         this->settingMyPos = true;
       }
     }
-    else if(SomfyRemote::sendCommand(somfy_commands::My, SETMY_REPEATS)) {
-      // Only store a favorite the motor was told about.
+    else {
+      // Set it before sending so processFrame doesn't head for the old one.  It
+      // is only committed once the motor was told about it.
+      const float oldTiltPos = this->myTiltPos;
       this->p_myTiltPos(this->currentTiltPos);
+      this->sendSetMy(0, this->myPos, oldTiltPos);
+      this->emitState();
+      return;
     }
     this->commitMyPosition();
     this->emitState();
@@ -2974,10 +3001,16 @@ void SomfyShade::setMyPosition(int8_t pos, int8_t tilt) {
           this->settingMyPos = true;
         }
       }
-      else if(SomfyRemote::sendCommand(somfy_commands::My, SETMY_REPEATS)) {
-        // Only store a favorite the motor was told about.
+      else {
+        // Set it before sending so processFrame doesn't head for the old one.
+        // It is only committed once the motor was told about it.
+        const float oldPos = this->myPos;
+        const float oldTiltPos = this->myTiltPos;
         this->p_myPos(this->currentPos);
         this->p_myTiltPos(this->currentTiltPos);
+        this->sendSetMy(0, oldPos, oldTiltPos);
+        this->emitState();
+        return;
       }
       this->commitMyPosition();
       this->emitState();
@@ -3002,12 +3035,14 @@ void SomfyShade::setMyPosition(int8_t pos, int8_t tilt) {
         this->settingMyPos = true;
       }
     }
-    else if(SomfyRemote::sendCommand(somfy_commands::My, SETMY_REPEATS)) {
-      // Only store a favorite the motor was told about.
-      this->p_myPos(currentPos);
+    else {
+      // Set it before sending so processFrame doesn't head for the old one.  It
+      // is only committed once the motor was told about it.
+      const float oldPos = this->myPos;
+      const float oldTiltPos = this->myTiltPos;
+      this->p_myPos(this->currentPos);
       this->p_myTiltPos(-1);
-      this->commitMyPosition();
-      this->emitState();
+      if(this->sendSetMy(0, oldPos, oldTiltPos)) this->emitState();
     }
   }
 }
@@ -5169,6 +5204,8 @@ void Transceiver::loop() {
   while(txEventQueue && xQueueReceive(txEventQueue, &evt, 0) == pdTRUE) {
     if(evt.type == tx_event_t::dropped)
       ESP_LOGW(TAG, "Radio TX dropped %s for %d", translateSomfyCommand(evt.cmd).c_str(), evt.remoteAddress);
+    else if(evt.type == tx_event_t::aborted)
+      ESP_LOGW(TAG, "Radio TX cut short %s for %d", translateSomfyCommand(evt.cmd).c_str(), evt.remoteAddress);
     // Line the simulated shades up with what actually went on air.
     somfy.processTxEvent(evt);
   }
@@ -5271,20 +5308,25 @@ void Transceiver::suspendTx(uint8_t reason) {
 void Transceiver::resumeTx(uint8_t reason) { txSuspendMask &= ~(uint32_t)reason; }
 // cpt_synchro_hw is updated by the RX interrupt and read here from the radio task.
 static bool rxInProgress() { return *(volatile uint8_t *)&somfy_rx.cpt_synchro_hw != 0; }
-void Transceiver::transmitJob(somfy_tx_job_t &job) {
+bool Transceiver::transmitJob(somfy_tx_job_t &job) {
   somfy_tx_t &tx = job.tx;
+  bool complete = true;
   this->beginTransmit();
   this->sendFrame(tx.payload, tx.hwsync, tx.bit_length);
   for(uint8_t i = 0; i < job.repeats; i++) {
     // Stop early when flushed or when someone is waiting to reconfigure the
     // radio so they get it within a frame.
-    if(job.gen != txGen || txPreemptWaiters > 0) break;
+    if(job.gen != txGen || txPreemptWaiters > 0) {
+      complete = false;
+      break;
+    }
     // For each 80-bit frame we need to adjust the byte encoding for the
     // silence.
     if(tx.bit_length == 80) job.frame.encode80BitFrame(tx.payload, (uint8_t)(job.firstRepeat + i));
     this->sendFrame(tx.payload, tx.bit_length == 56 ? 7 : 6, tx.bit_length);
   }
   this->endTransmit();
+  return complete;
 }
 void Transceiver::txTask(void *arg) {
   Transceiver *trans = static_cast<Transceiver *>(arg);
@@ -5314,7 +5356,8 @@ void Transceiver::txTask(void *arg) {
         continue;
       }
       postTxEvent(tx_event_t::started, job, millis());
-      trans->transmitJob(job);
+      const bool complete = trans->transmitJob(job);
+      postTxEvent(complete ? tx_event_t::finished : tx_event_t::aborted, job, millis());
     }
     // Give the motors a full frame beat between separate transmissions.
     vTaskDelay(pdMS_TO_TICKS(TX_QUEUE_DELAY));
@@ -5323,8 +5366,8 @@ void Transceiver::txTask(void *arg) {
 void Transceiver::startTxTask() {
   if(txTaskHandle) return;
   if(!txJobQueue) txJobQueue = xQueueCreate(TX_JOB_QUEUE_SIZE, sizeof(somfy_tx_job_t));
-  // Every queued job reports once, plus room for the jobs a flush drains.
-  if(!txEventQueue) txEventQueue = xQueueCreate(TX_JOB_QUEUE_SIZE * 2, sizeof(somfy_tx_event_t));
+  // Every job reports when it starts and ends, plus room for the jobs a flush drains.
+  if(!txEventQueue) txEventQueue = xQueueCreate(TX_JOB_QUEUE_SIZE * 3, sizeof(somfy_tx_event_t));
   if(!txJobQueue) {
     ESP_LOGE(TAG, "Unable to create radio TX queue");
     return;

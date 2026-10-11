@@ -224,6 +224,8 @@ struct somfy_tx_job_t {
 };
 enum class tx_event_t : uint8_t {
   started,  // The job is going on air.
+  finished, // Every frame of the job went on air.
+  aborted,  // The job was cut short by a flush or a radio reconfiguration.
   dropped   // The job was flushed and will never go on air.
 };
 // Reported by the radio task for every queued non-repeater job.
@@ -331,7 +333,13 @@ class SomfyShade : public SomfyRemote {
     uint32_t txStopAt = 0;
     int8_t txStopDir = 0;
     bool txStopTilt = false;
+    // Command telling the motor to store the favorite.  The favorite is only
+    // committed once all of it is on air and restored if it never is.
+    uint32_t txMySeq = 0;
+    float txMyOldPos = -1.0f;
+    float txMyOldTiltPos = -1.0f;
     bool sendStop(int8_t dir, bool tilt);
+    bool sendSetMy(uint16_t delayMs, float oldPos, float oldTiltPos);
     void runToLimit(int8_t dir, bool tilt, uint32_t since);
   public:
     uint8_t roomId = 0;
@@ -545,7 +553,7 @@ class Transceiver {
     bool _received = false;
     somfy_frame_t frame;
     void startTxTask();
-    void transmitJob(somfy_tx_job_t &job);
+    bool transmitJob(somfy_tx_job_t &job);
   public:
     transceiver_config_t config;
     bool printBuffer = false;
