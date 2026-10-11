@@ -94,59 +94,36 @@ void JsonFormatter::_safecat(const char *val, bool escape) {
   if(escape) strcat(this->buff, "\"");
 }
 void JsonFormatter::_appendNumber(const char *name) { this->appendElem(name); this->_safecat(this->_numbuff); } 
-uint32_t JsonFormatter::calcEscapedLength(const char *raw) {
-  uint32_t len = 0;
-  for(size_t i = strlen(raw); i > 0; i--) {
-    switch(raw[i]) {
-      case '"':
-      case '/':
-      case '\b':
-      case '\f':
-      case '\n':
-      case '\r':
-      case '\t':
-      case '\\':
-        len += 2;
-        break;
-      default:
-        len++;
-        break;
-    }
+size_t JsonFormatter::escapeChar(char c, char *out) {
+  const char *esc = nullptr;
+  switch(c) {
+    case '"': esc = "\\\""; break;
+    case '/': esc = "\\/"; break;
+    case '\b': esc = "\\b"; break;
+    case '\f': esc = "\\f"; break;
+    case '\n': esc = "\\n"; break;
+    case '\r': esc = "\\r"; break;
+    case '\t': esc = "\\t"; break;
+    case '\\': esc = "\\\\"; break;
+    default: break;
   }
+  if(esc) {
+    strcpy(out, esc);
+    return 2;
+  }
+  // Any other control character is not allowed raw in a JSON string.
+  if((unsigned char)c < 0x20) return snprintf(out, 7, "\\u%04x", (unsigned char)c);
+  out[0] = c;
+  out[1] = 0x00;
+  return 1;
+}
+uint32_t JsonFormatter::calcEscapedLength(const char *raw) {
+  char tmp[7];
+  uint32_t len = 0;
+  for(size_t i = 0; raw[i]; i++) len += escapeChar(raw[i], tmp);
   return len;
 }
 void JsonFormatter::escapeString(const char *raw, char *escaped) {
-  for(uint32_t i = 0; i < strlen(raw); i++) {
-    switch(raw[i]) {
-      case '"':
-        strcat(escaped, "\\\"");
-        break;
-      case '/':
-        strcat(escaped, "\\/");
-        break;
-      case '\b':
-        strcat(escaped, "\\b");
-        break;
-      case '\f':
-        strcat(escaped, "\\f");
-        break;
-      case '\n':
-        strcat(escaped, "\\n");
-        break;
-      case '\r':
-        strcat(escaped, "\\r");
-        break;
-      case '\t':
-        strcat(escaped, "\\t");
-        break;
-      case '\\':
-        strcat(escaped, "\\\\");
-        break;
-      default:
-        size_t len = strlen(escaped);
-        escaped[len] = raw[i];
-        escaped[len+1] = 0x00;
-        break;
-    }
-  }
+  char *out = escaped + strlen(escaped);
+  for(size_t i = 0; raw[i]; i++) out += escapeChar(raw[i], out);
 }

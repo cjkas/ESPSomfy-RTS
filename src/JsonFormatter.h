@@ -16,6 +16,9 @@ class JsonFormatter {
     virtual void _safecat(const char *val, bool escape = false);
     void _appendNumber(const char *name);
   public:
+    // Writes c as it must appear inside a JSON string (out needs 7 bytes) and
+    // returns its length.
+    static size_t escapeChar(char c, char *out);
     void escapeString(const char *raw, char *escaped);
     uint32_t calcEscapedLength(const char *raw);
     void beginObject(const char *name = nullptr);
