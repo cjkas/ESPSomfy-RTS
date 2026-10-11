@@ -308,7 +308,7 @@ static void serializeShadeRef(SomfyShade *shade, JsonFormatter &json) {
   json.addElem("paired", shade->paired);
   json.addElem("shadeType", static_cast<uint8_t>(shade->shadeType));
   json.addElem("flipCommands", shade->flipCommands);
-  json.addElem("flipPosition", shade->flipCommands);
+  json.addElem("flipPosition", shade->flipPosition);
   json.addElem("bitLength", shade->bitLength);
   json.addElem("proto", static_cast<uint8_t>(shade->proto));
   json.addElem("flags", shade->flags);
