@@ -21,6 +21,14 @@ somfy_commands translateSomfyCommand(const String& string) {
     else if (string.equalsIgnoreCase("Toggle")) return somfy_commands::Toggle;
     else if (string.equalsIgnoreCase("Favorite")) return somfy_commands::Favorite;
     else if (string.equalsIgnoreCase("Stop")) return somfy_commands::Stop;
+    // The names translateSomfyCommand(cmd) reports so they parse back.
+    else if (string.equalsIgnoreCase("Sun Flag")) return somfy_commands::SunFlag;
+    else if (string.equalsIgnoreCase("Step Up")) return somfy_commands::StepUp;
+    else if (string.equalsIgnoreCase("Step Down")) return somfy_commands::StepDown;
+    else if (string.equalsIgnoreCase("My+Up")) return somfy_commands::MyUp;
+    else if (string.equalsIgnoreCase("Up+Down")) return somfy_commands::UpDown;
+    else if (string.equalsIgnoreCase("My+Down")) return somfy_commands::MyDown;
+    else if (string.equalsIgnoreCase("My+Up+Down")) return somfy_commands::MyUpDown;
     else if (string.startsWith("fav") || string.startsWith("FAV")) return somfy_commands::Favorite;
     else if (string.startsWith("mud") || string.startsWith("MUD")) return somfy_commands::MyUpDown;
     else if (string.startsWith("md") || string.startsWith("MD")) return somfy_commands::MyDown;
