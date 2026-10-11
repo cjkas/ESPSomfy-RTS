@@ -2894,8 +2894,8 @@ void SomfyShade::setMyPosition(int8_t pos, int8_t tilt) {
     }
   }
 }
-void SomfyShade::moveToMyPosition() {
-  if(!this->isIdle()) return;
+bool SomfyShade::moveToMyPosition() {
+  if(!this->isIdle()) return true;
   ESP_LOGI(TAG, "Moving to My Position");
   if(this->tiltType == tilt_types::tiltonly) {
     this->p_currentPos(100.0f);
@@ -2903,27 +2903,25 @@ void SomfyShade::moveToMyPosition() {
   }
   if(this->currentPos == this->myPos) {
     if(this->tiltType != tilt_types::none) {
-      if(this->currentTiltPos == this->myTiltPos) return; // Nothing to see here since we are already here.
+      if(this->currentTiltPos == this->myTiltPos) return true; // Nothing to see here since we are already here.
     }
     else
-      return;
+      return true;
   }
-  if(this->myPos == -1 && (this->tiltType == tilt_types::none || this->myTiltPos == -1)) return;
-  if(this->tiltType != tilt_types::tiltonly && this->myPos >= 0.0f && this->myPos <= 100.0f) this->p_target(this->myPos);
-  if(this->myTiltPos >= 0.0f && this->myTiltPos <= 100.0f) this->p_tiltTarget(this->myTiltPos);
+  if(this->myPos == -1 && (this->tiltType == tilt_types::none || this->myTiltPos == -1)) return true;
   this->settingPos = false;
   if(this->simMy()) {
     ESP_LOGI(TAG, "Moving to simulated favorite");
-    this->moveToTarget(this->myPos, this->myTiltPos);
+    if(!this->moveToTarget(this->myPos, this->myTiltPos)) return false;
   }
-  else
-    SomfyRemote::sendCommand(somfy_commands::My, this->repeats);
+  else if(!SomfyRemote::sendCommand(somfy_commands::My, this->repeats)) return false;
+  if(this->tiltType != tilt_types::tiltonly && this->myPos >= 0.0f && this->myPos <= 100.0f) this->p_target(this->myPos);
+  if(this->myTiltPos >= 0.0f && this->myTiltPos <= 100.0f) this->p_tiltTarget(this->myTiltPos);
+  return true;
 }
-void SomfyShade::sendCommand(somfy_commands cmd) { this->sendCommand(cmd, this->repeats); }
-void SomfyShade::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize) {
+bool SomfyShade::sendCommand(somfy_commands cmd) { return this->sendCommand(cmd, this->repeats); }
+bool SomfyShade::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize) {
   ESP_LOGD(TAG, "Send command start");
-  // Don't move the simulated state for a command the radio can't take.
-  if(!this->canTransmit()) return;
   // This sendCommand function will always be called externally. sendCommand at the remote level
   // is expected to be called internally when the motor needs commanded.
   if(this->bitLength == 0) this->bitLength = somfy.transceiver.config.type;
@@ -2932,21 +2930,22 @@ void SomfyShade::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSiz
   if((cmd == somfy_commands::Up && this->direction == -1) ||
      (cmd == somfy_commands::Down && this->direction == 1)) {
     ESP_LOGD(TAG, "Same command as dir");
-    SomfyRemote::sendCommand(cmd, repeat);
+    if(!SomfyRemote::sendCommand(cmd, repeat)) return false;
     this->p_target(this->currentPos);
     this->p_tiltTarget(this->currentTiltPos);
     this->setMovement(0);
-    return;
+    return true;
   }
+  // The simulated state is only moved for commands the radio took.
   if(cmd == somfy_commands::Up) {
     if(this->tiltType == tilt_types::euromode) {
       // In euromode we need to long press for 2 seconds on the
       // up command.
-      SomfyRemote::sendCommand(cmd, TILT_REPEATS);
-      this->p_target(0.0f);     
+      if(!SomfyRemote::sendCommand(cmd, TILT_REPEATS)) return false;
+      this->p_target(0.0f);
     }
     else {
-      SomfyRemote::sendCommand(cmd, repeat);
+      if(!SomfyRemote::sendCommand(cmd, repeat)) return false;
       if(this->tiltType == tilt_types::tiltonly) {
         this->p_target(100.0f);
         this->p_tiltTarget(0.0f);
@@ -2960,11 +2959,11 @@ void SomfyShade::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSiz
     if(this->tiltType == tilt_types::euromode) {
       // In euromode we need to long press for 2 seconds on the
       // down command.
-      SomfyRemote::sendCommand(cmd, TILT_REPEATS);
-      this->p_target(100.0f);     
+      if(!SomfyRemote::sendCommand(cmd, TILT_REPEATS)) return false;
+      this->p_target(100.0f);
     }
     else {
-      SomfyRemote::sendCommand(cmd, repeat);
+      if(!SomfyRemote::sendCommand(cmd, repeat)) return false;
       if(this->tiltType == tilt_types::tiltonly) {
         this->p_target(100.0f);
         this->p_tiltTarget(100.0f);
@@ -2975,43 +2974,45 @@ void SomfyShade::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSiz
     }
   }
   else if(cmd == somfy_commands::My) {
-    if(this->isToggle() || this->shadeType == shade_types::drycontact)
-      SomfyRemote::sendCommand(cmd, repeat);
-    else if(this->shadeType == shade_types::drycontact2){ 
+    if(this->isToggle() || this->shadeType == shade_types::drycontact) {
+      if(!SomfyRemote::sendCommand(cmd, repeat)) return false;
+    }
+    else if(this->shadeType == shade_types::drycontact2){
         ESP_LOGD(TAG, "Send command start 1");
-      return;   
+      return true;
     }
     else if(this->isIdle()) {
-      this->moveToMyPosition();  
+      bool sent = this->moveToMyPosition();
         ESP_LOGD(TAG, "Send command end 2");
-      return;
+      return sent;
     }
     else {
-      SomfyRemote::sendCommand(cmd, repeat);
+      if(!SomfyRemote::sendCommand(cmd, repeat)) return false;
       if(this->tiltType != tilt_types::tiltonly) this->p_target(this->currentPos);
       this->p_tiltTarget(this->currentTiltPos);
     }
   }
   else if(cmd == somfy_commands::Toggle) {
-    if(this->bitLength != 80) SomfyRemote::sendCommand(somfy_commands::My, repeat, stepSize);
-    else SomfyRemote::sendCommand(somfy_commands::Toggle, repeat);
+    if(this->bitLength != 80) { if(!SomfyRemote::sendCommand(somfy_commands::My, repeat, stepSize)) return false; }
+    else if(!SomfyRemote::sendCommand(somfy_commands::Toggle, repeat)) return false;
   }
   else if(this->isToggle() && cmd == somfy_commands::Prog) {
-    SomfyRemote::sendCommand(somfy_commands::Toggle, repeat, stepSize);
+    if(!SomfyRemote::sendCommand(somfy_commands::Toggle, repeat, stepSize)) return false;
   }
   else {
-    SomfyRemote::sendCommand(cmd, repeat, stepSize);
+    if(!SomfyRemote::sendCommand(cmd, repeat, stepSize)) return false;
   }
   ESP_LOGD(TAG, "Send command end");
+  return true;
 }
-void SomfyGroup::sendCommand(somfy_commands cmd) { this->sendCommand(cmd, this->repeats); }
-void SomfyGroup::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize) {
+bool SomfyGroup::sendCommand(somfy_commands cmd) { return this->sendCommand(cmd, this->repeats); }
+bool SomfyGroup::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize) {
   ESP_LOGI(TAG, "[Group %u] sendCommand cmd=%s repeat=%u", this->getGroupId(), translateSomfyCommand(cmd).c_str(), repeat);
-  if(!this->canTransmit()) return;
   // This sendCommand function will always be called externally. sendCommand at the remote level
   // is expected to be called internally when the motor needs commanded.
   if(this->bitLength == 0) this->bitLength = somfy.transceiver.config.type;
-  SomfyRemote::sendCommand(cmd, repeat, stepSize);
+  // Leave the group and its shades alone if the radio didn't take the command.
+  if(!SomfyRemote::sendCommand(cmd, repeat, stepSize)) return false;
 
   switch(cmd) {
     case somfy_commands::My:
@@ -3039,25 +3040,21 @@ void SomfyGroup::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSiz
   }
   this->updateFlags();
   this->emitState();
-  
-}  
+  return true;
+}
 void SomfyShade::sendTiltCommand(somfy_commands cmd) {
-  if(!this->canTransmit()) return;
+  const uint8_t repeat = this->tiltType == tilt_types::tiltmotor ? TILT_REPEATS : this->repeats;
   if(cmd == somfy_commands::Up) {
-    SomfyRemote::sendCommand(cmd, this->tiltType == tilt_types::tiltmotor ? TILT_REPEATS : this->repeats);
-    this->p_tiltTarget(0.0f);
+    if(SomfyRemote::sendCommand(cmd, repeat)) this->p_tiltTarget(0.0f);
   }
   else if(cmd == somfy_commands::Down) {
-    SomfyRemote::sendCommand(cmd, this->tiltType == tilt_types::tiltmotor ? TILT_REPEATS : this->repeats);
-    this->p_tiltTarget(100.0f);
+    if(SomfyRemote::sendCommand(cmd, repeat)) this->p_tiltTarget(100.0f);
   }
   else if(cmd == somfy_commands::My) {
-    SomfyRemote::sendCommand(cmd, this->tiltType == tilt_types::tiltmotor ? TILT_REPEATS : this->repeats);
-    this->p_tiltTarget(this->currentTiltPos);
+    if(SomfyRemote::sendCommand(cmd, repeat)) this->p_tiltTarget(this->currentTiltPos);
   }
 }
 void SomfyShade::moveToTiltTarget(float target) {
-  if(!this->canTransmit()) return;
   somfy_commands cmd = somfy_commands::My;
   if(target < this->currentTiltPos)
     cmd = somfy_commands::Up;
@@ -3069,7 +3066,7 @@ void SomfyShade::moveToTiltTarget(float target) {
       if(cmd != somfy_commands::My) {
         ESP_LOGI(TAG, "Moving Tilt to %.2f%% from %.2f%% using %s",
             target, this->currentTiltPos, translateSomfyCommand(cmd).c_str());
-        SomfyRemote::sendCommand(cmd, this->tiltType == tilt_types::tiltmotor ? TILT_REPEATS : this->repeats);
+        if(!SomfyRemote::sendCommand(cmd, this->tiltType == tilt_types::tiltmotor ? TILT_REPEATS : this->repeats)) return;
       }
       // If the blind is currently moving then the command to stop it
       // will occur on its own when the tilt target is set.
@@ -3078,7 +3075,7 @@ void SomfyShade::moveToTiltTarget(float target) {
   }
   if(cmd != somfy_commands::My) this->settingTiltPos = true;
 }
-void SomfyShade::moveToTarget(float pos, float tilt) {
+bool SomfyShade::moveToTarget(float pos, float tilt) {
   ESP_LOGI(TAG, "[Shade %u] moveToTarget(pos=%.2f, tilt=%.2f) settingPos=%d direction=%d currentTarget=%.2f currentPos=%.2f",
       this->getShadeId(), pos, tilt, this->settingPos, this->direction, this->target, this->currentPos);
   somfy_commands cmd = somfy_commands::My;
@@ -3087,10 +3084,10 @@ void SomfyShade::moveToTarget(float pos, float tilt) {
     this->p_target(pos);
     this->p_currentPos(pos);
     this->emitState();
-    return;
+    return true;
   }
-  if(!this->canTransmit()) return;
   if(this->tiltType == tilt_types::tiltonly) {
+    // A tilt only shade is always at 100%.
     this->p_target(100.0f);
     this->p_myPos(-1.0f);
     this->p_currentPos(100.0f);
@@ -3116,7 +3113,7 @@ void SomfyShade::moveToTarget(float pos, float tilt) {
       ESP_LOGI(TAG, "Moving to %.2f%% from %.2f%% using %s",
           pos, this->currentPos, translateSomfyCommand(cmd).c_str());
     }
-    SomfyRemote::sendCommand(cmd, this->tiltType == tilt_types::euromode ? TILT_REPEATS : this->repeats);
+    if(!SomfyRemote::sendCommand(cmd, this->tiltType == tilt_types::euromode ? TILT_REPEATS : this->repeats)) return false;
     this->settingPos = true;
     this->p_target(pos);
     if(tilt >= 0) {
@@ -3124,6 +3121,7 @@ void SomfyShade::moveToTarget(float pos, float tilt) {
       this->settingTiltPos = true;
     }
   }
+  return true;
 }
 bool SomfyShade::save() {
   #ifdef USE_NVS
@@ -3863,74 +3861,74 @@ somfy_commands SomfyRemote::transformCommand(somfy_commands cmd) {
   }
   return cmd;
 }
-void SomfyRemote::sendSensorCommand(int8_t isWindy, int8_t isSunny, uint8_t repeat) {
-  if(!this->canTransmit()) return;
+bool SomfyRemote::sendSensorCommand(int8_t isWindy, int8_t isSunny, uint8_t repeat) {
   uint8_t flags = (this->flags >> 4) & 0x0F;
   if(isWindy > 0) flags |= 0x01;
   if(isSunny > 0) flags |= 0x02;
   if(isWindy == 0) flags &= ~0x01;
   if(isSunny == 0) flags &= ~0x02;
 
-  // Now ship this off as an 80 bit command.
-  this->lastFrame.remoteAddress = this->getRemoteAddress();
-  this->lastFrame.repeats = repeat;
-  this->lastFrame.bitLength = this->bitLength;
-  this->lastFrame.rollingCode = (uint16_t)flags;
-  this->lastFrame.encKey = 160; // Sensor commands are always encryption code 160.
-  this->lastFrame.cmd = somfy_commands::Sensor;
-  this->lastFrame.processed = false;
+  // Now ship this off as an 80 bit command.  Built aside so lastFrame only
+  // changes when the frame is queued.
+  somfy_frame_t frame = this->lastFrame;
+  frame.remoteAddress = this->getRemoteAddress();
+  frame.repeats = repeat;
+  frame.bitLength = this->bitLength;
+  frame.rollingCode = (uint16_t)flags;
+  frame.encKey = 160; // Sensor commands are always encryption code 160.
+  frame.cmd = somfy_commands::Sensor;
+  frame.processed = false;
   ESP_LOGD(TAG, "CMD:%s ADDR:%d RCODE:%d REPEAT:%d",
-      translateSomfyCommand(this->lastFrame.cmd).c_str(),
-      this->lastFrame.remoteAddress, this->lastFrame.rollingCode, repeat);
-  if(somfy.sendFrame(this->lastFrame, repeat)) somfy.processFrame(this->lastFrame, true);
+      translateSomfyCommand(frame.cmd).c_str(),
+      frame.remoteAddress, frame.rollingCode, repeat);
+  if(!somfy.sendFrame(frame, repeat)) return false;
+  this->lastFrame = frame;
+  somfy.processFrame(this->lastFrame, true);
+  return true;
 }
-bool SomfyRemote::canTransmit() {
-  // GPIO remotes don't use the radio.
-  if(this->proto == radio_proto::GP_Relay || this->proto == radio_proto::GP_Remote) return true;
-  if(somfy.transceiver.canQueueTx()) return true;
-  ESP_LOGE(TAG, "Radio TX unavailable, dropping command for %d", this->getRemoteAddress());
-  return false;
-}
-void SomfyRemote::sendCommand(somfy_commands cmd) { this->sendCommand(cmd, this->repeats); }
-void SomfyRemote::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize) { this->sendCommandAfter(cmd, repeat, stepSize, 0); }
-void SomfyRemote::sendCommandAfter(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs) {
-  // Check before taking a rolling code so a dropped command doesn't consume one.
-  if(!this->canTransmit()) return;
-  this->lastFrame.rollingCode = this->getNextRollingCode();
-  this->lastFrame.remoteAddress = this->getRemoteAddress();
-  this->lastFrame.cmd = this->transformCommand(cmd);
-  this->lastFrame.repeats = repeat;
-  this->lastFrame.bitLength = this->bitLength;
-  this->lastFrame.stepSize = stepSize;
-  this->lastFrame.valid = true;
+bool SomfyRemote::sendCommand(somfy_commands cmd) { return this->sendCommand(cmd, this->repeats); }
+bool SomfyRemote::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize) { return this->sendCommandAfter(cmd, repeat, stepSize, 0); }
+bool SomfyRemote::sendCommandAfter(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs) {
+  // Build the frame aside and only take the rolling code once the frame is
+  // queued so a dropped command leaves the remote untouched.
+  somfy_frame_t frame = this->lastFrame;
+  frame.rollingCode = this->peekNextRollingCode();
+  frame.remoteAddress = this->getRemoteAddress();
+  frame.cmd = this->transformCommand(cmd);
+  frame.repeats = repeat;
+  frame.bitLength = this->bitLength;
+  frame.stepSize = stepSize;
+  frame.valid = true;
   // Match the encKey to the rolling code.  These keys range from 160 to 175.
-  this->lastFrame.encKey = 0xA0 | static_cast<uint8_t>(this->lastFrame.rollingCode & 0x000F);
-  this->lastFrame.proto = this->proto;
-  if(this->lastFrame.bitLength == 0) this->lastFrame.bitLength = bit_length;
-  if(this->lastFrame.rollingCode == 0) ESP_LOGE(TAG, "Setting rcode to 0");
-  this->p_lastRollingCode(this->lastFrame.rollingCode);
+  frame.encKey = 0xA0 | static_cast<uint8_t>(frame.rollingCode & 0x000F);
+  frame.proto = this->proto;
+  if(frame.bitLength == 0) frame.bitLength = bit_length;
+  if(frame.rollingCode == 0) ESP_LOGE(TAG, "Setting rcode to 0");
   // We have to set the processed to clear this if we are sending
   // another command.
-  this->lastFrame.processed = false;
+  frame.processed = false;
   if(this->proto == radio_proto::GP_Relay) {
     ESP_LOGD(TAG, "CMD:%s ADDR:%d RCODE:%d SETTING GPIO",
-        translateSomfyCommand(this->lastFrame.cmd).c_str(),
-        this->lastFrame.remoteAddress, this->lastFrame.rollingCode);
+        translateSomfyCommand(frame.cmd).c_str(),
+        frame.remoteAddress, frame.rollingCode);
   }
   else if(this->proto == radio_proto::GP_Remote) {
     ESP_LOGD(TAG, "CMD:%s ADDR:%d RCODE:%d TRIGGER GPIO",
-        translateSomfyCommand(this->lastFrame.cmd).c_str(),
-        this->lastFrame.remoteAddress, this->lastFrame.rollingCode);
-    this->triggerGPIOs(this->lastFrame);
+        translateSomfyCommand(frame.cmd).c_str(),
+        frame.remoteAddress, frame.rollingCode);
+    this->triggerGPIOs(frame);
   }
   else {
     ESP_LOGD(TAG, "CMD:%s ADDR:%d RCODE:%d REPEAT:%d",
-        translateSomfyCommand(this->lastFrame.cmd).c_str(),
-        this->lastFrame.remoteAddress, this->lastFrame.rollingCode, repeat);
+        translateSomfyCommand(frame.cmd).c_str(),
+        frame.remoteAddress, frame.rollingCode, repeat);
     // Only simulate the command if it is actually going on air.
-    if(!somfy.sendFrame(this->lastFrame, repeat, delayMs)) return;
+    if(!somfy.sendFrame(frame, repeat, delayMs)) return false;
   }
+  this->commitRollingCode(frame.rollingCode);
+  this->lastFrame = frame;
   somfy.processFrame(this->lastFrame, true);
+  return true;
 }
 bool SomfyRemote::isLastCommand(somfy_commands cmd) {
   if(this->lastFrame.cmd != cmd || this->lastFrame.rollingCode != this->lastRollingCode) {
@@ -3939,21 +3937,23 @@ bool SomfyRemote::isLastCommand(somfy_commands cmd) {
   }
   return true;
 }
-void SomfyRemote::repeatFrame(uint8_t repeat) {
+bool SomfyRemote::repeatFrame(uint8_t repeat) {
   if(this->proto == radio_proto::GP_Relay)
-    return;
+    return true;
   else if(this->proto == radio_proto::GP_Remote) {
     this->triggerGPIOs(this->lastFrame);
-    return;
+    return true;
   }
   // The first frame is encoded with the current repeat counter and the radio
   // task counts up from there for each repeat frame.
   somfy_tx_job_t job;
   encodeTxJob(job, this->lastFrame, repeat);
   job.firstRepeat = this->lastFrame.repeats + 2;
+  // Only advance the counter for frames that will go on air.
+  if(!somfy.transceiver.queueTx(job)) return false;
   this->lastFrame.repeats += repeat + 1;
-  somfy.transceiver.queueTx(job);
   //somfy.processFrame(this->lastFrame, true);
+  return true;
 }
 bool SomfyShadeController::sendFrame(somfy_frame_t &frame, uint8_t repeat, uint16_t delayMs, bool priority) {
   somfy_tx_job_t job;
@@ -4027,17 +4027,23 @@ bool SomfyShadeController::deleteGroup(uint8_t groupId) {
 }
 
 bool SomfyShadeController::loadShadesFile(const char *filename) { return ShadeConfigFile::load(this, filename); }
-uint16_t SomfyRemote::getNextRollingCode() {
+// The next rolling code is only read here.  It is consumed by commitRollingCode
+// once the frame using it has been queued.
+uint16_t SomfyRemote::peekNextRollingCode() {
   if(!pref.begin("ShadeCodes")) {
-    ESP_LOGE(TAG, "getNextRollingCode() pref.begin(ShadeCodes) FAILED");
+    ESP_LOGE(TAG, "peekNextRollingCode() pref.begin(ShadeCodes) FAILED");
   }
   uint16_t code = pref.getUShort(this->m_remotePrefId, 0);
-  code++;
+  pref.end();
+  return (uint16_t)(code + 1);
+}
+void SomfyRemote::commitRollingCode(uint16_t code) {
+  if(!pref.begin("ShadeCodes")) {
+    ESP_LOGE(TAG, "commitRollingCode() pref.begin(ShadeCodes) FAILED");
+  }
   pref.putUShort(this->m_remotePrefId, code);
   pref.end();
   this->p_lastRollingCode(code);
-  //Serial.printf("Getting Next Rolling code %d\n", this->lastRollingCode);
-  return code;
 }
 uint16_t SomfyRemote::p_lastRollingCode(uint16_t code) { 
   uint16_t old = this->lastRollingCode;
@@ -5069,7 +5075,7 @@ void Transceiver::loop() {
   }
 }
 bool Transceiver::queueTx(somfy_tx_job_t &job) {
-  if(!txJobQueue) {
+  if(!txJobQueue || !txTaskHandle) {
     ESP_LOGE(TAG, "Radio task not started, dropping transmission");
     return false;
   }
@@ -5089,9 +5095,6 @@ bool Transceiver::queueTx(somfy_tx_job_t &job) {
   if(job.priority) xQueueSendToFront(txJobQueue, &job, 0);
   else xQueueSendToBack(txJobQueue, &job, 0);
   return true;
-}
-bool Transceiver::canQueueTx(bool priority) {
-  return txJobQueue && txTaskHandle && !txSuspendMask && uxQueueSpacesAvailable(txJobQueue) > (priority ? 0 : TX_RESERVED_SLOTS);
 }
 void Transceiver::flushTx() {
   TxQueueLock lock;

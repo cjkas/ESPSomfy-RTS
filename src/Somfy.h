@@ -273,7 +273,8 @@ class SomfyRemote {
     char *getRemotePrefId() {return m_remotePrefId;}
     virtual void setRemoteAddress(uint32_t address);
     virtual uint32_t getRemoteAddress();
-    virtual uint16_t getNextRollingCode();
+    uint16_t peekNextRollingCode();
+    void commitRollingCode(uint16_t code);
     virtual uint16_t setRollingCode(uint16_t code);
     bool hasSunSensor();
     bool hasLight();
@@ -281,12 +282,13 @@ class SomfyRemote {
     void setSunSensor(bool bHasSensor);
     void setLight(bool bHasLight);
     void setSimMy(bool bSimMy);
-    virtual void sendCommand(somfy_commands cmd);
-    virtual void sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize = 0);
-    void sendCommandAfter(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs);
-    void sendSensorCommand(int8_t isWindy, int8_t isSunny, uint8_t repeat);
-    void repeatFrame(uint8_t repeat);
-    bool canTransmit();
+    // The send functions return false only when the radio could not take the
+    // command.  Nothing about the remote or shade state has changed in that case.
+    virtual bool sendCommand(somfy_commands cmd);
+    virtual bool sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize = 0);
+    bool sendCommandAfter(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs);
+    bool sendSensorCommand(int8_t isWindy, int8_t isSunny, uint8_t repeat);
+    bool repeatFrame(uint8_t repeat);
     virtual uint16_t p_lastRollingCode(uint16_t code);
     somfy_commands transformCommand(somfy_commands cmd);
     virtual void triggerGPIOs(somfy_frame_t &frame);
@@ -358,11 +360,11 @@ class SomfyShade : public SomfyRemote {
     void setTarget(float target);
     bool isAtTarget();
     bool isToggle();
-    void moveToTarget(float pos, float tilt = -1.0f);
+    bool moveToTarget(float pos, float tilt = -1.0f);
     void moveToTiltTarget(float target);
     void sendTiltCommand(somfy_commands cmd);
-    void sendCommand(somfy_commands cmd);
-    void sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize = 0);
+    bool sendCommand(somfy_commands cmd);
+    bool sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize = 0);
     bool linkRemote(uint32_t remoteAddress, uint16_t rollingCode = 0);
     bool unlinkRemote(uint32_t remoteAddress);
     void emitState(const char *evt = "shadeState");
@@ -370,7 +372,7 @@ class SomfyShade : public SomfyRemote {
     void emitCommand(somfy_commands cmd, const char *source, uint32_t sourceAddress, const char *evt = "shadeCommand");
     void emitCommand(uint8_t num, somfy_commands cmd, const char *source, uint32_t sourceAddress, const char *evt = "shadeCommand");
     void setMyPosition(int8_t pos, int8_t tilt = -1);
-    void moveToMyPosition();
+    bool moveToMyPosition();
     void processWaitingFrame();
     void publish();
     void unpublish();
@@ -437,8 +439,8 @@ class SomfyGroup : public SomfyRemote {
     void updateFlags();
     void emitState(const char *evt = "groupState");
     void emitState(uint8_t num, const char *evt = "groupState");
-    void sendCommand(somfy_commands cmd);
-    void sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize = 0);
+    bool sendCommand(somfy_commands cmd);
+    bool sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize = 0);
     int8_t p_direction(int8_t dir);
     bool publish(const char *topic, uint8_t val, bool retain = false);
     bool publish(const char *topic, int8_t val, bool retain = false);
@@ -544,7 +546,6 @@ class Transceiver {
     somfy_frame_t& lastFrame();
     void sendFrame(byte *frame, uint8_t sync, uint8_t bitLength = 56);
     bool queueTx(somfy_tx_job_t &job);
-    bool canQueueTx(bool priority = false);
     void flushTx();
     void suspendTx(uint8_t reason);
     void resumeTx(uint8_t reason);
