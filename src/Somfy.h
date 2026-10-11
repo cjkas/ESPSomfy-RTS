@@ -201,11 +201,12 @@ struct somfy_frame_t {
     bool isSynonym(somfy_frame_t &f);
     void copy(somfy_frame_t &f);
 };
-// Upper bound on repeats for a single transmission.  Each frame is ~140ms of
-// radio time so this keeps a single job to roughly 6 seconds.
-#define MAX_TX_REPEATS 40
 #define TX_JOB_QUEUE_SIZE 32
-inline uint8_t txRepeats(uint8_t repeat) { return repeat > MAX_TX_REPEATS ? MAX_TX_REPEATS : repeat; }
+// Slots only priority jobs (stops) may use so a stop always fits in the queue.
+#define TX_RESERVED_SLOTS 4
+// Reasons the radio must not transmit.  TX resumes once every reason is cleared.
+#define TX_SUSPEND_SCAN 0x01
+#define TX_SUSPEND_OTA  0x02
 // A transmission handed off to the radio task.  The first frame is encoded by
 // the producer into tx.  The frame is a copy so the radio task never touches the
 // remote's lastFrame and is only used to re-encode 80-bit repeat frames.
@@ -215,15 +216,22 @@ struct somfy_tx_job_t {
   uint8_t repeats = 0;      // Number of repeat frames after the first frame.
   uint8_t firstRepeat = 1;  // 80-bit repeat counter used for the first repeat frame.
   bool raw = false;         // Repeater frame.  Waits for the receiver to be idle.
+  bool priority = false;    // Goes to the front of the queue and may use the reserved slots.
   uint32_t gen = 0;         // Flush generation when queued.  Stale jobs are dropped.
   uint32_t queuedAt = 0;    // millis() when queued.
   uint32_t notBefore = 0;   // millis() before which the job must not go on air (0 = none).
 };
-// Reported by the radio task when a queued job finally goes on air.
-struct somfy_tx_start_t {
+enum class tx_event_t : uint8_t {
+  started,  // The job is going on air.
+  dropped   // The job was flushed and will never go on air.
+};
+// Reported by the radio task for every queued non-repeater job.
+struct somfy_tx_event_t {
+  tx_event_t type = tx_event_t::started;
+  somfy_commands cmd = somfy_commands::My;
   uint32_t remoteAddress = 0;
   uint32_t queuedAt = 0;
-  uint32_t startedAt = 0;
+  uint32_t at = 0;          // millis() when the job started or was dropped.
 };
 
 class SomfyRoom {
@@ -536,10 +544,10 @@ class Transceiver {
     somfy_frame_t& lastFrame();
     void sendFrame(byte *frame, uint8_t sync, uint8_t bitLength = 56);
     bool queueTx(somfy_tx_job_t &job);
-    bool canQueueTx();
+    bool canQueueTx(bool priority = false);
     void flushTx();
-    void suspendTx();
-    void resumeTx();
+    void suspendTx(uint8_t reason);
+    void resumeTx(uint8_t reason);
     void beginTransmit();
     void endTransmit();
     void emitFrame(somfy_frame_t *frame, somfy_rx_t *rx = nullptr);
@@ -595,7 +603,7 @@ class SomfyShadeController {
     SomfyGroup * getGroupById(uint8_t groupId);
     SomfyShade * findShadeByRemoteAddress(uint32_t address);
     SomfyGroup * findGroupByRemoteAddress(uint32_t address);
-    bool sendFrame(somfy_frame_t &frame, uint8_t repeats = 0, uint16_t delayMs = 0);
+    bool sendFrame(somfy_frame_t &frame, uint8_t repeats = 0, uint16_t delayMs = 0, bool priority = false);
     void processFrame(somfy_frame_t &frame, bool internal = false);
     void shiftMovementStart(uint32_t remoteAddress, uint32_t queuedAt, uint32_t startedAt);
     void emitState(uint8_t num = 255);
