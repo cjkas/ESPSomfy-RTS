@@ -130,3 +130,8 @@ int Timestamp::tzOffset() {
   time(&now);
   return Timestamp::calcTZOffset(&now);
 }
+bool rssiNeedsEmit(int rssi, int lastRssi, int channel, int lastChannel, uint32_t sinceLastMs, int minDelta, uint32_t minMs) {
+  if(channel != lastChannel) return true;
+  int delta = rssi > lastRssi ? rssi - lastRssi : lastRssi - rssi;
+  return delta >= minDelta && sinceLastMs >= minMs;
+}

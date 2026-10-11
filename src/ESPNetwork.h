@@ -8,10 +8,15 @@
 
 #define CONNECT_TIMEOUT 20000
 #define SSID_SCAN_INTERVAL 600000
+// A weak signal moves a dBm or two all the time, so only broadcast real
+// changes and not more often than this.
+#define RSSI_EMIT_MIN_DBM 3
+#define RSSI_EMIT_MIN_MS 10000
 class ESPNetwork {
   protected:
     unsigned long lastEmit = 0;
     unsigned long lastMDNS = 0;
+    unsigned long lastRSSIEmit = 0;
     int lastRSSI = 0;
     int lastChannel = 0;
     int linkSpeed = 0;

@@ -168,6 +168,26 @@ static void test_parseUTCTime_ignores_local_zone() {
   TEST_ASSERT_EQUAL_INT64((int64_t)SAMPLE_UTC, (int64_t)Timestamp::parseUTCTime("2024-03-05T07:08:09Z"));
 }
 
+/*********************************************************************
+ * rssiNeedsEmit
+ ********************************************************************/
+static void test_rssiNeedsEmit_channel_change_always_emits() {
+  TEST_ASSERT_TRUE(rssiNeedsEmit(-70, -70, 6, 11, 0, 3, 10000));
+}
+static void test_rssiNeedsEmit_small_change_is_ignored() {
+  TEST_ASSERT_FALSE(rssiNeedsEmit(-72, -70, 6, 6, 60000, 3, 10000));
+}
+static void test_rssiNeedsEmit_real_change_after_interval_emits() {
+  TEST_ASSERT_TRUE(rssiNeedsEmit(-73, -70, 6, 6, 10000, 3, 10000));
+}
+static void test_rssiNeedsEmit_real_change_too_soon_waits() {
+  TEST_ASSERT_FALSE(rssiNeedsEmit(-73, -70, 6, 6, 5000, 3, 10000));
+}
+static void test_rssiNeedsEmit_either_direction() {
+  TEST_ASSERT_TRUE(rssiNeedsEmit(-67, -70, 6, 6, 10000, 3, 10000));
+  TEST_ASSERT_TRUE(rssiNeedsEmit(-73, -70, 6, 6, 10000, 3, 10000));
+}
+
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
@@ -193,5 +213,10 @@ int main(int argc, char **argv) {
   RUN_TEST(test_calcTZOffset_half_hour_west);
   RUN_TEST(test_parseUTCTime_in_utc);
   RUN_TEST(test_parseUTCTime_ignores_local_zone);
+  RUN_TEST(test_rssiNeedsEmit_channel_change_always_emits);
+  RUN_TEST(test_rssiNeedsEmit_small_change_is_ignored);
+  RUN_TEST(test_rssiNeedsEmit_real_change_after_interval_emits);
+  RUN_TEST(test_rssiNeedsEmit_real_change_too_soon_waits);
+  RUN_TEST(test_rssiNeedsEmit_either_direction);
   return UNITY_END();
 }

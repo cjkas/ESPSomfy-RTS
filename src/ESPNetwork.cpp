@@ -181,8 +181,9 @@ bool ESPNetwork::changeAP(const uint8_t *bssid, const int32_t channel) {
 }
 void ESPNetwork::emitSockets() {
   this->emitHeap();
-  if(this->needsBroadcast || 
-    (this->connType == conn_types_t::wifi && (abs(abs(WiFi.RSSI()) - abs(this->lastRSSI)) > 1 || WiFi.channel() != this->lastChannel))) {
+  if(this->needsBroadcast ||
+    (this->connType == conn_types_t::wifi && rssiNeedsEmit(WiFi.RSSI(), this->lastRSSI, WiFi.channel(), this->lastChannel,
+      millis() - this->lastRSSIEmit, RSSI_EMIT_MIN_DBM, RSSI_EMIT_MIN_MS))) {
     this->emitSockets(255);
     sockEmit.loop();
     this->needsBroadcast = false;
@@ -212,6 +213,7 @@ void ESPNetwork::emitSockets(uint8_t num) {
         sockEmit.endEmit(num);
         this->lastRSSI = WiFi.RSSI();
         this->lastChannel = WiFi.channel();
+        this->lastRSSIEmit = millis();
       }
       else {
         JsonSockEvent *json = sockEmit.beginEmit("wifiStrength");
@@ -231,6 +233,7 @@ void ESPNetwork::emitSockets(uint8_t num) {
         sockEmit.endEmit(num);
         this->lastRSSI = -100;
         this->lastChannel = -1;
+        this->lastRSSIEmit = millis();
       }
   }
   this->emitHeap(num);

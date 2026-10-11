@@ -56,6 +56,10 @@ struct rebootDelay_t {
   else if(str[0] == 'f' || str[0] == 'F' || str[0] == '0') return false;
   return def;
 }
+// Whether a wifiStrength broadcast is worth sending: always on a channel change,
+// otherwise only for an RSSI change of at least minDelta dBm and not more often
+// than every minMs.
+bool rssiNeedsEmit(int rssi, int lastRssi, int channel, int lastChannel, uint32_t sinceLastMs, int minDelta, uint32_t minMs);
 
 class Timestamp {
   char _timeBuffer[128];
