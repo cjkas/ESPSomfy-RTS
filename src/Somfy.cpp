@@ -63,6 +63,15 @@ static std::atomic<uint32_t> txPreemptWaiters{0};
 static std::atomic<uint32_t> txSuspendMask{0};
 // Last sequence number handed to a queued job.  Only touched under TxQueueLock.
 static uint32_t txSeq = 0;
+// Sequence number of the last job queued at the back that the radio task took
+// (or a flush dropped).  Those jobs go out in order so any later one is still
+// waiting in the queue.
+static std::atomic<uint32_t> txBackTaken{0};
+// The radio task and a flush both move txBackTaken.  Never let it go backwards.
+static void advanceBackTaken(uint32_t seq) {
+  uint32_t cur = txBackTaken;
+  while((int32_t)(seq - cur) > 0 && !txBackTaken.compare_exchange_weak(cur, seq)) {}
+}
 // How long a shade's simulated movement waits for its command to go on air
 // before it starts anyway in case the event was lost.
 #define TX_PENDING_TIMEOUT 30000
@@ -4027,8 +4036,13 @@ bool SomfyRemote::sendCommandAfter(somfy_commands cmd, uint8_t repeat, uint8_t s
     ESP_LOGD(TAG, "CMD:%s ADDR:%d RCODE:%d REPEAT:%d",
         translateSomfyCommand(frame.cmd).c_str(),
         frame.remoteAddress, frame.rollingCode, repeat);
+    // A stop jumps the queue unless an earlier frame of this remote is still
+    // waiting.  Overtaking it would put the rolling codes out of order and the
+    // motor would reject the older one.
+    const bool front = priority && !somfy.transceiver.isQueued(this->lastBackTxSeq);
     // Only simulate the command if it is actually going on air.
-    if(!somfy.sendFrame(frame, repeat, delayMs, priority, &seq)) return false;
+    if(!somfy.sendFrame(frame, repeat, delayMs, priority, front, &seq)) return false;
+    if(!front) this->lastBackTxSeq = seq;
   }
   this->commitRollingCode(frame.rollingCode);
   this->lastFrame = frame;
@@ -4061,14 +4075,16 @@ bool SomfyRemote::repeatFrame(uint8_t repeat) {
   // Only advance the counter for frames that will go on air.
   if(!somfy.transceiver.queueTx(job)) return false;
   this->lastFrame.repeats += repeat + 1;
+  this->lastBackTxSeq = job.seq;
   //somfy.processFrame(this->lastFrame, true);
   return true;
 }
-bool SomfyShadeController::sendFrame(somfy_frame_t &frame, uint8_t repeat, uint16_t delayMs, bool priority, uint32_t *seq) {
+bool SomfyShadeController::sendFrame(somfy_frame_t &frame, uint8_t repeat, uint16_t delayMs, bool priority, bool front, uint32_t *seq) {
   somfy_tx_job_t job;
   encodeTxJob(job, frame, repeat);
   job.firstRepeat = 1;
   job.priority = priority;
+  job.front = priority && front;
   if(delayMs > 0) job.notBefore = millis() + delayMs;
   if(!this->transceiver.queueTx(job)) return false;
   if(seq) *seq = job.seq;
@@ -5218,13 +5234,18 @@ bool Transceiver::queueTx(somfy_tx_job_t &job) {
   if(++txSeq == 0) ++txSeq;  // 0 means no job.
   job.seq = txSeq;
   // We are the only producer while holding the lock so the space check holds.
-  if(job.priority) xQueueSendToFront(txJobQueue, &job, 0);
+  if(job.front) xQueueSendToFront(txJobQueue, &job, 0);
   else xQueueSendToBack(txJobQueue, &job, 0);
   return true;
+}
+bool Transceiver::isQueued(uint32_t seq) {
+  // Only meaningful for jobs queued at the back.
+  return seq != 0 && (int32_t)(seq - txBackTaken) > 0;
 }
 void Transceiver::flushTx() {
   TxQueueLock lock;
   ++txGen;
+  advanceBackTaken(txSeq);
   if(!txJobQueue) return;
   // Drain rather than reset so every discarded job is reported as dropped.
   somfy_tx_job_t job;
@@ -5262,6 +5283,7 @@ void Transceiver::txTask(void *arg) {
   somfy_tx_job_t job;
   for(;;) {
     if(xQueueReceive(txJobQueue, &job, portMAX_DELAY) != pdTRUE) continue;
+    if(!job.front) advanceBackTaken(job.seq);
     // Flushed after we took it off the queue.
     if(txSuspendMask || job.gen != txGen) {
       postTxEvent(tx_event_t::dropped, job, millis());

@@ -216,7 +216,8 @@ struct somfy_tx_job_t {
   uint8_t repeats = 0;      // Number of repeat frames after the first frame.
   uint8_t firstRepeat = 1;  // 80-bit repeat counter used for the first repeat frame.
   bool raw = false;         // Repeater frame.  Waits for the receiver to be idle.
-  bool priority = false;    // Goes to the front of the queue and may use the reserved slots.
+  bool priority = false;    // May use the reserved slots.
+  bool front = false;       // Goes to the front of the queue.  Only for priority jobs.
   uint32_t gen = 0;         // Flush generation when queued.  Stale jobs are dropped.
   uint32_t seq = 0;         // Assigned when queued so the job's events can be matched up.
   uint32_t notBefore = 0;   // millis() before which the job must not go on air (0 = none).
@@ -267,6 +268,7 @@ class SomfyRemote {
     bool flipCommands = false;
     uint16_t lastRollingCode = 0;
     uint32_t lastTxSeq = 0;  // Radio job of the last command sent, 0 if it didn't use the radio.
+    uint32_t lastBackTxSeq = 0;  // Last radio job queued at the back of the queue.
     uint8_t flags = 0;
     uint8_t bitLength = 0;
     uint8_t repeats = 1;
@@ -563,6 +565,7 @@ class Transceiver {
     void flushTx();
     void suspendTx(uint8_t reason);
     void resumeTx(uint8_t reason);
+    bool isQueued(uint32_t seq);
     void beginTransmit();
     void endTransmit();
     void emitFrame(somfy_frame_t *frame, somfy_rx_t *rx = nullptr);
@@ -618,7 +621,7 @@ class SomfyShadeController {
     SomfyGroup * getGroupById(uint8_t groupId);
     SomfyShade * findShadeByRemoteAddress(uint32_t address);
     SomfyGroup * findGroupByRemoteAddress(uint32_t address);
-    bool sendFrame(somfy_frame_t &frame, uint8_t repeats = 0, uint16_t delayMs = 0, bool priority = false, uint32_t *seq = nullptr);
+    bool sendFrame(somfy_frame_t &frame, uint8_t repeats = 0, uint16_t delayMs = 0, bool priority = false, bool front = false, uint32_t *seq = nullptr);
     void processFrame(somfy_frame_t &frame, bool internal = false);
     void markTxPending(uint32_t remoteAddress, uint32_t seq);
     void processTxEvent(const somfy_tx_event_t &evt);
