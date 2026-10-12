@@ -7,13 +7,14 @@ void BufferedJsonFormatter::setBuffer(char *b, size_t sz) {
   this->buff = b;
   this->buffSize = sz;
   this->buff[0] = 0;
+  this->_len = 0;
   this->_nocomma = true;
   this->_overflow = false;
   this->_objects = 0;
   this->_arrays = 0;
 }
 size_t BufferedJsonFormatter::length() const {
-  return strlen(this->buff);
+  return this->_len;
 }
 void JsonFormatter::beginObject(const char *name) {
   if(name && strlen(name) > 0) this->appendElem(name);
@@ -87,17 +88,29 @@ void JsonFormatter::addElem(const char *name, uint64_t lval) { sprintf(this->_nu
 void JsonFormatter::addElem(const char *name, bool bval) { strcpy(this->_numbuff, bval ? "true" : "false"); this->_appendNumber(name); }
 
 void JsonFormatter::_safecat(const char *val, bool escape) {
-  size_t len = (escape ? this->calcEscapedLength(val) : strlen(val)) + strlen(this->buff);
-  if(escape) len += 2;
-  if(len >= this->buffSize) {
+  const size_t vlen = escape ? this->calcEscapedLength(val) + 2 : strlen(val);
+  if(this->_len + vlen >= this->buffSize) {
     if(!this->_overflow) ESP_LOGE(TAG, "JSON exceeded buffer size %u", (unsigned)this->buffSize);
     this->_overflow = true;
     return;
   }
-  if(escape) strcat(this->buff, "\"");
-  if(escape) this->escapeString(val, &this->buff[strlen(this->buff)]);
-  else strcat(this->buff, val);
-  if(escape) strcat(this->buff, "\"");
+  this->_appendAt(val, escape, vlen);
+}
+void JsonFormatter::_appendAt(const char *val, bool escape, size_t vlen) {
+  char *p = this->buff + this->_len;
+  if(escape) {
+    *p++ = '"';
+    *p = 0;
+    this->escapeString(val, p);
+    p += vlen - 2;
+    *p++ = '"';
+  }
+  else {
+    memcpy(p, val, vlen);
+    p += vlen;
+  }
+  *p = 0;
+  this->_len += vlen;
 }
 void JsonFormatter::_appendNumber(const char *name) { this->appendElem(name); this->_safecat(this->_numbuff); } 
 size_t JsonFormatter::escapeChar(char c, char *out) {

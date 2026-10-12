@@ -555,7 +555,7 @@ private:
         serializeGitVersion(fmt);
         fmt.endObject();
         fmt.beginArray("rooms");
-        unitLen = strlen(unit);
+        unitLen = fmt.length();
         section = S_ROOMS;
         idx = 0;
         firstInArray = true;
@@ -577,7 +577,7 @@ private:
         fmt.beginObject();
         serializeRoom(&somfy.rooms[idx], fmt);
         fmt.endObject();
-        unitLen = pos + strlen(unit + pos);
+        unitLen = pos + fmt.length();
         idx++;
         firstInArray = false;
         return;
@@ -599,7 +599,7 @@ private:
         fmt.beginObject();
         serializeShade(&somfy.shades[idx], fmt);
         fmt.endObject();
-        unitLen = pos + strlen(unit + pos);
+        unitLen = pos + fmt.length();
         idx++;
         firstInArray = false;
         return;
@@ -622,7 +622,7 @@ private:
           fmt.beginObject();
           serializeGroupRef(g, fmt);
           fmt.beginArray("linkedShades");
-          unitLen = pos + strlen(unit + pos);
+          unitLen = pos + fmt.length();
           lsIdx = 0;
           firstInArray = false;
           firstInLSArray = true;
@@ -650,7 +650,7 @@ private:
         fmt.beginObject();
         serializeShadeRef(lshade, fmt);
         fmt.endObject();
-        unitLen = pos + strlen(unit + pos);
+        unitLen = pos + fmt.length();
         lsIdx++;
         firstInLSArray = false;
         return;

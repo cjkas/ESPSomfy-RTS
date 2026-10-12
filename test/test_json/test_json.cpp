@@ -159,6 +159,42 @@ static void test_setBuffer_clears_overflow() {
   TEST_ASSERT_FALSE(fmt.overflowed());
 }
 
+/*********************************************************************
+ * Tracked length
+ ********************************************************************/
+static void test_length_matches_what_was_written() {
+  fmt.beginObject();
+  fmt.addElem("name", "Living \"Room\"\n");
+  fmt.addElem("pos", 41.5f);
+  fmt.beginArray("ids");
+  fmt.addElem((uint8_t)1);
+  fmt.addElem((int32_t)-2);
+  fmt.endArray();
+  fmt.addElem("on", true);
+  fmt.endObject();
+  TEST_ASSERT_EQUAL_UINT32(strlen(storage), fmt.length());
+  TEST_ASSERT_EQUAL_STRING("{\"name\":\"Living \\\"Room\\\"\\n\",\"pos\":41.5000,\"ids\":[1,-2],\"on\":true}", storage);
+}
+static void test_refused_append_leaves_length_alone() {
+  useBuffer(16);
+  fmt.beginObject();
+  fmt.addElem("name", "fits");
+  const size_t before = fmt.length();
+  fmt.addElem("x", "this value does not fit");
+  TEST_ASSERT_TRUE(fmt.overflowed());
+  // The comma and key still fit; the value was refused whole.
+  TEST_ASSERT_EQUAL_UINT32(strlen(storage), fmt.length());
+  TEST_ASSERT_TRUE(fmt.length() >= before);
+  TEST_ASSERT_TRUE(fmt.length() < 16);
+}
+static void test_setBuffer_resets_length() {
+  fmt.addElem("something");
+  TEST_ASSERT_TRUE(fmt.length() > 0);
+  useBuffer(BUFF_SIZE);
+  TEST_ASSERT_EQUAL_UINT32(0, fmt.length());
+  TEST_ASSERT_EQUAL_STRING("", storage);
+}
+
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
@@ -177,5 +213,8 @@ int main(int argc, char **argv) {
   RUN_TEST(test_value_needing_one_byte_too_many_is_refused);
   RUN_TEST(test_overflow_is_flagged);
   RUN_TEST(test_setBuffer_clears_overflow);
+  RUN_TEST(test_length_matches_what_was_written);
+  RUN_TEST(test_refused_append_leaves_length_alone);
+  RUN_TEST(test_setBuffer_resets_length);
   return UNITY_END();
 }

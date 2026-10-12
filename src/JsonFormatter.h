@@ -8,6 +8,8 @@ class JsonFormatter {
   protected:
     char *buff;
     size_t buffSize;
+    // What is in buff, kept so appending never has to strlen() the buffer.
+    size_t _len = 0;
     bool _headersSent = false;
     uint8_t _objects = 0;
     uint8_t _arrays = 0;
@@ -16,6 +18,9 @@ class JsonFormatter {
     bool _overflow = false;
     char _numbuff[25] = {0};
     virtual void _safecat(const char *val, bool escape = false);
+    // Appends val at buff + _len.  vlen is what it takes, including the quotes
+    // when escaped; the caller has made sure it fits.
+    void _appendAt(const char *val, bool escape, size_t vlen);
     void _appendNumber(const char *name);
   public:
     bool overflowed() const { return _overflow; }
