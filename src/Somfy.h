@@ -319,6 +319,8 @@ class SomfyShade : public SomfyRemote {
     bool isInGroup();
     void checkMovement();
     void processFrame(somfy_frame_t &frame, bool internal = false);
+    // The shade itself or the linked remote with this address, else nullptr.
+    SomfyRemote *findRemote(uint32_t address);
     void processInternalCommand(somfy_commands cmd, uint8_t repeat = 1);
     void markTxPending(uint32_t seq);
     void processTxEvent(const somfy_tx_event_t &evt);

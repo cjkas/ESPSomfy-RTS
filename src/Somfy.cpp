@@ -1767,22 +1767,21 @@ void SomfyShade::processWaitingFrame() {
     }
   }
 }
+SomfyRemote *SomfyShade::findRemote(uint32_t address) {
+  if(this->getRemoteAddress() == address) return this;
+  for(uint8_t i = 0; i < SOMFY_MAX_LINKED_REMOTES; i++) {
+    if(this->linkedRemotes[i].getRemoteAddress() == address) return &this->linkedRemotes[i];
+  }
+  return nullptr;
+}
 void SomfyShade::processFrame(somfy_frame_t &frame, bool internal) {
   // The reason why we are processing all frames here is so
   // any linked remotes that may happen to be on the same ESPSomfy RTS
   // device can trigger the appropriate actions.
   if(this->shadeId == 255) return; 
-  bool hasRemote = this->getRemoteAddress() == frame.remoteAddress;
-  if(!hasRemote) {
-    for(uint8_t i = 0; i < SOMFY_MAX_LINKED_REMOTES; i++) {
-      if(this->linkedRemotes[i].getRemoteAddress() == frame.remoteAddress) {
-        if(frame.cmd != somfy_commands::Sensor) this->linkedRemotes[i].setRollingCode(frame.rollingCode);
-        hasRemote = true;
-        break;      
-      }
-    }
-  }
-  if(!hasRemote) return;
+  SomfyRemote *remote = this->findRemote(frame.remoteAddress);
+  if(!remote) return;
+  if(remote != this && frame.cmd != somfy_commands::Sensor) remote->setRollingCode(frame.rollingCode);
   const uint64_t curTime = millis();
   this->lastFrame.copy(frame);
   int8_t dir = 0;
@@ -3152,14 +3151,9 @@ void SomfyShadeController::processFrame(somfy_frame_t &frame, bool internal) {
   }
 }
 void SomfyShadeController::markTxPending(uint32_t remoteAddress, uint32_t seq) {
-  // Same matching as SomfyShade::processFrame for shade and linked remotes.
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
     SomfyShade *shade = &this->shades[i];
-    if(shade->getShadeId() == 255) continue;
-    bool hasRemote = shade->getRemoteAddress() == remoteAddress;
-    for(uint8_t j = 0; !hasRemote && j < SOMFY_MAX_LINKED_REMOTES; j++)
-      hasRemote = shade->linkedRemotes[j].getRemoteAddress() == remoteAddress;
-    if(hasRemote) shade->markTxPending(seq);
+    if(shade->getShadeId() != 255 && shade->findRemote(remoteAddress)) shade->markTxPending(seq);
   }
   // Group commands move their member shades through processInternalCommand.
   for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++) {
