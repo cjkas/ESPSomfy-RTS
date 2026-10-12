@@ -3805,52 +3805,6 @@ static int16_t  bitMin = SYMBOL * TOLERANCE_MIN;
 static somfy_rx_t somfy_rx;
 static somfy_rx_queue_t rx_queue;
 static somfy_tx_queue_t tx_queue;
-bool somfy_tx_queue_t::pop(somfy_tx_t *tx) {
-  // Read the oldest index.
-  for(int8_t i = MAX_TX_BUFFER - 1; i >= 0; i--) {
-    if(this->index[i] < MAX_TX_BUFFER) {
-      uint8_t ndx = this->index[i];
-      memcpy(tx, &this->items[ndx], sizeof(somfy_tx_t));
-      this->items[ndx].clear();
-      if(this->length > 0) this->length--;
-      this->index[i] = 255;
-      return true;
-    }
-  }
-  return false;
-}
-void somfy_tx_queue_t::push(somfy_rx_t *rx) { this->push(rx->cpt_synchro_hw, rx->payload, rx->bit_length); }
-void somfy_tx_queue_t::push(uint8_t hwsync, uint8_t *payload, uint8_t bit_length) {
-  if(this->length >= MAX_TX_BUFFER) {
-    // We have overflowed the buffer simply empty the last item
-    // in this instance we will simply throw it away.
-    uint8_t ndx = this->index[MAX_TX_BUFFER - 1];
-    if(ndx < MAX_TX_BUFFER) this->items[ndx].clear();
-    this->index[MAX_TX_BUFFER - 1] = 255;
-    this->length--;
-  }
-  uint8_t first = 0;
-  // Place this record in the first empty slot.  There will
-  // be one since we cleared a space above should there
-  // be an overflow.
-  for(uint8_t i = 0; i < MAX_TX_BUFFER; i++) {
-    if(this->items[i].bit_length == 0) {
-      first = i;
-      this->items[i].bit_length = bit_length;
-      this->items[i].hwsync = hwsync;
-      memcpy(&this->items[i].payload, payload, sizeof(this->items[i].payload));
-      break;
-    }
-  }
-  // Move the index so that it is the at position 0.  The oldest item will fall off.
-  for(uint8_t i = MAX_TX_BUFFER - 1; i > 0; i--) {
-    this->index[i] = this->index[i - 1];
-  }
-  this->length++;
-  // When popping from the queue we always pull from the end
-  this->index[0] = first;
-  this->delay_time = millis() + TX_QUEUE_DELAY; // We do not want to process this frame until a full frame beat has passed.
-}
 void somfy_rx_queue_t::init() { 
   ESP_LOGD(TAG, "Initializing RX Queue");
   for (uint8_t i = 0; i < MAX_RX_BUFFER; i++)
@@ -4715,7 +4669,9 @@ void Transceiver::loop() {
   else if (this->receive(&rx)) {
     for(uint8_t i = 0; i < SOMFY_MAX_REPEATERS; i++) {
       if(somfy.repeaters[i] == frame.remoteAddress) {
-        tx_queue.push(&rx);
+        tx_queue.push(rx.cpt_synchro_hw, rx.payload, rx.bit_length);
+        // We do not want to process this frame until a full frame beat has passed.
+        tx_queue.delay_time = millis() + TX_QUEUE_DELAY;
         ESP_LOGD(TAG, "Queued repeater frame...");
         break;
       }
@@ -4725,11 +4681,14 @@ void Transceiver::loop() {
   else {
     somfy.processWaitingFrame();
     // Check to see if there is anything in the buffer
-    if(tx_queue.length > 0 && millis() > tx_queue.delay_time && somfy_rx.cpt_synchro_hw == 0) {
-      // Repeater frames are handed to the radio task like any other transmission.
+    // Repeater frames are handed to the radio task like any other transmission.
+    // One stays here until the radio has room for it rather than being lost
+    // while the radio is busy.  While TX is suspended nothing goes out anyway.
+    if(tx_queue.length > 0 && millis() > tx_queue.delay_time && somfy_rx.cpt_synchro_hw == 0 &&
+      (this->txSuspended() || this->txHasRoom())) {
       somfy_tx_job_t job;
       job.raw = true;
-      tx_queue.pop(&job.tx);
+      tx_queue.peek(&job.tx);
       {
         somfy_tx_t &tx = job.tx;
         char frame_buf[128];
@@ -4740,7 +4699,10 @@ void Transceiver::loop() {
         snprintf(frame_buf + fpos, sizeof(frame_buf) - fpos, "]");
         ESP_LOGD(TAG, "%s", frame_buf);
       }
-      this->queueTx(job);
+      if(this->queueTx(job) || this->txSuspended()) {
+        somfy_tx_t sent;
+        tx_queue.pop(&sent);
+      }
       tx_queue.delay_time = millis() + TX_QUEUE_DELAY;
     }
   }
