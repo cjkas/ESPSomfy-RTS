@@ -103,6 +103,7 @@ somfy_commands flipCommand(somfy_commands cmd) {
       return cmd;
   }
 }
+somfy_commands sunFlagCommand(bool on) { return on ? somfy_commands::SunFlag : somfy_commands::Flag; }
 byte somfy_frame_t::calc80Checksum(byte b0, byte b1, byte b2) {
   byte cs80 = 0;
   cs80 = (((b0 & 0xF0) >> 4) ^ ((b1 & 0xF0) >> 4));

@@ -240,6 +240,11 @@ static void test_command_names_round_trip() {
   }
   TEST_ASSERT_EQUAL_STRING_MESSAGE("", failed.c_str(), "These names don't parse back to their command");
 }
+static void test_sun_flag_command() {
+  // sunFlag/set 1 must turn the flag on for shades and groups alike.
+  TEST_ASSERT_EQUAL_UINT8((uint8_t)somfy_commands::SunFlag, (uint8_t)sunFlagCommand(true));
+  TEST_ASSERT_EQUAL_UINT8((uint8_t)somfy_commands::Flag, (uint8_t)sunFlagCommand(false));
+}
 
 int main(int argc, char **argv) {
   (void)argc;
@@ -262,5 +267,6 @@ int main(int argc, char **argv) {
   RUN_TEST(test_parse_command_names);
   RUN_TEST(test_command_display_names);
   RUN_TEST(test_command_names_round_trip);
+  RUN_TEST(test_sun_flag_command);
   return UNITY_END();
 }
