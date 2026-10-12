@@ -4055,6 +4055,10 @@ float markFreq = 433.0f;
 int markRSSI = -100;
 uint32_t lastScan = 0;
 static uint32_t scanStart = 0;
+// Scan state changes made off loop() (the web handlers and apply() run on
+// async_tcp) are only flagged here.  The socket event buffer is shared, so
+// loop() sends the event.
+static std::atomic<bool> scanEmitPending{false};
 // A scan nobody ended (closed browser tab) stops on its own after this long so
 // the radio doesn't stay unable to transmit.
 #define SCAN_MAX_MS 300000
@@ -4076,7 +4080,7 @@ void Transceiver::beginFrequencyScan() {
     ELECHOUSE_cc1101.setMHZ(currFreq);
     ESP_LOGD(TAG, "Begin frequency scan on Pin #%d", this->config.RXPin);
     attachInterrupt(interruptPin, handleReceive, CHANGE);
-    this->emitFrequencyScan();
+    scanEmitPending = true;
   }
 }
 void Transceiver::processFrequencyScan(bool received) {
@@ -4114,7 +4118,7 @@ void Transceiver::endFrequencyScan() {
     if(interruptPin > 0) detachInterrupt(interruptPin); 
     interruptPin = 0;
     this->config.apply();
-    this->emitFrequencyScan();
+    scanEmitPending = true;
   }
   // Even if something else already ended the scan, nothing may keep TX suspended.
   this->resumeTx(TX_SUSPEND_SCAN);
@@ -4528,7 +4532,7 @@ void transceiver_config_t::apply() {
     somfy.transceiver.disableReceive();
     if(wasScanning) {
       somfy.transceiver.resumeTx(TX_SUSPEND_SCAN);
-      somfy.transceiver.emitFrequencyScan();
+      scanEmitPending = true;
     }
     bit_length = this->type;    
     if(this->enabled) {
@@ -4648,6 +4652,7 @@ void Transceiver::loop() {
     // Line the simulated shades up with what actually went on air.
     somfy.processTxEvent(evt);
   }
+  if(scanEmitPending.exchange(false)) this->emitFrequencyScan();
   if (noiseDetected && rxmode != 3 && this->config.noiseDetection) {
     if (millis() - noiseStart > 100) {
       gpio_intr_enable((gpio_num_t)interruptPin);
