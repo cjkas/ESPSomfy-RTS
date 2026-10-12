@@ -69,8 +69,8 @@ static std::atomic<uint32_t> txSuspendMask{0};
 // Last sequence number handed to a queued job.  Only touched under TxQueueLock.
 static uint32_t txSeq = 0;
 // Sequence number of the last job queued at the back that the radio task took
-// (or a flush dropped).  Those jobs go out in order so any later one is still
-// waiting in the queue.
+// (a delayed one only once it is due) or a flush dropped.  Those jobs go out
+// in order so any later one is still waiting in the queue.
 static std::atomic<uint32_t> txBackTaken{0};
 // The radio task and a flush both move txBackTaken.  Never let it go backwards.
 static void advanceBackTaken(uint32_t seq) {
@@ -4766,7 +4766,11 @@ bool Transceiver::queueTx(somfy_tx_job_t &job) {
   if(++txSeq == 0) ++txSeq;  // 0 means no job.
   job.seq = txSeq;
   // We are the only producer while holding the lock so the space check holds.
-  if(job.front) xQueueSendToFront(txJobQueue, &job, 0);
+  if(job.front) {
+    xQueueSendToFront(txJobQueue, &job, 0);
+    // It may overtake a delayed job the radio task is waiting on.
+    xTaskNotifyGive(txTaskHandle);
+  }
   else xQueueSendToBack(txJobQueue, &job, 0);
   return true;
 }
@@ -4789,6 +4793,8 @@ void Transceiver::flushTx() {
   somfy_tx_job_t job;
   const uint32_t now = millis();
   while(xQueueReceive(txJobQueue, &job, 0) == pdTRUE) postTxEvent(tx_event_t::dropped, job, now);
+  // Drop a delayed job the radio task is waiting on now rather than when it is due.
+  if(txTaskHandle) xTaskNotifyGive(txTaskHandle);
 }
 void Transceiver::suspendTx(uint8_t reason) {
   {
@@ -4821,39 +4827,63 @@ bool Transceiver::transmitJob(somfy_tx_job_t &job) {
   this->endTransmit();
   return complete;
 }
+void Transceiver::runJob(somfy_tx_job_t &job) {
+  if(job.raw) {
+    // Don't step on a remote that is transmitting right now.
+    for(uint32_t waited = 0; rxInProgress() && waited < TX_RX_IDLE_WAIT; waited += 5)
+      vTaskDelay(pdMS_TO_TICKS(5));
+  }
+  {
+    RadioLock lock;
+    // The queue may have been flushed while we waited.
+    if(txSuspendMask || job.gen != txGen) {
+      postTxEvent(tx_event_t::dropped, job, millis());
+      return;
+    }
+    postTxEvent(tx_event_t::started, job, millis());
+    const bool complete = this->transmitJob(job);
+    postTxEvent(complete ? tx_event_t::finished : tx_event_t::aborted, job, millis());
+  }
+  // Give the motors a full frame beat between separate transmissions.
+  vTaskDelay(pdMS_TO_TICKS(TX_QUEUE_DELAY));
+}
+void Transceiver::waitUntilDue(const somfy_tx_job_t &job) {
+  for(;;) {
+    if(txSuspendMask || job.gen != txGen) return;
+    const int32_t wait = (int32_t)(job.notBefore - millis());
+    if(wait <= 0) return;
+    // A stop only goes to the front when its remote has nothing waiting, and
+    // this job still counts as waiting, so any front job is free to go first.
+    somfy_tx_job_t next;
+    bool haveNext = false;
+    {
+      TxQueueLock lock;
+      if(xQueuePeek(txJobQueue, &next, 0) == pdTRUE && next.front)
+        haveNext = xQueueReceive(txJobQueue, &next, 0) == pdTRUE;
+    }
+    if(haveNext) {
+      this->runJob(next);
+      continue;
+    }
+    // queueTx() and flushTx() wake us for a new front job or a flush.
+    ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(wait));
+  }
+}
 void Transceiver::txTask(void *arg) {
   Transceiver *trans = static_cast<Transceiver *>(arg);
   somfy_tx_job_t job;
   for(;;) {
     if(xQueueReceive(txJobQueue, &job, portMAX_DELAY) != pdTRUE) continue;
+    if(job.notBefore != 0) trans->waitUntilDue(job);
+    // Only now is a delayed job off the queue as far as isQueued() is
+    // concerned, so a stop for its remote queues behind it while it waits.
     if(!job.front) advanceBackTaken(job.seq);
     // Flushed after we took it off the queue.
     if(txSuspendMask || job.gen != txGen) {
       postTxEvent(tx_event_t::dropped, job, millis());
       continue;
     }
-    if(job.notBefore != 0) {
-      int32_t wait = (int32_t)(job.notBefore - millis());
-      if(wait > 0) vTaskDelay(pdMS_TO_TICKS(wait));
-    }
-    if(job.raw) {
-      // Don't step on a remote that is transmitting right now.
-      for(uint32_t waited = 0; rxInProgress() && waited < TX_RX_IDLE_WAIT; waited += 5)
-        vTaskDelay(pdMS_TO_TICKS(5));
-    }
-    {
-      RadioLock lock;
-      // The queue may have been flushed while we waited.
-      if(txSuspendMask || job.gen != txGen) {
-        postTxEvent(tx_event_t::dropped, job, millis());
-        continue;
-      }
-      postTxEvent(tx_event_t::started, job, millis());
-      const bool complete = trans->transmitJob(job);
-      postTxEvent(complete ? tx_event_t::finished : tx_event_t::aborted, job, millis());
-    }
-    // Give the motors a full frame beat between separate transmissions.
-    vTaskDelay(pdMS_TO_TICKS(TX_QUEUE_DELAY));
+    trans->runJob(job);
   }
 }
 void Transceiver::startTxTask() {

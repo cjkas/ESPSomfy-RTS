@@ -494,6 +494,11 @@ class Transceiver {
     somfy_frame_t frame;
     void startTxTask();
     bool transmitJob(somfy_tx_job_t &job);
+    // Sends a job taken off the queue and leaves a frame beat after it.
+    void runJob(somfy_tx_job_t &job);
+    // Holds a delayed job until it is due, sending stops queued at the front
+    // in the meantime.
+    void waitUntilDue(const somfy_tx_job_t &job);
   public:
     transceiver_config_t config;
     bool printBuffer = false;
