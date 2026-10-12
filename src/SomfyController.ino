@@ -86,7 +86,11 @@ void setup() {
 #endif
     // The backtrace only decodes against the firmware.elf of the build that
     // crashed, so say whether that is the one running now.
-    const char *crashedSha = (const char *)summary.app_elf_sha256;
+    // app_elf_sha256 isn't always terminated, so copy it before comparing or
+    // printing it.
+    char crashedSha[APP_ELF_SHA256_SZ];
+    static_assert(sizeof(crashedSha) <= sizeof(summary.app_elf_sha256), "copy would read past app_elf_sha256");
+    SETCHARPROP(crashedSha, (const char *)summary.app_elf_sha256, sizeof(crashedSha));
     char runningSha[APP_ELF_SHA256_SZ] = {0};
     getRunningElfSha(runningSha, sizeof(runningSha));
     if(strcmp(crashedSha, runningSha) == 0)

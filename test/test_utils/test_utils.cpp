@@ -79,6 +79,15 @@ static void test_setcharprop_truncates_long_value() {
   SETCHARPROP(prop, "abcdefgh", sizeof(prop));
   TEST_ASSERT_EQUAL_STRING("abcd", prop);
 }
+static void test_setcharprop_unterminated_source() {
+  // A coredump's app_elf_sha256 can be full of hex digits with no terminator.
+  // The copy must stop inside the array and come out as a comparable string.
+  const char crashed[17] = {'0','1','2','3','4','5','6','7','8','9','a','b','c','d','e','f','9'};
+  char sha[sizeof(crashed)];
+  SETCHARPROP(sha, crashed, sizeof(sha));
+  TEST_ASSERT_EQUAL_STRING("0123456789abcdef", sha);
+  TEST_ASSERT_EQUAL_INT(0, strcmp(sha, "0123456789abcdef"));
+}
 
 /*********************************************************************
  * sortArray / sortArrayReverse
@@ -202,6 +211,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_toBoolean_unknown_uses_default);
   RUN_TEST(test_setcharprop_copies_short_value);
   RUN_TEST(test_setcharprop_truncates_long_value);
+  RUN_TEST(test_setcharprop_unterminated_source);
   RUN_TEST(test_sortArray_ascending);
   RUN_TEST(test_sortArrayReverse_descending);
   RUN_TEST(test_sortArray_custom_comparator);
