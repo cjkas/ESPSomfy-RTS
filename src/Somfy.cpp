@@ -3144,7 +3144,7 @@ bool SomfyRemote::toJSON(JsonObject &obj) {
   return true;  
 }
 */
-void SomfyRemote::setRemoteAddress(uint32_t address) { this->m_remoteAddress = address; snprintf(this->m_remotePrefId, sizeof(this->m_remotePrefId), "_%lu", (unsigned long)this->m_remoteAddress); }
+void SomfyRemote::setRemoteAddress(uint32_t address) { this->m_remoteAddress = address; this->m_rollingCodeSynced = false; snprintf(this->m_remotePrefId, sizeof(this->m_remotePrefId), "_%lu", (unsigned long)this->m_remoteAddress); }
 uint32_t SomfyRemote::getRemoteAddress() { return this->m_remoteAddress; }
 void SomfyShadeController::processFrame(somfy_frame_t &frame, bool internal) {
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
@@ -3681,8 +3681,10 @@ bool SomfyShadeController::deleteGroup(uint8_t groupId) {
 
 bool SomfyShadeController::loadShadesFile(const char *filename) { return ShadeConfigFile::load(this, filename); }
 // The next rolling code is only read here.  It is consumed by commitRollingCode
-// once the frame using it has been queued.
+// once the frame using it has been queued.  NVS is only read until a code for
+// this address has been written, after that lastRollingCode holds the same.
 uint16_t SomfyRemote::peekNextRollingCode() {
+  if(this->m_rollingCodeSynced) return (uint16_t)(this->lastRollingCode + 1);
   if(!pref.begin("ShadeCodes")) {
     ESP_LOGE(TAG, "peekNextRollingCode() pref.begin(ShadeCodes) FAILED");
   }
@@ -3697,6 +3699,7 @@ void SomfyRemote::commitRollingCode(uint16_t code) {
   pref.putUShort(this->m_remotePrefId, code);
   pref.end();
   this->p_lastRollingCode(code);
+  this->m_rollingCodeSynced = true;
 }
 uint16_t SomfyRemote::p_lastRollingCode(uint16_t code) { 
   uint16_t old = this->lastRollingCode;
@@ -3709,6 +3712,7 @@ uint16_t SomfyRemote::setRollingCode(uint16_t code) {
     pref.putUShort(this->m_remotePrefId, code);
     pref.end();  
     this->lastRollingCode = code;
+    this->m_rollingCodeSynced = true;
     ESP_LOGD(TAG, "Setting Last Rolling code %d", this->lastRollingCode);
   }
   return code;

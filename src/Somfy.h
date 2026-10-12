@@ -198,6 +198,9 @@ class SomfyRemote {
   protected:
     char m_remotePrefId[11] = "";
     uint32_t m_remoteAddress = 0;
+    // lastRollingCode is known to match NVS for this address, so the next code
+    // can be worked out without opening NVS.
+    bool m_rollingCodeSynced = false;
   public:
     radio_proto proto = radio_proto::RTS;
     uint8_t gpioFlags = 0;
