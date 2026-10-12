@@ -2058,7 +2058,7 @@ void SomfyShade::processFrame(somfy_frame_t &frame, bool internal) {
       }
       else if(this->tiltType == tilt_types::tiltonly) {
         if(this->tiltTime == 0 || this->stepSize == 0) return;
-        this->p_target(min(100.0f, this->currentTiltPos + (100.0f/(static_cast<float>(this->tiltTime/static_cast<float>(this->stepSize * this->lastFrame.stepSize))))));
+        this->p_tiltTarget(min(100.0f, this->currentTiltPos + (100.0f/(static_cast<float>(this->tiltTime/static_cast<float>(this->stepSize * this->lastFrame.stepSize))))));
       }
       else if(this->currentPos < 100.0f) {
         if(this->downTime == 0 || this->stepSize == 0) return;
