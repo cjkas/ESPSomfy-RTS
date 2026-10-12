@@ -12,12 +12,17 @@
 //
 // The lock is a binary semaphore, not a mutex.  A mutex passes its waiter's
 // priority to the holder, so async_tcp waiting on loop() would lift loop()
-// above the radio task and let it break into a frame on the air.
+// above the radio task and let it break into a frame on the air.  Without that
+// boost a holder preempted on the other core (loop() while the radio task sends
+// a whole job) can't let go, so a waiter only waits while the holder can make
+// progress (see LogLockPolicy.h).
 #include <Arduino.h>
 #include <stdarg.h>
+#include "esp_idf_version.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "LogLockPolicy.h"
 
 extern "C" int __real_log_printfv(const char *format, va_list arg);
 
@@ -36,11 +41,38 @@ static volatile TaskHandle_t logOwner = nullptr;
 // line takes about 20ms at 115200 baud.
 #define LOG_LOCK_WAIT_MS 20
 
+#if ESP_IDF_VERSION_MAJOR >= 5
+#define taskOnCore(core) xTaskGetCurrentTaskHandleForCore(core)
+#define taskCore(task) xTaskGetCoreID(task)
+#else
+#define taskOnCore(core) xTaskGetCurrentTaskHandleForCPU(core)
+#define taskCore(task) xTaskGetAffinity(task)
+#endif
+static LogHolder logHolder(TaskHandle_t owner) {
+  if(!owner) return LogHolder::unknown;
+  for(BaseType_t core = 0; core < portNUM_PROCESSORS; core++)
+    if(taskOnCore(core) == owner) return LogHolder::running;
+  // A task pinned elsewhere only runs once whatever preempted it there is done.
+  const BaseType_t core = taskCore(owner);
+  if(core == tskNO_AFFINITY || core == xPortGetCoreID()) return LogHolder::preemptedHere;
+  return LogHolder::preemptedElsewhere;
+}
+// Takes the lock, waiting in one tick slices for as long as the holder can let
+// go of it.  False when the line has to be printed without it.
+static bool takeLogLock() {
+  uint32_t waitedMs = 0;
+  while(xSemaphoreTake(logLock, 1) != pdTRUE) {
+    waitedMs += portTICK_PERIOD_MS;
+    if(!keepWaitingForLogLock(logHolder(logOwner), waitedMs, LOG_LOCK_WAIT_MS)) return false;
+  }
+  return true;
+}
+
 extern "C" int __wrap_log_printfv(const char *format, va_list arg) {
   // No blocking before the scheduler runs, in an ISR or in a critical section.
   const bool canLock = logLock && xTaskGetSchedulerState() == taskSCHEDULER_RUNNING && xPortCanYield() &&
     logOwner != xTaskGetCurrentTaskHandle();
-  const bool locked = canLock && xSemaphoreTake(logLock, pdMS_TO_TICKS(LOG_LOCK_WAIT_MS)) == pdTRUE;
+  const bool locked = canLock && takeLogLock();
   if(locked) logOwner = xTaskGetCurrentTaskHandle();
   int len = __real_log_printfv(format, arg);
   if(locked) {
