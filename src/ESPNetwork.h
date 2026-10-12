@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <WiFi.h>
+#include "Utils.h"
 
 #ifndef ESPNetwork_h
 #define ESPNetwork_h
@@ -8,12 +9,20 @@
 
 #define CONNECT_TIMEOUT 20000
 #define SSID_SCAN_INTERVAL 600000
+// A weak signal moves a dBm or two all the time, so only broadcast real
+// changes and not more often than this.
+#define RSSI_EMIT_MIN_DBM 3
+#define RSSI_EMIT_MIN_MS 10000
+// How often memStatus is broadcast.  It is also the one event that is always
+// sent, so it must stay well under Home Assistant's 60s receive timeout.
+#define HEAP_EMIT_MS 30000
+// A roaming scan only moves to another AP this much stronger.
+#define ROAM_MIN_GAIN_DB 6
 class ESPNetwork {
   protected:
     unsigned long lastEmit = 0;
     unsigned long lastMDNS = 0;
-    int lastRSSI = 0;
-    int lastChannel = 0;
+    RssiBroadcast rssiBroadcast;
     int linkSpeed = 0;
     bool _connecting = false;
   public:

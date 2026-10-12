@@ -32,8 +32,6 @@ extern SomfyShadeController somfy;
 static unsigned long _lastHeapEmit = 0;
 
 static bool _apScanning = false;
-static uint32_t _lastMaxHeap = 0;
-static uint32_t _lastHeap = 0;
 int connectRetries = 0;
 void ESPNetwork::end() {
   SSDP.end();
@@ -111,11 +109,11 @@ void ESPNetwork::loop() {
         if(this->getStrongestAP(settings.WIFI.ssid, bssid, &channel)) {
           if(!WiFi.BSSID() || memcmp(bssid, WiFi.BSSID(), sizeof(bssid)) != 0) {
             if(!this->connected()) {
-              ESP_LOGD(TAG, "Connecting to AP %02X:%02X:%02X:%02X:%02X:%02X CH: %d", bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5], channel);
+              ESP_LOGI(TAG, "Connecting to AP %02X:%02X:%02X:%02X:%02X:%02X CH: %d", bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5], channel);
               this->connectWiFi(bssid, channel);
             }
             else {
-              ESP_LOGD(TAG, "Found stronger AP %02X:%02X:%02X:%02X:%02X:%02X CH: %d", bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5], channel);
+              ESP_LOGI(TAG, "Found stronger AP %02X:%02X:%02X:%02X:%02X:%02X CH: %d", bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5], channel);
               this->changeAP(bssid, channel);
             }
           }
@@ -181,8 +179,9 @@ bool ESPNetwork::changeAP(const uint8_t *bssid, const int32_t channel) {
 }
 void ESPNetwork::emitSockets() {
   this->emitHeap();
-  if(this->needsBroadcast || 
-    (this->connType == conn_types_t::wifi && (abs(abs(WiFi.RSSI()) - abs(this->lastRSSI)) > 1 || WiFi.channel() != this->lastChannel))) {
+  if(this->needsBroadcast ||
+    (this->connType == conn_types_t::wifi &&
+      this->rssiBroadcast.due(WiFi.RSSI(), WiFi.channel(), millis(), RSSI_EMIT_MIN_DBM, RSSI_EMIT_MIN_MS))) {
     this->emitSockets(255);
     sockEmit.loop();
     this->needsBroadcast = false;
@@ -210,8 +209,7 @@ void ESPNetwork::emitSockets(uint8_t num) {
         json->addElem("channel", (int32_t)this->channel);
         json->endObject();
         sockEmit.endEmit(num);
-        this->lastRSSI = WiFi.RSSI();
-        this->lastChannel = WiFi.channel();
+        this->rssiBroadcast.sent(num == 255, WiFi.RSSI(), WiFi.channel(), millis());
       }
       else {
         JsonSockEvent *json = sockEmit.beginEmit("wifiStrength");
@@ -229,11 +227,11 @@ void ESPNetwork::emitSockets(uint8_t num) {
         json->addElem("fullduplex", false);
         json->endObject();
         sockEmit.endEmit(num);
-        this->lastRSSI = -100;
-        this->lastChannel = -1;
+        this->rssiBroadcast.sent(num == 255, -100, -1, millis());
       }
   }
-  this->emitHeap(num);
+  // A broadcast comes from emitSockets(), which has already sent memStatus.
+  if(num != 255) this->emitHeap(num);
 }
 void ESPNetwork::setConnected(conn_types_t connType) {
   safe_wdt_reset();
@@ -535,8 +533,9 @@ uint32_t ESPNetwork::getChipId() {
   return chipId;
 }
 bool ESPNetwork::getStrongestAP(const char *ssid, uint8_t *bssid, int32_t *channel) {
-  // The new AP must be at least 10dbm greater.
-  int32_t strength = this->connected() ? WiFi.RSSI() + 10 : -127;
+  // The new AP must be at least ROAM_MIN_GAIN_DB stronger.
+  const bool connected = this->connected();
+  int32_t strength = connected ? WiFi.RSSI() + ROAM_MIN_GAIN_DB : -127;
   int32_t chan = -1;
   memset(bssid, 0x00, 6);
   esp_task_wdt_delete(NULL);
@@ -545,6 +544,14 @@ bool ESPNetwork::getStrongestAP(const char *ssid, uint8_t *bssid, int32_t *chann
   esp_task_wdt_add(NULL);
   for(int16_t i = 0; i < n; i++) {
     if(WiFi.SSID(i).compareTo(ssid) == 0) {
+      // Only on the roaming scans, so the log shows whether a better AP is
+      // around without filling up while we scan to reconnect.
+      if(connected) {
+        const uint8_t *b = WiFi.BSSID(i);
+        const uint8_t *cur = WiFi.BSSID();
+        ESP_LOGI(TAG, "AP %02X:%02X:%02X:%02X:%02X:%02X ch %ld %ld dBm%s", b[0], b[1], b[2], b[3], b[4], b[5],
+          (long)WiFi.channel(i), (long)WiFi.RSSI(i), (cur && memcmp(b, cur, 6) == 0) ? " (connected)" : "");
+      }
       if(WiFi.RSSI(i) > strength) { 
         strength = WiFi.RSSI(i); 
         memcpy(bssid, WiFi.BSSID(i), 6); 
@@ -661,20 +668,12 @@ void ESPNetwork::networkEvent(WiFiEvent_t event) {
   }
 }
 void ESPNetwork::emitHeap(uint8_t num) {
-  bool bEmit = false;
-  bool bTimeEmit = millis() - _lastHeapEmit > 15000;
-  bool bRoomEmit = false;
-  bool bValEmit = false;
-  if(num != 255 || this->needsBroadcast) bEmit = true;
-  if(millis() - _lastHeapEmit > 15000) bTimeEmit = true;
   uint32_t freeHeap = ESP.getFreeHeap();
   uint32_t maxHeap = ESP.getMaxAllocHeap();
   uint32_t minHeap = ESP.getMinFreeHeap();
-  if(abs((int)(freeHeap - _lastHeap)) > 1500) bValEmit = true;
-  if(abs((int)(maxHeap - _lastMaxHeap)) > 1500) bValEmit = true;
-  bRoomEmit = sockEmit.activeClients(0) > 0;
-  if(bValEmit) bTimeEmit = millis() - _lastHeapEmit > 7000;
-  if(bEmit || bTimeEmit || bRoomEmit || bValEmit) {
+  const bool bBroadcast = num == 255 && millis() - _lastHeapEmit >= HEAP_EMIT_MS;
+  const bool bRoomEmit = sockEmit.activeClients(0) > 0;
+  if(num != 255 || bBroadcast || bRoomEmit) {
     JsonSockEvent *json = sockEmit.beginEmit("memStatus");
     json->beginObject();
     json->addElem("max", maxHeap);
@@ -683,20 +682,11 @@ void ESPNetwork::emitHeap(uint8_t num) {
     json->addElem("total", ESP.getHeapSize());
     json->addElem("uptime", (uint64_t)millis());
     json->endObject();
-    if(num == 255 && bTimeEmit && bValEmit) {
+    if(bBroadcast) {
       sockEmit.endEmit(num);
       _lastHeapEmit = millis();
-      _lastHeap = freeHeap;
-      _lastMaxHeap = maxHeap;
-      //Serial.printf("BROAD HEAP: Emit:%d TimeEmit:%d ValEmit:%d\n", bEmit, bTimeEmit, bValEmit);
     }
-    else if(num != 255) {
-      sockEmit.endEmit(num);
-      //Serial.printf("TARGET HEAP %d: Emit:%d TimeEmit:%d ValEmit:%d\n", num, bEmit, bTimeEmit, bValEmit);
-    }
-    else if(bRoomEmit) {
-      sockEmit.endEmitRoom(0);
-      //Serial.printf("ROOM HEAP: Emit:%d TimeEmit:%d ValEmit:%d\n", bEmit, bTimeEmit, bValEmit);
-    }
+    else if(num != 255) sockEmit.endEmit(num);
+    else sockEmit.endEmitRoom(0);
   }
 }

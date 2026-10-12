@@ -21,35 +21,10 @@
 #define SOMFY_NO_WIND_REMOTE_TIMEOUT SECS_TO_MILLIS(30)
 
 
-enum class radio_proto : byte { // Ordinal byte 0-255
-  RTS = 0x00,
-  RTW = 0x01,
-  RTV = 0x02,
-  GP_Relay = 0x08,
-  GP_Remote = 0x09
-};
-enum class somfy_commands : byte {
-    Unknown0 = 0x0,
-    My = 0x1,
-    Up = 0x2,
-    MyUp = 0x3,
-    Down = 0x4,
-    MyDown = 0x5,
-    UpDown = 0x6,
-    MyUpDown = 0x7,
-    Prog = 0x8,
-    SunFlag = 0x9,
-    Flag = 0xA,
-    StepDown = 0xB,
-    Toggle = 0xC,
-    UnknownD = 0xD,
-    Sensor = 0xE,
-    RTWProto = 0xF, // RTW Protocol
-    // Command extensions for 80 bit frames
-    StepUp = 0x8B,
-    Favorite = 0xC1,
-    Stop = 0xF1
-};
+#include "SomfyFrame.h"
+#include "TxBuffer.h"
+#include "RadioScheduler.h"
+#include "ShadeMotion.h"
 enum class group_types : byte {
   channel = 0x00
 };
@@ -79,12 +54,9 @@ enum class tilt_types : byte {
   tiltonly = 0x03,
   euromode = 0x04
 };
-String translateSomfyCommand(const somfy_commands cmd);
-somfy_commands translateSomfyCommand(const String& string);
 
 #define MAX_TIMINGS 300
 #define MAX_RX_BUFFER 3
-#define MAX_TX_BUFFER 5
 
 typedef enum {
     waiting_synchro = 0,
@@ -125,33 +97,6 @@ struct somfy_rx_queue_t {
   void push(somfy_rx_t *rx);
   bool pop(somfy_rx_t *rx);
 };
-struct somfy_tx_t {
-  void clear() {
-    this->hwsync = 0;
-    this->bit_length = 0;
-    memset(this->payload, 0x00, sizeof(this->payload));
-  }
-  uint8_t hwsync = 0;
-  uint8_t bit_length = 0;
-  uint8_t payload[10] = {};
-};
-struct somfy_tx_queue_t {
-  somfy_tx_queue_t() { this->clear(); }
-  void clear() {
-    for (uint8_t i = 0; i < MAX_TX_BUFFER; i++) {
-      this->index[i] = 255;
-      this->items[i].clear();
-    }
-    this->length = 0;
-  }
-  unsigned long delay_time = 0;
-  uint8_t length = 0;
-  uint8_t index[MAX_TX_BUFFER] = {255};
-  somfy_tx_t items[MAX_TX_BUFFER];
-  bool pop(somfy_tx_t *tx);
-  void push(somfy_rx_t *rx); // Used for repeats
-  void push(uint8_t hwsync, byte *payload, uint8_t bit_length);
-};
 
 enum class somfy_flags_t : byte {
     SunFlag = 0x01,
@@ -171,36 +116,6 @@ struct somfy_relay_t {
   uint8_t sync = 0;
   byte frame[10] = {0};
 };
-struct somfy_frame_t {
-    bool valid = false;
-    bool processed = false;
-    bool synonym = false;
-    radio_proto proto = radio_proto::RTS;
-    int rssi = 0;
-    byte lqi = 0x0;
-    somfy_commands cmd;
-    uint32_t remoteAddress = 0;
-    uint16_t rollingCode = 0;
-    uint8_t encKey = 0xA7;
-    uint8_t checksum = 0;
-    uint8_t hwsync = 0;
-    uint8_t repeats = 0;
-    uint32_t await = 0;
-    uint8_t bitLength = 56;
-    uint16_t pulseCount = 0;
-    uint8_t stepSize = 0;
-    uint8_t rawCmd = 0;
-    void print();
-    void encode80BitFrame(byte *frame, uint8_t repeat);
-    byte calc80Checksum(byte b0, byte b1, byte b2);
-    byte encode80Byte7(byte start, uint8_t repeat);
-    void encodeFrame(byte *frame);
-    void decodeFrame(byte* frame);
-    void decodeFrame(somfy_rx_t *rx);
-    bool isRepeat(somfy_frame_t &f);
-    bool isSynonym(somfy_frame_t &f);
-    void copy(somfy_frame_t &f);
-};
 
 class SomfyRoom {
   public:
@@ -216,6 +131,13 @@ class SomfyRoom {
     void unpublish();
 };
 
+// What sending a command did.  ticket is the radio job carrying it, 0 when the
+// command went out over GPIO instead.
+struct send_result_t {
+  bool sent = false;
+  uint32_t ticket = 0;
+  explicit operator bool() const { return this->sent; }
+};
 class SomfyRemote {
   // These sizes for the data have been
   // confirmed.  The address is actually 24bits
@@ -223,6 +145,9 @@ class SomfyRemote {
   protected:
     char m_remotePrefId[11] = "";
     uint32_t m_remoteAddress = 0;
+    // lastRollingCode is known to match NVS for this address, so the next code
+    // can be worked out without opening NVS.
+    bool m_rollingCodeSynced = false;
   public:
     radio_proto proto = radio_proto::RTS;
     uint8_t gpioFlags = 0;
@@ -241,7 +166,8 @@ class SomfyRemote {
     char *getRemotePrefId() {return m_remotePrefId;}
     virtual void setRemoteAddress(uint32_t address);
     virtual uint32_t getRemoteAddress();
-    virtual uint16_t getNextRollingCode();
+    uint16_t peekNextRollingCode();
+    void commitRollingCode(uint16_t code);
     virtual uint16_t setRollingCode(uint16_t code);
     bool hasSunSensor();
     bool hasLight();
@@ -249,10 +175,13 @@ class SomfyRemote {
     void setSunSensor(bool bHasSensor);
     void setLight(bool bHasLight);
     void setSimMy(bool bSimMy);
-    virtual void sendCommand(somfy_commands cmd);
-    virtual void sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize = 0);
-    void sendSensorCommand(int8_t isWindy, int8_t isSunny, uint8_t repeat);
-    void repeatFrame(uint8_t repeat);
+    // The send functions return false only when the radio could not take the
+    // command.  Nothing about the remote or shade state has changed in that case.
+    virtual bool sendCommand(somfy_commands cmd);
+    virtual bool sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize = 0);
+    send_result_t sendCommandAfter(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs, bool priority = false);
+    bool sendSensorCommand(int8_t isWindy, int8_t isSunny, uint8_t repeat);
+    bool repeatFrame(uint8_t repeat);
     virtual uint16_t p_lastRollingCode(uint16_t code);
     somfy_commands transformCommand(somfy_commands cmd);
     virtual void triggerGPIOs(somfy_frame_t &frame);
@@ -282,6 +211,11 @@ class SomfyShade : public SomfyRemote {
     bool settingPos = false;
     bool settingTiltPos = false;
     uint32_t awaitMy = 0;
+    // Radio jobs whose outcome decides what the motor really did.
+    ShadeTxState tx;
+    bool sendStop(int8_t dir, bool tilt);
+    bool sendSetMy(uint16_t delayMs, float oldPos, float oldTiltPos);
+    void runToLimit(int8_t dir, bool tilt, uint32_t since);
   public:
     uint8_t roomId = 0;
     int8_t sortOrder = 0;
@@ -317,17 +251,21 @@ class SomfyShade : public SomfyRemote {
     bool isInGroup();
     void checkMovement();
     void processFrame(somfy_frame_t &frame, bool internal = false);
+    // The shade itself or the linked remote with this address, else nullptr.
+    SomfyRemote *findRemote(uint32_t address);
     void processInternalCommand(somfy_commands cmd, uint8_t repeat = 1);
+    void markTxPending(uint32_t seq);
+    void processTxEvent(const somfy_tx_event_t &evt);
     void setTiltMovement(int8_t dir);
     void setMovement(int8_t dir);
     void setTarget(float target);
     bool isAtTarget();
     bool isToggle();
-    void moveToTarget(float pos, float tilt = -1.0f);
+    bool moveToTarget(float pos, float tilt = -1.0f);
     void moveToTiltTarget(float target);
     void sendTiltCommand(somfy_commands cmd);
-    void sendCommand(somfy_commands cmd);
-    void sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize = 0);
+    bool sendCommand(somfy_commands cmd);
+    bool sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize = 0);
     bool linkRemote(uint32_t remoteAddress, uint16_t rollingCode = 0);
     bool unlinkRemote(uint32_t remoteAddress);
     void emitState(const char *evt = "shadeState");
@@ -335,7 +273,7 @@ class SomfyShade : public SomfyRemote {
     void emitCommand(somfy_commands cmd, const char *source, uint32_t sourceAddress, const char *evt = "shadeCommand");
     void emitCommand(uint8_t num, somfy_commands cmd, const char *source, uint32_t sourceAddress, const char *evt = "shadeCommand");
     void setMyPosition(int8_t pos, int8_t tilt = -1);
-    void moveToMyPosition();
+    bool moveToMyPosition();
     void processWaitingFrame();
     void publish();
     void unpublish();
@@ -402,8 +340,8 @@ class SomfyGroup : public SomfyRemote {
     void updateFlags();
     void emitState(const char *evt = "groupState");
     void emitState(uint8_t num, const char *evt = "groupState");
-    void sendCommand(somfy_commands cmd);
-    void sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize = 0);
+    bool sendCommand(somfy_commands cmd);
+    bool sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize = 0);
     int8_t p_direction(int8_t dir);
     bool publish(const char *topic, uint8_t val, bool retain = false);
     bool publish(const char *topic, int8_t val, bool retain = false);
@@ -488,14 +426,22 @@ struct transceiver_config_t {
 class Transceiver {
   private:
     static void handleReceive();
+    static void txTask(void *arg);
     bool _received = false;
     somfy_frame_t frame;
+    // Only touched under the TX queue lock.
+    RadioScheduler sched;
+    void startTxTask();
+    bool transmitJob(somfy_tx_job_t &job);
+    // Sends a job taken off the queue and leaves a frame beat after it.
+    void runJob(somfy_tx_job_t &job);
   public:
     transceiver_config_t config;
     bool printBuffer = false;
     //bool toJSON(JsonObject& obj);
     bool fromJSON(JsonObject& obj);
-    bool save();
+    // Swaps in, saves and applies the config.
+    void setConfig(const transceiver_config_t &cfg);
     bool begin();
     void loop();
     bool end();
@@ -505,6 +451,14 @@ class Transceiver {
     void disableReceive();
     somfy_frame_t& lastFrame();
     void sendFrame(byte *frame, uint8_t sync, uint8_t bitLength = 56);
+    // Hands a job to the radio task, see RadioScheduler::submit().  Returns its
+    // ticket, 0 when the radio can't take it.  Safe from any task.
+    uint32_t submitTx(somfy_tx_job_t &job, bool priority = false, uint16_t delayMs = 0);
+    void flushTx();
+    void suspendTx(uint8_t reason);
+    void resumeTx(uint8_t reason);
+    bool txSuspended();
+    bool txHasRoom();
     void beginTransmit();
     void endTransmit();
     void emitFrame(somfy_frame_t *frame, somfy_rx_t *rx = nullptr);
@@ -560,8 +514,11 @@ class SomfyShadeController {
     SomfyGroup * getGroupById(uint8_t groupId);
     SomfyShade * findShadeByRemoteAddress(uint32_t address);
     SomfyGroup * findGroupByRemoteAddress(uint32_t address);
-    void sendFrame(somfy_frame_t &frame, uint8_t repeats = 0);
+    // Returns the radio job's ticket, 0 when the radio can't take it.
+    uint32_t sendFrame(somfy_frame_t &frame, uint8_t repeats = 0, uint16_t delayMs = 0, bool priority = false);
     void processFrame(somfy_frame_t &frame, bool internal = false);
+    void markTxPending(uint32_t remoteAddress, uint32_t seq);
+    void processTxEvent(const somfy_tx_event_t &evt);
     void emitState(uint8_t num = 255);
     void publish();
     void processWaitingFrame();
