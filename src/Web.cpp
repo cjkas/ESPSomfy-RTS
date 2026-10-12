@@ -1016,9 +1016,9 @@ void Web::handleRepeatCommand(AsyncWebServerRequest *request, JsonVariant &json)
     if(!queueRadioCommand(request, cmd)) return;
     AsyncJsonResp resp;
     resp.beginResponse(request, g_async_content, sizeof(g_async_content));
-    resp.beginArray();
+    resp.beginObject();
     serializeShadeRef(shade, resp);
-    resp.endArray();
+    resp.endObject();
     resp.endResponse();
   }
   else if(groupId != 255) {
