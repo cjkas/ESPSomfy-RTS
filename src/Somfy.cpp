@@ -2019,7 +2019,7 @@ void SomfyShade::processFrame(somfy_frame_t &frame, bool internal) {
         this->p_tiltTarget(max(0.0f, this->currentTiltPos - (100.0f/(static_cast<float>(this->tiltTime/static_cast<float>(this->stepSize * this->lastFrame.stepSize))))));
       }
       else if(this->currentPos > 0.0f) {
-        if(this->downTime == 0 || this->stepSize == 0) return;
+        if(this->upTime == 0 || this->stepSize == 0) return;
         this->p_target(max(0.0f, this->currentPos - (100.0f/(static_cast<float>(this->upTime/static_cast<float>(this->stepSize * this->lastFrame.stepSize))))));
       }
       this->emitCommand(cmd, internal ? "internal" : "remote", frame.remoteAddress);
