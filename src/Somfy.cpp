@@ -12,6 +12,8 @@
 #include "ConfigSettings.h"
 #include "Somfy.h"
 #include "ShadeMotion.h"
+#include "TxQueuePolicy.h"
+#include "RollingCode.h"
 #include "Sockets.h"
 #include "MQTT.h"
 #include "ConfigFile.h"
@@ -39,10 +41,6 @@ uint8_t rxmode = 0;  // Indicates whether the radio is in receive mode.  Just to
 
 #define SETMY_REPEATS 35
 #define TILT_REPEATS 15
-// The radio task bit-bangs a whole job on loop()'s core at a higher priority
-// so loop() only runs between jobs.  A frame takes about 140ms so this keeps a
-// job around 7s, well inside the 15s task watchdog loop() is subscribed to.
-#define TX_MAX_REPEATS 50
 #define TX_QUEUE_DELAY 100
 #define TX_TASK_PRIORITY 5
 #define TX_TASK_STACK 4096
@@ -75,7 +73,7 @@ static std::atomic<uint32_t> txBackTaken{0};
 // The radio task and a flush both move txBackTaken.  Never let it go backwards.
 static void advanceBackTaken(uint32_t seq) {
   uint32_t cur = txBackTaken;
-  while((int32_t)(seq - cur) > 0 && !txBackTaken.compare_exchange_weak(cur, seq)) {}
+  while(txSeqAfter(seq, cur) && !txBackTaken.compare_exchange_weak(cur, seq)) {}
 }
 // How long a shade's simulated movement waits for its command to go on air
 // before it starts anyway in case the event was lost.
@@ -106,20 +104,6 @@ static void postTxEvent(tx_event_t type, const somfy_tx_job_t &job, uint32_t at)
   evt.seq = job.seq;
   evt.at = at;
   if(xQueueSend(txEventQueue, &evt, 0) != pdTRUE) ESP_LOGW(TAG, "Radio TX event queue full");
-}
-// Encodes the first frame of a transmission into the job.  Encoding here keeps
-// its side effects on the frame (valid flag, default step size) visible to the
-// caller and the radio task only re-encodes the 80-bit repeat frames.
-static void encodeTxJob(somfy_tx_job_t &job, somfy_frame_t &frame, uint8_t repeat) {
-  frame.encodeFrame(job.tx.payload);
-  job.tx.hwsync = frame.bitLength == 56 ? 2 : 12;
-  job.tx.bit_length = frame.bitLength;
-  job.frame = frame;
-  if(repeat > TX_MAX_REPEATS) {
-    ESP_LOGW(TAG, "Limiting %u repeats to %u", repeat, TX_MAX_REPEATS);
-    repeat = TX_MAX_REPEATS;
-  }
-  job.repeats = repeat;
 }
 // Commands that can set a shade moving.
 static bool startsMovement(somfy_commands cmd) {
@@ -762,20 +746,18 @@ void SomfyShade::checkMovement() {
   uint8_t currPos = floor(this->currentPos);
   uint8_t currTiltPos = floor(this->currentTiltPos);
   if(this->direction != 0) this->lastMovement = this->direction;
-  if(this->txHold.held() && this->direction == 0 && this->tiltDirection == 0) {
-    // The command didn't set the shade moving so there is nothing to hold.
-    this->txHold.clear();
-  }
-  if(this->txHold.held()) {
-    // The command that set us moving hasn't gone on air yet so the motor hasn't
-    // started.  Hold the simulated position until it does.
-    if(!this->txHold.timedOut((uint32_t)curTime, TX_PENDING_TIMEOUT)) {
+  switch(this->tx.hold.check(this->direction != 0 || this->tiltDirection != 0, (uint32_t)curTime, TX_PENDING_TIMEOUT)) {
+    case TxHoldCheck::holding:
+      // The command that set us moving hasn't gone on air yet so the motor
+      // hasn't started.  Hold the simulated position until it does.
       this->moveStart = this->tiltStart = curTime;
       if(currDir != this->direction || currTiltDir != this->tiltDirection) this->emitState();
       return;
-    }
-    ESP_LOGW(TAG, "[Shade %u] Timed out waiting for the radio, moving anyway", this->shadeId);
-    this->txHold.clear();
+    case TxHoldCheck::expired:
+      ESP_LOGW(TAG, "[Shade %u] Timed out waiting for the radio, moving anyway", this->shadeId);
+      break;
+    case TxHoldCheck::none:
+      break;
   }
   if (sunFlag) {
     if (isSunny && !isWindy) {  // It is sunny and there is no wind so we should be extended
@@ -2339,54 +2321,40 @@ void SomfyShade::markTxPending(uint32_t seq) {
   // whether the shade was moving.  A reversal is simulated as soon as it is
   // queued even though the motor turns once it is on air.  See TxHold::mark
   // for which of several queued commands is held.
-  this->txHold.mark(seq, this->direction != 0 || this->tiltDirection != 0, millis());
+  this->tx.hold.mark(seq, this->direction != 0 || this->tiltDirection != 0, millis());
 }
 void SomfyShade::processTxEvent(const somfy_tx_event_t &evt) {
-  if(evt.seq == 0) return;
-  if(this->txHold.release(evt.seq)) {
-    if(evt.type == tx_event_t::started) {
-      // The motor starts now so the simulated movement does too.
-      this->moveStart = this->tiltStart = evt.at;
-    }
-    else {
-      // The motor never got the command so it hasn't moved.
-      ESP_LOGW(TAG, "[Shade %u] Command dropped by the radio, staying at %.2f%%", this->shadeId, this->currentPos);
-      this->settingPos = this->settingTiltPos = this->settingMyPos = false;
-      this->p_target(this->currentPos);
-      this->p_tiltTarget(this->currentTiltPos);
-      this->emitState();
-    }
+  const ShadeTxActions act = this->tx.onEvent(evt, this->direction != 0 || this->tiltDirection != 0);
+  if(act.startMovement) {
+    // The motor starts now so the simulated movement does too.
+    this->moveStart = this->tiltStart = act.startAt;
   }
-  if(this->txMySeq == evt.seq && evt.type != tx_event_t::started) {
-    this->txMySeq = 0;
-    if(evt.type == tx_event_t::finished) this->commitMyPosition();
-    else {
-      // The motor only stores the favorite when it gets the whole long press.
-      ESP_LOGW(TAG, "[Shade %u] Favorite not sent in full, keeping the previous one", this->shadeId);
-      this->p_myPos(this->txMyOldPos);
-      this->p_myTiltPos(this->txMyOldTiltPos);
-      this->emitState();
-    }
+  if(act.cancelMovement) {
+    // The motor never got the command so it hasn't moved.
+    ESP_LOGW(TAG, "[Shade %u] Command dropped by the radio, staying at %.2f%%", this->shadeId, this->currentPos);
+    this->settingPos = this->settingTiltPos = this->settingMyPos = false;
+    this->p_target(this->currentPos);
+    this->p_tiltTarget(this->currentTiltPos);
+    this->emitState();
   }
-  if(this->txStopSeq == evt.seq) {
-    this->txStopSeq = 0;
-    // Unless something has moved the shade since, the motor never got the stop
-    // and is still running.
-    if(evt.type == tx_event_t::dropped && this->direction == 0 && this->tiltDirection == 0) {
-      ESP_LOGW(TAG, "[Shade %u] Stop dropped by the radio, running on to the limit", this->shadeId);
-      this->runToLimit(this->txStopDir, this->txStopTilt, this->txStopAt);
-      this->emitState();
-    }
+  if(act.commitMy) this->commitMyPosition();
+  if(act.restoreMy) {
+    ESP_LOGW(TAG, "[Shade %u] Favorite not sent in full, keeping the previous one", this->shadeId);
+    this->p_myPos(act.myOldPos);
+    this->p_myTiltPos(act.myOldTiltPos);
+    this->emitState();
+  }
+  if(act.runToLimit) {
+    ESP_LOGW(TAG, "[Shade %u] Stop dropped by the radio, running on to the limit", this->shadeId);
+    this->runToLimit(act.limitDir, act.limitTilt, act.limitSince);
+    this->emitState();
   }
 }
 bool SomfyShade::sendStop(int8_t dir, bool tilt) {
   const uint32_t now = millis();
   // Stops jump the radio queue so the motor stops as close to the target as it can.
   if(SomfyRemote::sendCommandAfter(somfy_commands::My, this->repeats, 0, 0, true)) {
-    this->txStopSeq = this->lastTxSeq;
-    this->txStopAt = now;
-    this->txStopDir = dir;
-    this->txStopTilt = tilt;
+    this->tx.stopSent(this->lastTxSeq, now, dir, tilt);
     return true;
   }
   ESP_LOGW(TAG, "[Shade %u] Stop not sent, running on to the limit", this->shadeId);
@@ -2397,11 +2365,9 @@ bool SomfyShade::sendSetMy(uint16_t delayMs, float oldPos, float oldTiltPos) {
   // The new favorite is already in myPos/myTiltPos.  It is committed once the
   // whole long press is on air, see processTxEvent.
   if(SomfyRemote::sendCommandAfter(somfy_commands::My, SETMY_REPEATS, 0, delayMs)) {
-    this->txMySeq = this->lastTxSeq;
-    this->txMyOldPos = oldPos;
-    this->txMyOldTiltPos = oldTiltPos;
+    this->tx.setMySent(this->lastTxSeq, oldPos, oldTiltPos);
     // Without the radio (GPIO remotes) there is nothing to wait for.
-    if(this->txMySeq == 0) this->commitMyPosition();
+    if(this->lastTxSeq == 0) this->commitMyPosition();
     return true;
   }
   // The motor never learned it so keep the favorite it has.
@@ -2416,13 +2382,13 @@ void SomfyShade::runToLimit(int8_t dir, bool tilt, uint32_t since) {
     this->startTiltPos = this->currentTiltPos;
     this->tiltStart = since;
     this->settingTiltPos = false;
-    this->p_tiltTarget(dir > 0 ? 100.0f : 0.0f);
+    this->p_tiltTarget(limitTarget(dir));
   }
   else {
     this->startPos = this->currentPos;
     this->moveStart = since;
     this->settingPos = false;
-    this->p_target(dir > 0 ? 100.0f : 0.0f);
+    this->p_target(limitTarget(dir));
   }
   // The favorite can't be set where the shade won't stop.
   this->settingMyPos = false;
@@ -3551,10 +3517,7 @@ bool SomfyRemote::sendCommandAfter(somfy_commands cmd, uint8_t repeat, uint8_t s
     ESP_LOGD(TAG, "CMD:%s ADDR:%d RCODE:%d REPEAT:%d",
         translateSomfyCommand(frame.cmd).c_str(),
         frame.remoteAddress, frame.rollingCode, repeat);
-    // A stop jumps the queue unless an earlier frame of this remote is still
-    // waiting.  Overtaking it would put the rolling codes out of order and the
-    // motor would reject the older one.
-    const bool front = priority && !somfy.transceiver.isQueued(this->lastBackTxSeq);
+    const bool front = stopGoesToFront(priority, somfy.transceiver.isQueued(this->lastBackTxSeq));
     // Only simulate the command if it is actually going on air.
     if(!somfy.sendFrame(frame, repeat, delayMs, priority, front, &seq)) return false;
     if(!front) this->lastBackTxSeq = seq;
@@ -3582,15 +3545,11 @@ bool SomfyRemote::repeatFrame(uint8_t repeat) {
     this->triggerGPIOs(this->lastFrame);
     return true;
   }
-  // The first frame is encoded with the current repeat counter and the radio
-  // task counts up from there for each repeat frame.
   somfy_tx_job_t job;
-  encodeTxJob(job, this->lastFrame, repeat);
-  job.firstRepeat = this->lastFrame.repeats + 2;
-  // Only advance the counter for frames that will go on air.
+  encodeRepeatJob(job, this->lastFrame, repeat);
   if(!somfy.transceiver.queueTx(job)) return false;
   this->lastBackTxSeq = job.seq;
-  this->lastFrame.repeats += job.repeats + 1;
+  noteRepeatQueued(this->lastFrame, job);
   //somfy.processFrame(this->lastFrame, true);
   return true;
 }
@@ -3669,17 +3628,17 @@ bool SomfyShadeController::deleteGroup(uint8_t groupId) {
 }
 
 bool SomfyShadeController::loadShadesFile(const char *filename) { return ShadeConfigFile::load(this, filename); }
-// The next rolling code is only read here.  It is consumed by commitRollingCode
-// once the frame using it has been queued.  NVS is only read until a code for
-// this address has been written, after that lastRollingCode holds the same.
+// The next rolling code is consumed by commitRollingCode once the frame using
+// it has been queued.  After that lastRollingCode holds what NVS does.
 uint16_t SomfyRemote::peekNextRollingCode() {
-  if(this->m_rollingCodeSynced) return (uint16_t)(this->lastRollingCode + 1);
-  if(!pref.begin("ShadeCodes")) {
-    ESP_LOGE(TAG, "peekNextRollingCode() pref.begin(ShadeCodes) FAILED");
-  }
-  uint16_t code = pref.getUShort(this->m_remotePrefId, 0);
-  pref.end();
-  return (uint16_t)(code + 1);
+  return nextRollingCode(this->m_rollingCodeSynced, this->lastRollingCode, [this]() {
+    if(!pref.begin("ShadeCodes")) {
+      ESP_LOGE(TAG, "peekNextRollingCode() pref.begin(ShadeCodes) FAILED");
+    }
+    uint16_t code = pref.getUShort(this->m_remotePrefId, 0);
+    pref.end();
+    return code;
+  });
 }
 void SomfyRemote::commitRollingCode(uint16_t code) {
   if(!pref.begin("ShadeCodes")) {
@@ -4717,13 +4676,12 @@ bool Transceiver::queueTx(somfy_tx_job_t &job) {
     ESP_LOGW(TAG, "Radio TX suspended, dropping transmission");
     return false;
   }
-  // Normal jobs leave the reserved slots free for stops.
-  if(uxQueueSpacesAvailable(txJobQueue) <= (job.priority ? 0 : TX_RESERVED_SLOTS)) {
+  if(!txAdmits(uxQueueSpacesAvailable(txJobQueue), job.priority)) {
     ESP_LOGE(TAG, "Radio TX queue full, dropping transmission");
     return false;
   }
   job.gen = txGen;
-  if(++txSeq == 0) ++txSeq;  // 0 means no job.
+  txSeq = nextTxSeq(txSeq);
   job.seq = txSeq;
   // We are the only producer while holding the lock so the space check holds.
   if(job.front) {
@@ -4736,13 +4694,13 @@ bool Transceiver::queueTx(somfy_tx_job_t &job) {
 }
 bool Transceiver::isQueued(uint32_t seq) {
   // Only meaningful for jobs queued at the back.
-  return seq != 0 && (int32_t)(seq - txBackTaken) > 0;
+  return txSeqQueued(seq, txBackTaken);
 }
 bool Transceiver::txSuspended() { return txSuspendMask != 0; }
 bool Transceiver::txHasRoom() {
   // Without a radio task queueTx() fails straight away so there is no point waiting.
   if(!txJobQueue || !txTaskHandle) return true;
-  return uxQueueSpacesAvailable(txJobQueue) > TX_RESERVED_SLOTS;
+  return txAdmits(uxQueueSpacesAvailable(txJobQueue), false);
 }
 void Transceiver::flushTx() {
   TxQueueLock lock;
@@ -4810,7 +4768,7 @@ void Transceiver::runJob(somfy_tx_job_t &job) {
 void Transceiver::waitUntilDue(const somfy_tx_job_t &job) {
   for(;;) {
     if(txSuspendMask || job.gen != txGen) return;
-    const int32_t wait = (int32_t)(job.notBefore - millis());
+    const int32_t wait = txDueInMs(job.notBefore, millis());
     if(wait <= 0) return;
     // A stop only goes to the front when its remote has nothing waiting, and
     // this job still counts as waiting, so any front job is free to go first.

@@ -1,11 +1,20 @@
 #ifndef TX_BUFFER_H
 #define TX_BUFFER_H
 #include <Arduino.h>
+#include "SomfyFrame.h"
 
-// Repeater frames waiting to be handed to the radio task.  Kept free of the
-// radio and timers so it can be unit tested on the PC (pio test -e native).
+// Repeater frames waiting to be handed to the radio task, and the jobs and
+// events passed to and from it.  Kept free of the radio and timers so it can be
+// unit tested on the PC (pio test -e native).
 
 #define MAX_TX_BUFFER 5
+#define TX_JOB_QUEUE_SIZE 32
+// Slots only priority jobs (stops) may use so a stop always fits in the queue.
+#define TX_RESERVED_SLOTS 4
+// The radio task bit-bangs a whole job on loop()'s core at a higher priority
+// so loop() only runs between jobs.  A frame takes about 140ms so this keeps a
+// job around 7s, well inside the 15s task watchdog loop() is subscribed to.
+#define TX_MAX_REPEATS 50
 
 struct somfy_tx_t {
   void clear() {
@@ -40,4 +49,43 @@ struct somfy_tx_queue_t {
     // Position in index of the oldest frame, -1 when empty.
     int8_t oldest() const;
 };
+// A transmission handed off to the radio task.  The first frame is encoded by
+// the producer into tx.  The frame is a copy so the radio task never touches the
+// remote's lastFrame and is only used to re-encode 80-bit repeat frames.
+struct somfy_tx_job_t {
+  somfy_tx_t tx;            // Encoded first frame with its hw sync count and bit length.
+  somfy_frame_t frame;
+  uint8_t repeats = 0;      // Number of repeat frames after the first frame.
+  uint8_t firstRepeat = 1;  // 80-bit repeat counter used for the first repeat frame.
+  bool raw = false;         // Repeater frame.  Waits for the receiver to be idle.
+  bool priority = false;    // May use the reserved slots.
+  bool front = false;       // Goes to the front of the queue.  Only for priority jobs.
+  uint32_t gen = 0;         // Flush generation when queued.  Stale jobs are dropped.
+  uint32_t seq = 0;         // Assigned when queued so the job's events can be matched up.
+  uint32_t notBefore = 0;   // millis() before which the job must not go on air (0 = none).
+};
+enum class tx_event_t : uint8_t {
+  started,  // The job is going on air.
+  finished, // Every frame of the job went on air.
+  aborted,  // The job was cut short by a flush or a radio reconfiguration.
+  dropped   // The job was flushed and will never go on air.
+};
+// Reported by the radio task for every queued non-repeater job.
+struct somfy_tx_event_t {
+  tx_event_t type = tx_event_t::started;
+  somfy_commands cmd = somfy_commands::My;
+  uint32_t remoteAddress = 0;
+  uint32_t seq = 0;
+  uint32_t at = 0;          // millis() when the job started or was dropped.
+};
+// Encodes the first frame of a transmission into the job.  Encoding here keeps
+// its side effects on the frame (valid flag, default step size) visible to the
+// caller and the radio task only re-encodes the 80-bit repeat frames.  More
+// than TX_MAX_REPEATS repeats are cut down to it.
+void encodeTxJob(somfy_tx_job_t &job, somfy_frame_t &frame, uint8_t repeat);
+// Encodes a repeat of the frame last sent.  The first frame carries the
+// frame's current repeat counter and the radio task counts up from there.
+void encodeRepeatJob(somfy_tx_job_t &job, somfy_frame_t &frame, uint8_t repeat);
+// Advances the frame's repeat counter past a repeat job the radio took.
+void noteRepeatQueued(somfy_frame_t &frame, const somfy_tx_job_t &job);
 #endif

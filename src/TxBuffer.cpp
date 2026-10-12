@@ -1,4 +1,8 @@
 #include "TxBuffer.h"
+#include "esp_log.h"
+
+// Logged as part of the radio code it came from.
+static const char *TAG = "Somfy";
 
 int8_t somfy_tx_queue_t::oldest() const {
   // The newest index is at position 0 so the oldest is the last one in use.
@@ -52,4 +56,23 @@ void somfy_tx_queue_t::push(uint8_t hwsync, uint8_t *payload, uint8_t bit_length
   this->length++;
   // When popping from the queue we always pull from the end
   this->index[0] = first;
+}
+void encodeTxJob(somfy_tx_job_t &job, somfy_frame_t &frame, uint8_t repeat) {
+  frame.encodeFrame(job.tx.payload);
+  job.tx.hwsync = frame.bitLength == 56 ? 2 : 12;
+  job.tx.bit_length = frame.bitLength;
+  job.frame = frame;
+  if(repeat > TX_MAX_REPEATS) {
+    ESP_LOGW(TAG, "Limiting %u repeats to %u", repeat, TX_MAX_REPEATS);
+    repeat = TX_MAX_REPEATS;
+  }
+  job.repeats = repeat;
+}
+void encodeRepeatJob(somfy_tx_job_t &job, somfy_frame_t &frame, uint8_t repeat) {
+  encodeTxJob(job, frame, repeat);
+  job.firstRepeat = frame.repeats + 2;
+}
+void noteRepeatQueued(somfy_frame_t &frame, const somfy_tx_job_t &job) {
+  // Only advance the counter for frames that will go on air.
+  frame.repeats += job.repeats + 1;
 }

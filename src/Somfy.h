@@ -115,41 +115,9 @@ struct somfy_relay_t {
   uint8_t sync = 0;
   byte frame[10] = {0};
 };
-#define TX_JOB_QUEUE_SIZE 32
-// Slots only priority jobs (stops) may use so a stop always fits in the queue.
-#define TX_RESERVED_SLOTS 4
 // Reasons the radio must not transmit.  TX resumes once every reason is cleared.
 #define TX_SUSPEND_SCAN 0x01
 #define TX_SUSPEND_OTA  0x02
-// A transmission handed off to the radio task.  The first frame is encoded by
-// the producer into tx.  The frame is a copy so the radio task never touches the
-// remote's lastFrame and is only used to re-encode 80-bit repeat frames.
-struct somfy_tx_job_t {
-  somfy_tx_t tx;            // Encoded first frame with its hw sync count and bit length.
-  somfy_frame_t frame;
-  uint8_t repeats = 0;      // Number of repeat frames after the first frame.
-  uint8_t firstRepeat = 1;  // 80-bit repeat counter used for the first repeat frame.
-  bool raw = false;         // Repeater frame.  Waits for the receiver to be idle.
-  bool priority = false;    // May use the reserved slots.
-  bool front = false;       // Goes to the front of the queue.  Only for priority jobs.
-  uint32_t gen = 0;         // Flush generation when queued.  Stale jobs are dropped.
-  uint32_t seq = 0;         // Assigned when queued so the job's events can be matched up.
-  uint32_t notBefore = 0;   // millis() before which the job must not go on air (0 = none).
-};
-enum class tx_event_t : uint8_t {
-  started,  // The job is going on air.
-  finished, // Every frame of the job went on air.
-  aborted,  // The job was cut short by a flush or a radio reconfiguration.
-  dropped   // The job was flushed and will never go on air.
-};
-// Reported by the radio task for every queued non-repeater job.
-struct somfy_tx_event_t {
-  tx_event_t type = tx_event_t::started;
-  somfy_commands cmd = somfy_commands::My;
-  uint32_t remoteAddress = 0;
-  uint32_t seq = 0;
-  uint32_t at = 0;          // millis() when the job started or was dropped.
-};
 
 class SomfyRoom {
   public:
@@ -240,20 +208,8 @@ class SomfyShade : public SomfyRemote {
     bool settingPos = false;
     bool settingTiltPos = false;
     uint32_t awaitMy = 0;
-    // Radio job that set the shade moving.  The simulated position is held
-    // until it goes on air.
-    TxHold txHold;
-    // Stop sent when the simulated target was reached.  If it never goes on
-    // air the motor runs on to its end limit.  0 once it is on air.
-    uint32_t txStopSeq = 0;
-    uint32_t txStopAt = 0;
-    int8_t txStopDir = 0;
-    bool txStopTilt = false;
-    // Command telling the motor to store the favorite.  The favorite is only
-    // committed once all of it is on air and restored if it never is.
-    uint32_t txMySeq = 0;
-    float txMyOldPos = -1.0f;
-    float txMyOldTiltPos = -1.0f;
+    // Radio jobs whose outcome decides what the motor really did.
+    ShadeTxState tx;
     bool sendStop(int8_t dir, bool tilt);
     bool sendSetMy(uint16_t delayMs, float oldPos, float oldTiltPos);
     void runToLimit(int8_t dir, bool tilt, uint32_t since);

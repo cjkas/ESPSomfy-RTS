@@ -1,0 +1,48 @@
+#include <unity.h>
+#include "WebCommand.h"
+
+static const web_cmd_t RADIO_COMMANDS[] = {
+  web_cmd_t::shade_command, web_cmd_t::group_command, web_cmd_t::tilt_command,
+  web_cmd_t::shade_repeat, web_cmd_t::group_repeat, web_cmd_t::shade_sensor,
+  web_cmd_t::group_sensor, web_cmd_t::set_my_position, web_cmd_t::unpair_shade
+};
+
+void setUp() {}
+void tearDown() {}
+
+static void test_only_set_positions_stays_off_the_radio() {
+  int offRadio = 0;
+  for(uint8_t t = 0; t <= static_cast<uint8_t>(web_cmd_t::unpair_shade); t++) {
+    if(!webCommandUsesRadio(static_cast<web_cmd_t>(t))) offRadio++;
+  }
+  TEST_ASSERT_EQUAL_INT(1, offRadio);
+  TEST_ASSERT_FALSE(webCommandUsesRadio(web_cmd_t::set_positions));
+}
+static void test_set_positions_is_never_held() {
+  TEST_ASSERT_FALSE(holdWebCommand(web_cmd_t::set_positions, false, false));
+  TEST_ASSERT_FALSE(holdWebCommand(web_cmd_t::set_positions, true, false));
+}
+static void test_radio_command_waits_for_room() {
+  for(web_cmd_t t : RADIO_COMMANDS) {
+    TEST_ASSERT_TRUE(holdWebCommand(t, false, false));
+    TEST_ASSERT_FALSE(holdWebCommand(t, false, true));
+  }
+}
+static void test_nothing_is_held_while_suspended() {
+  // Nothing goes on air during a frequency scan or OTA anyway.
+  for(web_cmd_t t : RADIO_COMMANDS) {
+    TEST_ASSERT_FALSE(holdWebCommand(t, true, false));
+    TEST_ASSERT_FALSE(holdWebCommand(t, true, true));
+  }
+}
+
+int main(int argc, char **argv) {
+  (void)argc;
+  (void)argv;
+  UNITY_BEGIN();
+  RUN_TEST(test_only_set_positions_stays_off_the_radio);
+  RUN_TEST(test_set_positions_is_never_held);
+  RUN_TEST(test_radio_command_waits_for_room);
+  RUN_TEST(test_nothing_is_held_while_suspended);
+  return UNITY_END();
+}
