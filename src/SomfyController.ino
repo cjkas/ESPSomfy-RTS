@@ -11,6 +11,7 @@
 #include "MQTT.h"
 #include "GitOTA.h"
 #include "esp_core_dump.h"
+#include "esp_system.h"
 #include "esp_idf_version.h"
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
 #include "esp_app_desc.h"
@@ -59,20 +60,28 @@ void setup() {
   ESP_LOGI(TAG, "Startup/Boot....");
   esp_core_dump_summary_t summary;
   if (esp_core_dump_get_summary(&summary) == ESP_OK) {
-    ESP_LOGW(TAG, "*** Previous crash coredump found ***");
-    ESP_LOGW(TAG, "  Task: %s", summary.exc_task);
-    ESP_LOGW(TAG, "  PC: 0x%08x", summary.exc_pc);
+    // The dump stays in flash until the next crash replaces it, so it can still
+    // be read later with espcoredump.py.  Only shout about it on the boot right
+    // after the crash.
+    const esp_reset_reason_t reason = esp_reset_reason();
+    const bool newCrash = reason == ESP_RST_PANIC || reason == ESP_RST_TASK_WDT ||
+      reason == ESP_RST_INT_WDT || reason == ESP_RST_WDT;
+#define CRASH_LOG(fmt, ...) do { if(newCrash) ESP_LOGW(TAG, fmt, ##__VA_ARGS__); else ESP_LOGI(TAG, fmt, ##__VA_ARGS__); } while(0)
+    if(newCrash) ESP_LOGW(TAG, "*** Crash coredump from the last boot ***");
+    else ESP_LOGI(TAG, "Stored coredump from an earlier crash");
+    CRASH_LOG("  Task: %s", summary.exc_task);
+    CRASH_LOG("  PC: 0x%08x", summary.exc_pc);
 #ifdef CONFIG_IDF_TARGET_ARCH_XTENSA
-    ESP_LOGW(TAG, "  Cause: %d", summary.ex_info.exc_cause);
+    CRASH_LOG("  Cause: %d", summary.ex_info.exc_cause);
     char bt_buf[256] = {0};
     int pos = 0;
     for (int i = 0; i < summary.exc_bt_info.depth; i++) {
       pos += snprintf(bt_buf + pos, sizeof(bt_buf) - pos, " 0x%08x", summary.exc_bt_info.bt[i]);
     }
-    ESP_LOGW(TAG, "  Backtrace:%s", bt_buf);
+    CRASH_LOG("  Backtrace:%s", bt_buf);
 #elif CONFIG_IDF_TARGET_ARCH_RISCV
-    ESP_LOGW(TAG, "  Cause: %d", summary.ex_info.mcause);
-    ESP_LOGW(TAG, "  MTVAL: 0x%08x  RA: 0x%08x  SP: 0x%08x",
+    CRASH_LOG("  Cause: %d", summary.ex_info.mcause);
+    CRASH_LOG("  MTVAL: 0x%08x  RA: 0x%08x  SP: 0x%08x",
              summary.ex_info.mtval, summary.ex_info.ra, summary.ex_info.sp);
 #endif
     // The backtrace only decodes against the firmware.elf of the build that
@@ -81,11 +90,10 @@ void setup() {
     char runningSha[APP_ELF_SHA256_SZ] = {0};
     getRunningElfSha(runningSha, sizeof(runningSha));
     if(strcmp(crashedSha, runningSha) == 0)
-      ESP_LOGW(TAG, "  Build: %s (running %s, same build)", crashedSha, runningSha);
+      CRASH_LOG("  Build: %s (running %s, same build)", crashedSha, runningSha);
     else
-      ESP_LOGW(TAG, "  Build: %s (running %s, different build, decode the backtrace with the matching firmware.elf)", crashedSha, runningSha);
-    // Erase it so the next boot only reports a new crash.
-    if(esp_core_dump_image_erase() != ESP_OK) ESP_LOGE(TAG, "Could not erase the coredump");
+      CRASH_LOG("  Build: %s (running %s, different build, decode the backtrace with the matching firmware.elf)", crashedSha, runningSha);
+#undef CRASH_LOG
   }
   ESP_LOGI(TAG, "Mounting File System...");
   if (LittleFS.begin()) {
