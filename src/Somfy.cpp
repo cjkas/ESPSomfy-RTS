@@ -762,20 +762,20 @@ void SomfyShade::checkMovement() {
   uint8_t currPos = floor(this->currentPos);
   uint8_t currTiltPos = floor(this->currentTiltPos);
   if(this->direction != 0) this->lastMovement = this->direction;
-  if(this->txPendingSeq != 0 && this->direction == 0 && this->tiltDirection == 0) {
+  if(this->txHold.held() && this->direction == 0 && this->tiltDirection == 0) {
     // The command didn't set the shade moving so there is nothing to hold.
-    this->txPendingSeq = 0;
+    this->txHold.clear();
   }
-  if(this->txPendingSeq != 0) {
+  if(this->txHold.held()) {
     // The command that set us moving hasn't gone on air yet so the motor hasn't
     // started.  Hold the simulated position until it does.
-    if((uint32_t)curTime - this->txPendingSince < TX_PENDING_TIMEOUT) {
+    if(!this->txHold.timedOut((uint32_t)curTime, TX_PENDING_TIMEOUT)) {
       this->moveStart = this->tiltStart = curTime;
       if(currDir != this->direction || currTiltDir != this->tiltDirection) this->emitState();
       return;
     }
     ESP_LOGW(TAG, "[Shade %u] Timed out waiting for the radio, moving anyway", this->shadeId);
-    this->txPendingSeq = 0;
+    this->txHold.clear();
   }
   if (sunFlag) {
     if (isSunny && !isWindy) {  // It is sunny and there is no wind so we should be extended
@@ -2335,20 +2335,15 @@ void SomfyShade::setTiltMovement(int8_t dir) {
   }
 }
 void SomfyShade::markTxPending(uint32_t seq) {
-  // The motor starts on the first of several queued commands to go on air.
-  if(this->txPendingSeq != 0) return;
   // This runs before the caller sets the new target so direction still says
-  // whether the shade was moving.  A moving motor carries on with its earlier
-  // command so its simulation must not be held.  A reversal is simulated as
-  // soon as it is queued even though the motor turns once it is on air.
-  if(this->direction != 0 || this->tiltDirection != 0) return;
-  this->txPendingSeq = seq;
-  this->txPendingSince = millis();
+  // whether the shade was moving.  A reversal is simulated as soon as it is
+  // queued even though the motor turns once it is on air.  See TxHold::mark
+  // for which of several queued commands is held.
+  this->txHold.mark(seq, this->direction != 0 || this->tiltDirection != 0, millis());
 }
 void SomfyShade::processTxEvent(const somfy_tx_event_t &evt) {
   if(evt.seq == 0) return;
-  if(this->txPendingSeq == evt.seq) {
-    this->txPendingSeq = 0;
+  if(this->txHold.release(evt.seq)) {
     if(evt.type == tx_event_t::started) {
       // The motor starts now so the simulated movement does too.
       this->moveStart = this->tiltStart = evt.at;

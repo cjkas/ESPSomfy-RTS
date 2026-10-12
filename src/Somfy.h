@@ -23,6 +23,7 @@
 
 #include "SomfyFrame.h"
 #include "TxBuffer.h"
+#include "ShadeMotion.h"
 enum class group_types : byte {
   channel = 0x00
 };
@@ -240,9 +241,8 @@ class SomfyShade : public SomfyRemote {
     bool settingTiltPos = false;
     uint32_t awaitMy = 0;
     // Radio job that set the shade moving.  The simulated position is held
-    // until it goes on air.  0 when nothing is waiting.
-    uint32_t txPendingSeq = 0;
-    uint32_t txPendingSince = 0;
+    // until it goes on air.
+    TxHold txHold;
     // Stop sent when the simulated target was reached.  If it never goes on
     // air the motor runs on to its end limit.  0 once it is on air.
     uint32_t txStopSeq = 0;

@@ -29,3 +29,13 @@ int8_t displayPosition(float pos, bool flip) {
   if(pos < 0) return -1;
   return static_cast<int8_t>(flip && pos >= 0.00f ? floor(100.0f - pos) : floor(pos));
 }
+void TxHold::mark(uint32_t jobSeq, bool moving, uint32_t now) {
+  if(jobSeq == 0 || this->seq != 0 || moving) return;
+  this->seq = jobSeq;
+  this->since = now;
+}
+bool TxHold::release(uint32_t jobSeq) {
+  if(jobSeq == 0 || jobSeq != this->seq) return false;
+  this->seq = 0;
+  return true;
+}

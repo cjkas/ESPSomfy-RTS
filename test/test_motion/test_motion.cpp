@@ -110,6 +110,74 @@ static void test_flipCommand_keeps_the_rest() {
   for(somfy_commands cmd : same) ASSERT_CMD(cmd, flipCommand(cmd));
 }
 
+/*********************************************************************
+ * TxHold
+ ********************************************************************/
+static void test_txhold_idle_shade_is_held() {
+  TxHold hold;
+  hold.mark(7, false, 1000);
+  TEST_ASSERT_TRUE(hold.held());
+  TEST_ASSERT_EQUAL_UINT32(7, hold.seq);
+  TEST_ASSERT_EQUAL_UINT32(1000, hold.since);
+}
+static void test_txhold_moving_shade_is_not_held() {
+  TxHold hold;
+  hold.mark(7, true, 1000);
+  TEST_ASSERT_FALSE(hold.held());
+}
+static void test_txhold_ignores_seq_zero() {
+  TxHold hold;
+  hold.mark(0, false, 1000);
+  TEST_ASSERT_FALSE(hold.held());
+  hold.mark(7, false, 1000);
+  TEST_ASSERT_FALSE(hold.release(0));
+  TEST_ASSERT_TRUE(hold.held());
+}
+static void test_txhold_first_job_wins() {
+  // simMy Favorite: the Up/Down queued from inside processFrame (N+1) is
+  // marked before the outer Favorite (N), and the hold stays on the Up/Down.
+  TxHold hold;
+  hold.mark(11, false, 1000);
+  hold.mark(10, false, 1005);
+  TEST_ASSERT_EQUAL_UINT32(11, hold.seq);
+  TEST_ASSERT_EQUAL_UINT32(1000, hold.since);
+  TEST_ASSERT_FALSE(hold.release(10));
+  TEST_ASSERT_TRUE(hold.held());
+  TEST_ASSERT_TRUE(hold.release(11));
+  TEST_ASSERT_FALSE(hold.held());
+}
+static void test_txhold_release_only_matches_the_held_job() {
+  TxHold hold;
+  hold.mark(5, false, 0);
+  TEST_ASSERT_FALSE(hold.release(4));
+  TEST_ASSERT_FALSE(hold.release(6));
+  TEST_ASSERT_TRUE(hold.held());
+  TEST_ASSERT_TRUE(hold.release(5));
+  TEST_ASSERT_FALSE(hold.release(5));
+}
+static void test_txhold_new_hold_after_release() {
+  TxHold hold;
+  hold.mark(5, false, 0);
+  hold.release(5);
+  hold.mark(6, false, 200);
+  TEST_ASSERT_EQUAL_UINT32(6, hold.seq);
+  TEST_ASSERT_EQUAL_UINT32(200, hold.since);
+}
+static void test_txhold_times_out() {
+  TxHold hold;
+  hold.mark(5, false, 1000);
+  TEST_ASSERT_FALSE(hold.timedOut(1000, 30000));
+  TEST_ASSERT_FALSE(hold.timedOut(30999, 30000));
+  TEST_ASSERT_TRUE(hold.timedOut(31000, 30000));
+}
+static void test_txhold_times_out_across_millis_wrap() {
+  TxHold hold;
+  hold.mark(5, false, 0xFFFFF000u);
+  TEST_ASSERT_FALSE(hold.timedOut(0x00001000u, 30000));  // 8192ms later
+  TEST_ASSERT_FALSE(hold.timedOut(0x00006000u, 30000));  // 28672ms later
+  TEST_ASSERT_TRUE(hold.timedOut(0x00007000u, 30000));   // 32768ms later
+}
+
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
@@ -126,5 +194,13 @@ int main(int argc, char **argv) {
   RUN_TEST(test_displayPosition);
   RUN_TEST(test_flipCommand_swaps_directions);
   RUN_TEST(test_flipCommand_keeps_the_rest);
+  RUN_TEST(test_txhold_idle_shade_is_held);
+  RUN_TEST(test_txhold_moving_shade_is_not_held);
+  RUN_TEST(test_txhold_ignores_seq_zero);
+  RUN_TEST(test_txhold_first_job_wins);
+  RUN_TEST(test_txhold_release_only_matches_the_held_job);
+  RUN_TEST(test_txhold_new_hold_after_release);
+  RUN_TEST(test_txhold_times_out);
+  RUN_TEST(test_txhold_times_out_across_millis_wrap);
   return UNITY_END();
 }
