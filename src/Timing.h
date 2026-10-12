@@ -4,10 +4,11 @@
 #include "esp_log.h"
 
 // Timings shorter than this are not logged.  Every line costs several ms on a
-// 115200 baud console so raise it (e.g. -DTIMING_LOG_MIN_MS=50) to see only
-// the calls worth looking at.
+// 115200 baud console, and per-request timings would add dozens of lines to
+// every page load on the task that serves the sockets.  Build with
+// -DTIMING_LOG_MIN_MS=0 to see every timing.
 #ifndef TIMING_LOG_MIN_MS
-#define TIMING_LOG_MIN_MS 0
+#define TIMING_LOG_MIN_MS 100
 #endif
 // Anything that takes at least this long is logged as a warning so the slow
 // calls stand out from the routine timings.
@@ -37,14 +38,4 @@ static inline void logElapsed(const char *tag, const char *what, uint32_t us) {
 static inline void logIfSlow(const char *tag, const char *what, uint32_t us, uint32_t minMs) {
   if(us >= minMs * 1000) logElapsed(tag, what, us);
 }
-
-// Logs the time the enclosing scope took when it ends.
-class ScopeTimer {
-  const char *_tag;
-  const char *_what;
-  ElapsedTimer _timer;
-  public:
-    ScopeTimer(const char *tag, const char *what) : _tag(tag), _what(what) {}
-    ~ScopeTimer() { logElapsed(_tag, _what, _timer.us()); }
-};
 #endif
