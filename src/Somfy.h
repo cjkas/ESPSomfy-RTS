@@ -23,6 +23,7 @@
 
 #include "SomfyFrame.h"
 #include "TxBuffer.h"
+#include "RadioScheduler.h"
 #include "ShadeMotion.h"
 enum class group_types : byte {
   channel = 0x00
@@ -115,9 +116,6 @@ struct somfy_relay_t {
   uint8_t sync = 0;
   byte frame[10] = {0};
 };
-// Reasons the radio must not transmit.  TX resumes once every reason is cleared.
-#define TX_SUSPEND_SCAN 0x01
-#define TX_SUSPEND_OTA  0x02
 
 class SomfyRoom {
   public:
@@ -133,6 +131,13 @@ class SomfyRoom {
     void unpublish();
 };
 
+// What sending a command did.  ticket is the radio job carrying it, 0 when the
+// command went out over GPIO instead.
+struct send_result_t {
+  bool sent = false;
+  uint32_t ticket = 0;
+  explicit operator bool() const { return this->sent; }
+};
 class SomfyRemote {
   // These sizes for the data have been
   // confirmed.  The address is actually 24bits
@@ -154,8 +159,6 @@ class SomfyRemote {
     somfy_frame_t lastFrame;
     bool flipCommands = false;
     uint16_t lastRollingCode = 0;
-    uint32_t lastTxSeq = 0;  // Radio job of the last command sent, 0 if it didn't use the radio.
-    uint32_t lastBackTxSeq = 0;  // Last radio job queued at the back of the queue.
     uint8_t flags = 0;
     uint8_t bitLength = 0;
     uint8_t repeats = 1;
@@ -176,7 +179,7 @@ class SomfyRemote {
     // command.  Nothing about the remote or shade state has changed in that case.
     virtual bool sendCommand(somfy_commands cmd);
     virtual bool sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize = 0);
-    bool sendCommandAfter(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs, bool priority = false);
+    send_result_t sendCommandAfter(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs, bool priority = false);
     bool sendSensorCommand(int8_t isWindy, int8_t isSunny, uint8_t repeat);
     bool repeatFrame(uint8_t repeat);
     virtual uint16_t p_lastRollingCode(uint16_t code);
@@ -426,13 +429,12 @@ class Transceiver {
     static void txTask(void *arg);
     bool _received = false;
     somfy_frame_t frame;
+    // Only touched under the TX queue lock.
+    RadioScheduler sched;
     void startTxTask();
     bool transmitJob(somfy_tx_job_t &job);
     // Sends a job taken off the queue and leaves a frame beat after it.
     void runJob(somfy_tx_job_t &job);
-    // Holds a delayed job until it is due, sending stops queued at the front
-    // in the meantime.
-    void waitUntilDue(const somfy_tx_job_t &job);
   public:
     transceiver_config_t config;
     bool printBuffer = false;
@@ -449,11 +451,12 @@ class Transceiver {
     void disableReceive();
     somfy_frame_t& lastFrame();
     void sendFrame(byte *frame, uint8_t sync, uint8_t bitLength = 56);
-    bool queueTx(somfy_tx_job_t &job);
+    // Hands a job to the radio task, see RadioScheduler::submit().  Returns its
+    // ticket, 0 when the radio can't take it.  Safe from any task.
+    uint32_t submitTx(somfy_tx_job_t &job, bool priority = false, uint16_t delayMs = 0);
     void flushTx();
     void suspendTx(uint8_t reason);
     void resumeTx(uint8_t reason);
-    bool isQueued(uint32_t seq);
     bool txSuspended();
     bool txHasRoom();
     void beginTransmit();
@@ -511,7 +514,8 @@ class SomfyShadeController {
     SomfyGroup * getGroupById(uint8_t groupId);
     SomfyShade * findShadeByRemoteAddress(uint32_t address);
     SomfyGroup * findGroupByRemoteAddress(uint32_t address);
-    bool sendFrame(somfy_frame_t &frame, uint8_t repeats = 0, uint16_t delayMs = 0, bool priority = false, bool front = false, uint32_t *seq = nullptr);
+    // Returns the radio job's ticket, 0 when the radio can't take it.
+    uint32_t sendFrame(somfy_frame_t &frame, uint8_t repeats = 0, uint16_t delayMs = 0, bool priority = false);
     void processFrame(somfy_frame_t &frame, bool internal = false);
     void markTxPending(uint32_t remoteAddress, uint32_t seq);
     void processTxEvent(const somfy_tx_event_t &evt);

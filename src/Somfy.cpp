@@ -12,7 +12,6 @@
 #include "ConfigSettings.h"
 #include "Somfy.h"
 #include "ShadeMotion.h"
-#include "TxQueuePolicy.h"
 #include "RollingCode.h"
 #include "Sockets.h"
 #include "MQTT.h"
@@ -49,32 +48,13 @@ uint8_t rxmode = 0;  // Indicates whether the radio is in receive mode.  Just to
 // Serializes all access to the CC1101 (SPI) and the TX/RX pins between the
 // radio task, the main loop and the async web server task.
 static SemaphoreHandle_t radioMutex = nullptr;
-// Makes queueing a job and flushing the queue atomic with respect to each other
-// so a job queueTx() reported as queued can't be silently lost to a flush.
+// Serializes every call into the RadioScheduler.  The radio task, the main loop
+// and the async web server task all use it.
 static SemaphoreHandle_t txQueueMutex = nullptr;
-static QueueHandle_t txJobQueue = nullptr;
-static QueueHandle_t txEventQueue = nullptr;
 static TaskHandle_t txTaskHandle = nullptr;
-// Bumped by flushTx().  A job from an older generation that the radio task
-// already took off the queue is dropped, and one in flight stops after its
-// current frame.
-static std::atomic<uint32_t> txGen{0};
 // Number of tasks waiting for the radio to reconfigure it.  A job in flight
 // stops after its current frame so they never wait for a whole transmission.
 static std::atomic<uint32_t> txPreemptWaiters{0};
-// TX_SUSPEND_* reasons the radio must not transmit for (frequency scan, OTA).
-static std::atomic<uint32_t> txSuspendMask{0};
-// Last sequence number handed to a queued job.  Only touched under TxQueueLock.
-static uint32_t txSeq = 0;
-// Sequence number of the last job queued at the back that the radio task took
-// (a delayed one only once it is due) or a flush dropped.  Those jobs go out
-// in order so any later one is still waiting in the queue.
-static std::atomic<uint32_t> txBackTaken{0};
-// The radio task and a flush both move txBackTaken.  Never let it go backwards.
-static void advanceBackTaken(uint32_t seq) {
-  uint32_t cur = txBackTaken;
-  while(txSeqAfter(seq, cur) && !txBackTaken.compare_exchange_weak(cur, seq)) {}
-}
 // How long a shade's simulated movement waits for its command to go on air
 // before it starts anyway in case the event was lost.
 #define TX_PENDING_TIMEOUT 30000
@@ -94,17 +74,6 @@ struct TxQueueLock {
   TxQueueLock() { if(txQueueMutex) xSemaphoreTake(txQueueMutex, portMAX_DELAY); }
   ~TxQueueLock() { if(txQueueMutex) xSemaphoreGive(txQueueMutex); }
 };
-static void postTxEvent(tx_event_t type, const somfy_tx_job_t &job, uint32_t at) {
-  // Repeater frames don't belong to any of our remotes.
-  if(job.raw || !txEventQueue) return;
-  somfy_tx_event_t evt;
-  evt.type = type;
-  evt.cmd = job.frame.cmd;
-  evt.remoteAddress = job.frame.remoteAddress;
-  evt.seq = job.seq;
-  evt.at = at;
-  if(xQueueSend(txEventQueue, &evt, 0) != pdTRUE) ESP_LOGW(TAG, "Radio TX event queue full");
-}
 // Commands that can set a shade moving.
 static bool startsMovement(somfy_commands cmd) {
   switch(cmd) {
@@ -2353,8 +2322,8 @@ void SomfyShade::processTxEvent(const somfy_tx_event_t &evt) {
 bool SomfyShade::sendStop(int8_t dir, bool tilt) {
   const uint32_t now = millis();
   // Stops jump the radio queue so the motor stops as close to the target as it can.
-  if(SomfyRemote::sendCommandAfter(somfy_commands::My, this->repeats, 0, 0, true)) {
-    this->tx.stopSent(this->lastTxSeq, now, dir, tilt);
+  if(const send_result_t sent = SomfyRemote::sendCommandAfter(somfy_commands::My, this->repeats, 0, 0, true)) {
+    this->tx.stopSent(sent.ticket, now, dir, tilt);
     return true;
   }
   ESP_LOGW(TAG, "[Shade %u] Stop not sent, running on to the limit", this->shadeId);
@@ -2364,10 +2333,10 @@ bool SomfyShade::sendStop(int8_t dir, bool tilt) {
 bool SomfyShade::sendSetMy(uint16_t delayMs, float oldPos, float oldTiltPos) {
   // The new favorite is already in myPos/myTiltPos.  It is committed once the
   // whole long press is on air, see processTxEvent.
-  if(SomfyRemote::sendCommandAfter(somfy_commands::My, SETMY_REPEATS, 0, delayMs)) {
-    this->tx.setMySent(this->lastTxSeq, oldPos, oldTiltPos);
+  if(const send_result_t sent = SomfyRemote::sendCommandAfter(somfy_commands::My, SETMY_REPEATS, 0, delayMs)) {
+    this->tx.setMySent(sent.ticket, oldPos, oldTiltPos);
     // Without the radio (GPIO remotes) there is nothing to wait for.
-    if(this->lastTxSeq == 0) this->commitMyPosition();
+    if(sent.ticket == 0) this->commitMyPosition();
     return true;
   }
   // The motor never learned it so keep the favorite it has.
@@ -3481,8 +3450,8 @@ bool SomfyRemote::sendSensorCommand(int8_t isWindy, int8_t isSunny, uint8_t repe
   return true;
 }
 bool SomfyRemote::sendCommand(somfy_commands cmd) { return this->sendCommand(cmd, this->repeats); }
-bool SomfyRemote::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize) { return this->sendCommandAfter(cmd, repeat, stepSize, 0); }
-bool SomfyRemote::sendCommandAfter(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs, bool priority) {
+bool SomfyRemote::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize) { return this->sendCommandAfter(cmd, repeat, stepSize, 0).sent; }
+send_result_t SomfyRemote::sendCommandAfter(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs, bool priority) {
   // Build the frame aside and only take the rolling code once the frame is
   // queued so a dropped command leaves the remote untouched.
   somfy_frame_t frame = this->lastFrame;
@@ -3501,7 +3470,7 @@ bool SomfyRemote::sendCommandAfter(somfy_commands cmd, uint8_t repeat, uint8_t s
   // We have to set the processed to clear this if we are sending
   // another command.
   frame.processed = false;
-  uint32_t seq = 0;
+  send_result_t result;
   if(this->proto == radio_proto::GP_Relay) {
     ESP_LOGD(TAG, "CMD:%s ADDR:%d RCODE:%d SETTING GPIO",
         translateSomfyCommand(frame.cmd).c_str(),
@@ -3517,19 +3486,18 @@ bool SomfyRemote::sendCommandAfter(somfy_commands cmd, uint8_t repeat, uint8_t s
     ESP_LOGD(TAG, "CMD:%s ADDR:%d RCODE:%d REPEAT:%d",
         translateSomfyCommand(frame.cmd).c_str(),
         frame.remoteAddress, frame.rollingCode, repeat);
-    const bool front = stopGoesToFront(priority, somfy.transceiver.isQueued(this->lastBackTxSeq));
     // Only simulate the command if it is actually going on air.
-    if(!somfy.sendFrame(frame, repeat, delayMs, priority, front, &seq)) return false;
-    if(!front) this->lastBackTxSeq = seq;
+    result.ticket = somfy.sendFrame(frame, repeat, delayMs, priority);
+    if(result.ticket == 0) return result;
   }
+  result.sent = true;
   this->commitRollingCode(frame.rollingCode);
   this->lastFrame = frame;
-  this->lastTxSeq = seq;
   somfy.processFrame(this->lastFrame, true);
   // Idle shades (and group members) this sets moving wait for the frame to go
   // on air.  Stops are sent ahead of everything else so they don't need to.
-  if(seq != 0 && !priority && startsMovement(frame.cmd)) somfy.markTxPending(frame.remoteAddress, seq);
-  return true;
+  if(result.ticket != 0 && !priority && startsMovement(frame.cmd)) somfy.markTxPending(frame.remoteAddress, result.ticket);
+  return result;
 }
 bool SomfyRemote::isLastCommand(somfy_commands cmd) {
   if(this->lastFrame.cmd != cmd || this->lastFrame.rollingCode != this->lastRollingCode) {
@@ -3547,22 +3515,16 @@ bool SomfyRemote::repeatFrame(uint8_t repeat) {
   }
   somfy_tx_job_t job;
   encodeRepeatJob(job, this->lastFrame, repeat);
-  if(!somfy.transceiver.queueTx(job)) return false;
-  this->lastBackTxSeq = job.seq;
+  if(!somfy.transceiver.submitTx(job)) return false;
   noteRepeatQueued(this->lastFrame, job);
   //somfy.processFrame(this->lastFrame, true);
   return true;
 }
-bool SomfyShadeController::sendFrame(somfy_frame_t &frame, uint8_t repeat, uint16_t delayMs, bool priority, bool front, uint32_t *seq) {
+uint32_t SomfyShadeController::sendFrame(somfy_frame_t &frame, uint8_t repeat, uint16_t delayMs, bool priority) {
   somfy_tx_job_t job;
   encodeTxJob(job, frame, repeat);
   job.firstRepeat = 1;
-  job.priority = priority;
-  job.front = priority && front;
-  if(delayMs > 0) job.notBefore = millis() + delayMs;
-  if(!this->transceiver.queueTx(job)) return false;
-  if(seq) *seq = job.seq;
-  return true;
+  return this->transceiver.submitTx(job, priority, delayMs);
 }
 bool SomfyShadeController::deleteShade(uint8_t shadeId) {
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
@@ -4598,7 +4560,11 @@ bool Transceiver::begin() {
 void Transceiver::loop() {
   somfy_rx_t rx;
   somfy_tx_event_t evt;
-  while(txEventQueue && xQueueReceive(txEventQueue, &evt, 0) == pdTRUE) {
+  for(;;) {
+    {
+      TxQueueLock lock;
+      if(!this->sched.popEvent(evt)) break;
+    }
     if(evt.type == tx_event_t::dropped)
       ESP_LOGW(TAG, "Radio TX dropped %s for %d", translateSomfyCommand(evt.cmd).c_str(), evt.remoteAddress);
     else if(evt.type == tx_event_t::aborted)
@@ -4658,7 +4624,7 @@ void Transceiver::loop() {
         snprintf(frame_buf + fpos, sizeof(frame_buf) - fpos, "]");
         ESP_LOGD(TAG, "%s", frame_buf);
       }
-      if(this->queueTx(job) || this->txSuspended()) {
+      if(this->submitTx(job) || this->txSuspended()) {
         somfy_tx_t sent;
         tx_queue.pop(&sent);
       }
@@ -4666,63 +4632,50 @@ void Transceiver::loop() {
     }
   }
 }
-bool Transceiver::queueTx(somfy_tx_job_t &job) {
-  if(!txJobQueue || !txTaskHandle) {
+uint32_t Transceiver::submitTx(somfy_tx_job_t &job, bool priority, uint16_t delayMs) {
+  if(!txTaskHandle) {
     ESP_LOGE(TAG, "Radio task not started, dropping transmission");
-    return false;
+    return 0;
   }
+  uint32_t ticket;
+  {
+    TxQueueLock lock;
+    ticket = this->sched.submit(job, priority, delayMs, millis());
+  }
+  // The radio task may be idle, or waiting on a delayed job this one is ahead of.
+  if(ticket) xTaskNotifyGive(txTaskHandle);
+  return ticket;
+}
+bool Transceiver::txSuspended() {
   TxQueueLock lock;
-  if(txSuspendMask) {
-    ESP_LOGW(TAG, "Radio TX suspended, dropping transmission");
-    return false;
-  }
-  if(!txAdmits(uxQueueSpacesAvailable(txJobQueue), job.priority)) {
-    ESP_LOGE(TAG, "Radio TX queue full, dropping transmission");
-    return false;
-  }
-  job.gen = txGen;
-  txSeq = nextTxSeq(txSeq);
-  job.seq = txSeq;
-  // We are the only producer while holding the lock so the space check holds.
-  if(job.front) {
-    xQueueSendToFront(txJobQueue, &job, 0);
-    // It may overtake a delayed job the radio task is waiting on.
-    xTaskNotifyGive(txTaskHandle);
-  }
-  else xQueueSendToBack(txJobQueue, &job, 0);
-  return true;
+  return this->sched.suspended();
 }
-bool Transceiver::isQueued(uint32_t seq) {
-  // Only meaningful for jobs queued at the back.
-  return txSeqQueued(seq, txBackTaken);
-}
-bool Transceiver::txSuspended() { return txSuspendMask != 0; }
 bool Transceiver::txHasRoom() {
-  // Without a radio task queueTx() fails straight away so there is no point waiting.
-  if(!txJobQueue || !txTaskHandle) return true;
-  return txAdmits(uxQueueSpacesAvailable(txJobQueue), false);
+  // Without a radio task submitTx() fails straight away so there is no point waiting.
+  if(!txTaskHandle) return true;
+  TxQueueLock lock;
+  return this->sched.hasRoom(false);
 }
 void Transceiver::flushTx() {
-  TxQueueLock lock;
-  ++txGen;
-  advanceBackTaken(txSeq);
-  if(!txJobQueue) return;
-  // Drain rather than reset so every discarded job is reported as dropped.
-  somfy_tx_job_t job;
-  const uint32_t now = millis();
-  while(xQueueReceive(txJobQueue, &job, 0) == pdTRUE) postTxEvent(tx_event_t::dropped, job, now);
-  // Drop a delayed job the radio task is waiting on now rather than when it is due.
+  {
+    TxQueueLock lock;
+    this->sched.flush(millis());
+  }
+  // Stop waiting on a delayed job that is gone.
   if(txTaskHandle) xTaskNotifyGive(txTaskHandle);
 }
 void Transceiver::suspendTx(uint8_t reason) {
   {
-    // Set under the queue lock so nothing is queued between this and the flush.
+    // Suspends and flushes in one go so nothing is queued in between.
     TxQueueLock lock;
-    txSuspendMask |= reason;
+    this->sched.suspend(reason, millis());
   }
-  this->flushTx();
+  if(txTaskHandle) xTaskNotifyGive(txTaskHandle);
 }
-void Transceiver::resumeTx(uint8_t reason) { txSuspendMask &= ~(uint32_t)reason; }
+void Transceiver::resumeTx(uint8_t reason) {
+  TxQueueLock lock;
+  this->sched.resume(reason);
+}
 // cpt_synchro_hw is updated by the RX interrupt and read here from the radio task.
 static bool rxInProgress() { return *(volatile uint8_t *)&somfy_rx.cpt_synchro_hw != 0; }
 bool Transceiver::transmitJob(somfy_tx_job_t &job) {
@@ -4731,9 +4684,14 @@ bool Transceiver::transmitJob(somfy_tx_job_t &job) {
   this->beginTransmit();
   this->sendFrame(tx.payload, tx.hwsync, tx.bit_length);
   for(uint8_t i = 0; i < job.repeats; i++) {
+    bool keep;
+    {
+      TxQueueLock lock;
+      keep = this->sched.keepSending(job.seq);
+    }
     // Stop early when flushed or when someone is waiting to reconfigure the
     // radio so they get it within a frame.
-    if(job.gen != txGen || txPreemptWaiters > 0) {
+    if(!keep || txPreemptWaiters > 0) {
       complete = false;
       break;
     }
@@ -4753,66 +4711,37 @@ void Transceiver::runJob(somfy_tx_job_t &job) {
   }
   {
     RadioLock lock;
-    // The queue may have been flushed while we waited.
-    if(txSuspendMask || job.gen != txGen) {
-      postTxEvent(tx_event_t::dropped, job, millis());
-      return;
+    bool start;
+    {
+      // The queue may have been flushed while we waited.
+      TxQueueLock qlock;
+      start = this->sched.start(job.seq, millis());
     }
-    postTxEvent(tx_event_t::started, job, millis());
+    if(!start) return;
     const bool complete = this->transmitJob(job);
-    postTxEvent(complete ? tx_event_t::finished : tx_event_t::aborted, job, millis());
+    TxQueueLock qlock;
+    this->sched.ended(job.seq, complete, millis());
   }
   // Give the motors a full frame beat between separate transmissions.
   vTaskDelay(pdMS_TO_TICKS(TX_QUEUE_DELAY));
-}
-void Transceiver::waitUntilDue(const somfy_tx_job_t &job) {
-  for(;;) {
-    if(txSuspendMask || job.gen != txGen) return;
-    const int32_t wait = txDueInMs(job.notBefore, millis());
-    if(wait <= 0) return;
-    // A stop only goes to the front when its remote has nothing waiting, and
-    // this job still counts as waiting, so any front job is free to go first.
-    somfy_tx_job_t next;
-    bool haveNext = false;
-    {
-      TxQueueLock lock;
-      if(xQueuePeek(txJobQueue, &next, 0) == pdTRUE && next.front)
-        haveNext = xQueueReceive(txJobQueue, &next, 0) == pdTRUE;
-    }
-    if(haveNext) {
-      this->runJob(next);
-      continue;
-    }
-    // queueTx() and flushTx() wake us for a new front job or a flush.
-    ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(wait));
-  }
 }
 void Transceiver::txTask(void *arg) {
   Transceiver *trans = static_cast<Transceiver *>(arg);
   somfy_tx_job_t job;
   for(;;) {
-    if(xQueueReceive(txJobQueue, &job, portMAX_DELAY) != pdTRUE) continue;
-    if(job.notBefore != 0) trans->waitUntilDue(job);
-    // Only now is a delayed job off the queue as far as isQueued() is
-    // concerned, so a stop for its remote queues behind it while it waits.
-    if(!job.front) advanceBackTaken(job.seq);
-    // Flushed after we took it off the queue.
-    if(txSuspendMask || job.gen != txGen) {
-      postTxEvent(tx_event_t::dropped, job, millis());
-      continue;
+    uint32_t waitMs;
+    bool haveJob;
+    {
+      TxQueueLock lock;
+      haveJob = trans->sched.next(millis(), job, waitMs);
     }
-    trans->runJob(job);
+    if(haveJob) trans->runJob(job);
+    // submitTx() and flushTx() wake us for a new job or a flush.
+    else ulTaskNotifyTake(pdTRUE, waitMs == RADIO_WAIT_FOREVER ? portMAX_DELAY : pdMS_TO_TICKS(waitMs) + 1);
   }
 }
 void Transceiver::startTxTask() {
   if(txTaskHandle) return;
-  if(!txJobQueue) txJobQueue = xQueueCreate(TX_JOB_QUEUE_SIZE, sizeof(somfy_tx_job_t));
-  // Every job reports when it starts and ends, plus room for the jobs a flush drains.
-  if(!txEventQueue) txEventQueue = xQueueCreate(TX_JOB_QUEUE_SIZE * 3, sizeof(somfy_tx_event_t));
-  if(!txJobQueue) {
-    ESP_LOGE(TAG, "Unable to create radio TX queue");
-    return;
-  }
 #if CONFIG_FREERTOS_UNICORE
   xTaskCreate(Transceiver::txTask, "radio_tx", TX_TASK_STACK, this, TX_TASK_PRIORITY, &txTaskHandle);
 #else
