@@ -1300,17 +1300,21 @@ static void timeRequest(AsyncWebServerRequest *request, ArMiddlewareNext next, c
   // this runs, and replacing it would stop the reboot after an update.
   if(!request->multipart()) {
     request->onDisconnect([request, timer, server, ip]() {
+      const uint32_t us = timer.us();
+      if(!worthLogging(us)) return;
       char what[112];
       snprintf(what, sizeof(what), "%s %s %s from %u.%u.%u.%u total", server, request->methodToString(), request->url().c_str(),
         ip[0], ip[1], ip[2], ip[3]);
-      logElapsed(TAG, what, timer.us());
+      logElapsed(TAG, what, us);
     });
   }
   next();
+  const uint32_t us = timer.us();
+  if(!worthLogging(us)) return;
   char what[112];
   snprintf(what, sizeof(what), "%s %s %s from %u.%u.%u.%u handler", server, request->methodToString(), request->url().c_str(),
     ip[0], ip[1], ip[2], ip[3]);
-  logElapsed(TAG, what, timer.us());
+  logElapsed(TAG, what, us);
 }
 
 void Web::begin() {

@@ -26,10 +26,13 @@ class ElapsedTimer {
     uint32_t us() const { return micros() - _start; }
 };
 
+// Whether logElapsed() would print a timing this long.  Check it before
+// building the description so the common, fast case costs nothing.
+static inline bool worthLogging(uint32_t us) { return us / 1000 >= TIMING_LOG_MIN_MS; }
 // Logs how long something took as milliseconds with microsecond precision.
 static inline void logElapsed(const char *tag, const char *what, uint32_t us) {
+  if(!worthLogging(us)) return;
   const unsigned long ms = us / 1000, frac = us % 1000;
-  if(ms < TIMING_LOG_MIN_MS) return;
   if(ms >= TIMING_SLOW_MS) ESP_LOGW(tag, "%s took %lu.%03lums (slow)", what, ms, frac);
   else ESP_LOGI(tag, "%s took %lu.%03lums", what, ms, frac);
 }

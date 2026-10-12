@@ -16,6 +16,7 @@ typedef uint8_t byte;
 
 // Fixed so anything formatted from it is deterministic.
 inline unsigned long millis() { return 0; }
+inline unsigned long micros() { return 0; }
 inline bool getLocalTime(struct tm *info, uint32_t ms = 5000) {
   (void)ms;
   time_t now = time(nullptr);

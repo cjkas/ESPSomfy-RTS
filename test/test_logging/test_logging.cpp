@@ -1,5 +1,6 @@
 #include <unity.h>
 #include "LogLockPolicy.h"
+#include "Timing.h"
 
 void setUp() {}
 void tearDown() {}
@@ -25,6 +26,20 @@ static void test_logLock_no_wait_allowed() {
   TEST_ASSERT_FALSE(keepWaitingForLogLock(LogHolder::running, 0, 0));
 }
 
+/*********************************************************************
+ * worthLogging
+ ********************************************************************/
+static void test_worthLogging_fast_timings_are_skipped() {
+  TEST_ASSERT_FALSE(worthLogging(0));
+  TEST_ASSERT_FALSE(worthLogging(999));
+  TEST_ASSERT_FALSE(worthLogging(TIMING_LOG_MIN_MS * 1000 - 1));
+}
+static void test_worthLogging_from_the_threshold() {
+  TEST_ASSERT_TRUE(worthLogging(TIMING_LOG_MIN_MS * 1000));
+  TEST_ASSERT_TRUE(worthLogging(TIMING_SLOW_MS * 1000));
+  TEST_ASSERT_TRUE(worthLogging(UINT32_MAX));
+}
+
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
@@ -34,5 +49,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_logLock_waits_for_a_holder_preempted_here);
   RUN_TEST(test_logLock_gives_up_on_a_holder_preempted_elsewhere);
   RUN_TEST(test_logLock_no_wait_allowed);
+  RUN_TEST(test_worthLogging_fast_timings_are_skipped);
+  RUN_TEST(test_worthLogging_from_the_threshold);
   return UNITY_END();
 }
