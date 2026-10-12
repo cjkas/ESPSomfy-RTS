@@ -533,8 +533,23 @@ private:
     fmt.setBuffer(unit + offset, sizeof(unit) - offset);
   }
 
+  // An item too big for the unit buffer is left out so the JSON stays valid.
+  // Skipping one produces nothing, so go on to the next until something is
+  // produced or the document is done.
   void produceNext() {
     consumed = 0;
+    do produceUnit(); while(unitLen == 0 && section != S_DONE);
+  }
+
+  // True when the unit just formatted didn't fit.  It is logged and skipped.
+  bool overflowed(const char *what, uint8_t id) {
+    if(!fmt.overflowed()) return false;
+    ESP_LOGE(TAG, "/controller: %s %u doesn't fit in %u bytes, leaving it out", what, id, (unsigned)sizeof(unit));
+    unitLen = 0;
+    return true;
+  }
+
+  void produceUnit() {
     unitLen = 0;
     switch(section) {
       case S_HEADER: {
@@ -555,6 +570,8 @@ private:
         serializeGitVersion(fmt);
         fmt.endObject();
         fmt.beginArray("rooms");
+        // Only fixed size values so this can't happen short of a bug.
+        if(fmt.overflowed()) ESP_LOGE(TAG, "/controller: header doesn't fit in %u bytes", (unsigned)sizeof(unit));
         unitLen = fmt.length();
         section = S_ROOMS;
         idx = 0;
@@ -577,6 +594,7 @@ private:
         fmt.beginObject();
         serializeRoom(&somfy.rooms[idx], fmt);
         fmt.endObject();
+        if(overflowed("room", somfy.rooms[idx].roomId)) { idx++; return; }
         unitLen = pos + fmt.length();
         idx++;
         firstInArray = false;
@@ -599,6 +617,7 @@ private:
         fmt.beginObject();
         serializeShade(&somfy.shades[idx], fmt);
         fmt.endObject();
+        if(overflowed("shade", somfy.shades[idx].getShadeId())) { idx++; return; }
         unitLen = pos + fmt.length();
         idx++;
         firstInArray = false;
@@ -622,6 +641,7 @@ private:
           fmt.beginObject();
           serializeGroupRef(g, fmt);
           fmt.beginArray("linkedShades");
+          if(overflowed("group", g->getGroupId())) { idx++; return; }
           unitLen = pos + fmt.length();
           lsIdx = 0;
           firstInArray = false;
@@ -650,6 +670,7 @@ private:
         fmt.beginObject();
         serializeShadeRef(lshade, fmt);
         fmt.endObject();
+        if(overflowed("linked shade", lshade->getShadeId())) { lsIdx++; return; }
         unitLen = pos + fmt.length();
         lsIdx++;
         firstInLSArray = false;
