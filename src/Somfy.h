@@ -1,5 +1,6 @@
 #ifndef SOMFY_H
 #define SOMFY_H
+#include <Preferences.h>
 #include "ConfigSettings.h"
 #include "WResp.h"
 
@@ -421,7 +422,8 @@ struct transceiver_config_t {
     void save();
     void load();
     void apply();
-    void removeNVSKey(const char *key);
+    // Removes a key no longer used from the open CC1101 namespace.
+    void removeNVSKey(Preferences &pref, const char *key);
 };
 class Transceiver {
   private:

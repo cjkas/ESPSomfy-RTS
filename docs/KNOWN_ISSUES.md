@@ -57,3 +57,26 @@ Unlike the `/controller` HTTP crash, this path does **not** abort — there is n
 
 - Not the same code path as the `/controller` crash. Solve independently.
 - Worth grepping for `JsonSockEvent` usages that iterate collections (see references in `Somfy.cpp`, `ESPNetwork.cpp`, `GitOTA.cpp`) to identify the most at-risk events.
+
+## Rolling codes written from two tasks
+
+**Status:** open
+**Location:** `SomfyRemote::sendCommandAfter` and `setRollingCode` in [src/Somfy.cpp](../src/Somfy.cpp), the `/setRollingCode` handlers in [src/Web.cpp](../src/Web.cpp), and `ShadeConfigFile::readShadeRecord`/`readGroupRecord` in [src/ConfigFile.cpp](../src/ConfigFile.cpp).
+
+### Summary
+
+Sending a command reads the next rolling code, queues the frame, then commits the code (`peekNextRollingCode` → `submitTx` → `commitRollingCode`), all on `loop()`. `/setRollingCode` and a shades restore change the same remote's `lastRollingCode` and its `ShadeCodes` NVS key from the async web server task, with no lock against that sequence. Each NVS write is safe on its own, since every function opens its own handle (see [ADR-0001](adr/0001-local-nvs-handles-no-wrapper.md)), but the read-then-commit sequence is not.
+
+### Concrete failure modes
+
+1. `/setRollingCode` lands between the peek and the commit of a command. The command's commit overwrites the code just set, so the set has no effect.
+2. A restore reads `ShadeCodes` while a command commits a newer code. The restored shade can come back with the older code, and the motor rejects its frames until the code passes the newer one.
+
+### Fix options (pick one later)
+
+- **(a) Run these handlers on `loop()`.** Queue `/setRollingCode` and restore through the web command queue like shade commands, so `loop()` is the only task that touches a remote's rolling code. Part of making `loop()` the only owner of the shade model.
+- **(b) A rolling-code lock.** Hold a mutex across peek → queue → commit, and in `setRollingCode` and restore. Narrower, but it adds a lock to the command path.
+
+### Related
+
+- Same root cause as [Concurrent mutation during chunked `/controller` response](#concurrent-mutation-during-chunked-controller-response): the web server task changes the shade model that `loop()` owns.

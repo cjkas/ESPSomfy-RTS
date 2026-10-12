@@ -20,7 +20,6 @@
 
 static const char *TAG = "Somfy";
 
-extern Preferences pref;
 extern SomfyShadeController somfy;
 extern SocketEmitter sockEmit;
 extern ConfigSettings settings;
@@ -154,6 +153,7 @@ void SomfyShadeController::updateGroupFlags() {
 }
 #ifdef USE_NVS
 bool SomfyShadeController::loadLegacy() {
+  Preferences pref;
   ESP_LOGI(TAG, "Loading Legacy shades using NVS");
   pref.begin("Shades", true);
   pref.getBytes("shadeIds", this->m_shadeIds, sizeof(this->m_shadeIds));
@@ -203,6 +203,7 @@ bool SomfyShadeController::loadLegacy() {
 }
 #endif
 bool SomfyShadeController::begin() {
+  Preferences pref;
   // Load up all the configuration data.
   //ShadeConfigFile::getAppVersion(this->appVersion);
   ESP_LOGI(TAG, "App Version:%u.%u.%u", settings.appVersion.major, settings.appVersion.minor, settings.appVersion.build);
@@ -357,6 +358,7 @@ void SomfyGroup::clear() {
   memset(&this->linkedShades, 0x00, sizeof(this->linkedShades));
 }
 bool SomfyShade::linkRemote(uint32_t address, uint16_t rollingCode) {
+  Preferences pref;
   // Check to see if the remote is already linked. If it is
   // just return true after setting the rolling code
   for(uint8_t i = 0; i < SOMFY_MAX_LINKED_REMOTES; i++) {
@@ -409,6 +411,7 @@ bool SomfyGroup::linkShade(uint8_t shadeId) {
 }
 void SomfyShade::commit() { somfy.commit(); }
 void SomfyShade::commitShadePosition() {
+  Preferences pref;
   somfy.isDirty = true;
   #ifdef USE_NVS
   char shadeKey[15];
@@ -422,6 +425,7 @@ void SomfyShade::commitShadePosition() {
   #endif
 }
 void SomfyShade::commitMyPosition() {
+  Preferences pref;
   somfy.isDirty = true;
   #ifdef USE_NVS
   if(somfy.useNVS()) {
@@ -435,6 +439,7 @@ void SomfyShade::commitMyPosition() {
   #endif
 }
 void SomfyShade::commitTiltPosition() {
+  Preferences pref;
   somfy.isDirty = true;
   #ifdef USE_NVS
   if(somfy.useNVS()) {
@@ -448,6 +453,7 @@ void SomfyShade::commitTiltPosition() {
   #endif
 }
 bool SomfyShade::unlinkRemote(uint32_t address) {
+  Preferences pref;
   for(uint8_t i = 0; i < SOMFY_MAX_LINKED_REMOTES; i++) {
     if(this->linkedRemotes[i].getRemoteAddress() == address) {
       this->linkedRemotes[i].setRemoteAddress(0);
@@ -917,6 +923,7 @@ void SomfyShade::checkMovement() {
 }
 #ifdef USE_NVS
 void SomfyShade::load() {
+    Preferences pref;
     char shadeKey[15];
     uint32_t linkedAddresses[SOMFY_MAX_LINKED_REMOTES];
     memset(linkedAddresses, 0x00, sizeof(uint32_t) * SOMFY_MAX_LINKED_REMOTES);
@@ -2708,6 +2715,7 @@ bool SomfyShade::moveToTarget(float pos, float tilt) {
   return true;
 }
 bool SomfyShade::save() {
+  Preferences pref;
   #ifdef USE_NVS
   if(somfy.useNVS()) {
     char shadeKey[15];
@@ -3285,6 +3293,7 @@ SomfyShade *SomfyShadeController::addShade(JsonObject &obj) {
   return shade;
 }
 SomfyShade *SomfyShadeController::addShade() {
+  Preferences pref;
   uint8_t shadeId = this->getNextShadeId();
   // So the next shade id will be the first one we run into with an id of 255 so
   // if it gets deleted in the middle then it will get the first slot that is empty.
@@ -3527,6 +3536,7 @@ uint32_t SomfyShadeController::sendFrame(somfy_frame_t &frame, uint8_t repeat, u
   return this->transceiver.submitTx(job, priority, delayMs);
 }
 bool SomfyShadeController::deleteShade(uint8_t shadeId) {
+  Preferences pref;
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
     if(this->shades[i].getShadeId() == shadeId) {
       shades[i].emitState("shadeRemoved");
@@ -3594,6 +3604,7 @@ bool SomfyShadeController::loadShadesFile(const char *filename) { return ShadeCo
 // it has been queued.  After that lastRollingCode holds what NVS does.
 uint16_t SomfyRemote::peekNextRollingCode() {
   return nextRollingCode(this->m_rollingCodeSynced, this->lastRollingCode, [this]() {
+    Preferences pref;
     if(!pref.begin("ShadeCodes")) {
       ESP_LOGE(TAG, "peekNextRollingCode() pref.begin(ShadeCodes) FAILED");
     }
@@ -3603,6 +3614,7 @@ uint16_t SomfyRemote::peekNextRollingCode() {
   });
 }
 void SomfyRemote::commitRollingCode(uint16_t code) {
+  Preferences pref;
   if(!pref.begin("ShadeCodes")) {
     ESP_LOGE(TAG, "commitRollingCode() pref.begin(ShadeCodes) FAILED");
   }
@@ -3617,6 +3629,7 @@ uint16_t SomfyRemote::p_lastRollingCode(uint16_t code) {
   return old;
 }
 uint16_t SomfyRemote::setRollingCode(uint16_t code) {
+  Preferences pref;
   if(this->lastRollingCode != code) {
     pref.begin("ShadeCodes");
     pref.putUShort(this->m_remotePrefId, code);
@@ -4295,6 +4308,7 @@ void transceiver_config_t::toJSON(JsonObject& obj) {
 }
 */
 void transceiver_config_t::save() {
+    Preferences pref;
     pref.begin("CC1101");
     pref.clear();
     pref.putUChar("type", this->type);
@@ -4343,13 +4357,14 @@ void transceiver_config_t::save() {
    
     ESP_LOGI(TAG, "Save Radio Settings SCK:%u MISO:%u MOSI:%u CSN:%u RX:%u TX:%u", this->SCKPin, this->MISOPin, this->MOSIPin, this->CSNPin, this->RXPin, this->TXPin);
 }
-void transceiver_config_t::removeNVSKey(const char *key) {
+void transceiver_config_t::removeNVSKey(Preferences &pref, const char *key) {
   if(pref.isKey(key)) {
     ESP_LOGD(TAG, "Removing NVS Key: CC1101.%s", key);
     pref.remove(key);
   }
 }
 void transceiver_config_t::load() {
+    Preferences pref;
     esp_chip_info_t ci;
     esp_chip_info(&ci);
     switch(ci.model) {
@@ -4413,32 +4428,33 @@ void transceiver_config_t::load() {
     this->rxBandwidth = pref.getFloat("rxBandwidth", this->rxBandwidth);
     this->proto = static_cast<radio_proto>(pref.getChar("proto", static_cast<uint8_t>(this->proto)));
     this->noiseDetection = pref.getBool("noiseDetect", false);
-    this->removeNVSKey("internalCCMode");
-    this->removeNVSKey("modulationMode");
-    this->removeNVSKey("channel");
-    this->removeNVSKey("channelSpacing");
-    this->removeNVSKey("dataRate");
-    this->removeNVSKey("syncMode");
-    this->removeNVSKey("syncWordHigh");
-    this->removeNVSKey("syncWordLow");
-    this->removeNVSKey("addrCheckMode");
-    this->removeNVSKey("checkAddr");
-    this->removeNVSKey("dataWhitening");
-    this->removeNVSKey("pktFormat");
-    this->removeNVSKey("pktLengthMode");
-    this->removeNVSKey("pktLength");
-    this->removeNVSKey("useCRC");
-    this->removeNVSKey("autoFlushCRC");
-    this->removeNVSKey("disableDCFilter");
-    this->removeNVSKey("enableManchester");
-    this->removeNVSKey("enableFEC");
-    this->removeNVSKey("minPreambleBytes");
-    this->removeNVSKey("pqtThreshold");
-    this->removeNVSKey("appendStatus");
+    this->removeNVSKey(pref, "internalCCMode");
+    this->removeNVSKey(pref, "modulationMode");
+    this->removeNVSKey(pref, "channel");
+    this->removeNVSKey(pref, "channelSpacing");
+    this->removeNVSKey(pref, "dataRate");
+    this->removeNVSKey(pref, "syncMode");
+    this->removeNVSKey(pref, "syncWordHigh");
+    this->removeNVSKey(pref, "syncWordLow");
+    this->removeNVSKey(pref, "addrCheckMode");
+    this->removeNVSKey(pref, "checkAddr");
+    this->removeNVSKey(pref, "dataWhitening");
+    this->removeNVSKey(pref, "pktFormat");
+    this->removeNVSKey(pref, "pktLengthMode");
+    this->removeNVSKey(pref, "pktLength");
+    this->removeNVSKey(pref, "useCRC");
+    this->removeNVSKey(pref, "autoFlushCRC");
+    this->removeNVSKey(pref, "disableDCFilter");
+    this->removeNVSKey(pref, "enableManchester");
+    this->removeNVSKey(pref, "enableFEC");
+    this->removeNVSKey(pref, "minPreambleBytes");
+    this->removeNVSKey(pref, "pqtThreshold");
+    this->removeNVSKey(pref, "appendStatus");
     pref.end();
     //this->printBuffer = somfy.transceiver.printBuffer;
 }
 void transceiver_config_t::apply() {
+    Preferences pref;
     // A transmission in flight stops after its current frame so the radio can
     // be reconfigured.  Queued frames are already encoded and go out with the
     // new settings.

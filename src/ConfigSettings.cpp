@@ -10,7 +10,6 @@
 
 static const char *TAG = "Config";
 
-Preferences pref;
 
 void restore_options_t::fromJSON(JsonObject &obj) {
   if(!obj["shades"].isNull()) this->shades = obj["shades"];
@@ -190,6 +189,7 @@ bool ConfigSettings::begin() {
   return true;
 }
 bool ConfigSettings::load() {
+  Preferences pref;
   this->fwVersion.parse(FW_VERSION);
   this->getAppVersion();
   pref.begin("CFG");
@@ -224,6 +224,7 @@ bool ConfigSettings::getAppVersion() {
   return true;
 }
 bool ConfigSettings::save() {
+  Preferences pref;
   pref.begin("CFG");
   pref.putString("hostname", this->hostname);
   pref.putBool("ssdpBroadcast", this->ssdpBroadcast);
@@ -318,6 +319,7 @@ bool MQTTSettings::fromJSON(JsonObject &obj) {
   return true;
 }
 bool MQTTSettings::save() {
+  Preferences pref;
   pref.begin("MQTT");
   pref.clear();
   pref.putString("protocol", this->protocol);
@@ -333,6 +335,7 @@ bool MQTTSettings::save() {
   return true;
 }
 bool MQTTSettings::load() {
+  Preferences pref;
   pref.begin("MQTT");
   pref.getString("protocol", this->protocol, sizeof(this->protocol));
   pref.getString("hostname", this->hostname, sizeof(this->hostname));
@@ -362,6 +365,7 @@ bool NTPSettings::begin() {
   return true;
 }
 bool NTPSettings::save() {
+  Preferences pref;
   pref.begin("NTP");
   pref.clear();
   pref.putString("ntpServer", this->ntpServer);
@@ -374,6 +378,7 @@ bool NTPSettings::save() {
   return true;
 }
 bool NTPSettings::load() {
+  Preferences pref;
   pref.begin("NTP");
   pref.getString("ntpServer", this->ntpServer, sizeof(this->ntpServer));
   pref.getString("posixZone", this->posixZone, sizeof(this->posixZone));
@@ -425,6 +430,7 @@ bool IPSettings::toJSON(JsonObject &obj) {
   return true;  
 }
 bool IPSettings::save() {
+  Preferences pref;
   pref.begin("IP");
   pref.clear();
   pref.putBool("dhcp", this->dhcp);
@@ -437,6 +443,7 @@ bool IPSettings::save() {
   return true;
 }
 bool IPSettings::load() {
+  Preferences pref;
   pref.begin("IP");
   this->dhcp = pref.getBool("dhcp", true);
   char buff[16];
@@ -485,6 +492,7 @@ bool SecuritySettings::toJSON(JsonObject &obj) {
   return true;  
 }
 bool SecuritySettings::save() {
+  Preferences pref;
   pref.begin("SEC");
   pref.clear();
   pref.putChar("type", static_cast<uint8_t>(this->type));
@@ -496,6 +504,7 @@ bool SecuritySettings::save() {
   return true;
 }
 bool SecuritySettings::load() {
+  Preferences pref;
   pref.begin("SEC");
   this->type = static_cast<security_types>(pref.getChar("type", 0));
   if(pref.isKey("username")) pref.getString("username", this->username, sizeof(this->username));
@@ -530,6 +539,7 @@ bool WifiSettings::toJSON(JsonObject &obj) {
   return true;
 }
 bool WifiSettings::save() {
+  Preferences pref;
   pref.begin("WIFI");
   pref.clear();
   pref.putString("ssid", this->ssid);
@@ -540,6 +550,7 @@ bool WifiSettings::save() {
   return true;
 }
 bool WifiSettings::load() {
+  Preferences pref;
   pref.begin("WIFI");
   pref.getString("ssid", this->ssid, sizeof(this->ssid));
   pref.getString("passphrase", this->passphrase, sizeof(this->passphrase));
@@ -623,6 +634,7 @@ bool EthernetSettings::usesPin(uint8_t pin) {
   return false;  
 }
 bool EthernetSettings::save() {
+  Preferences pref;
   pref.begin("ETH");
   pref.clear();
   pref.putChar("boardType", this->boardType);
@@ -636,6 +648,7 @@ bool EthernetSettings::save() {
   return true;
 }
 bool EthernetSettings::load() {
+  Preferences pref;
   pref.begin("ETH");
   this->boardType = pref.getChar("boardType", this->boardType);
   this->phyType = static_cast<eth_phy_type_t>(pref.getChar("phyType", ETH_PHY_LAN8720));
