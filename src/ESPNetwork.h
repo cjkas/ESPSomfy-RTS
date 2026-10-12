@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <WiFi.h>
+#include "Utils.h"
 
 #ifndef ESPNetwork_h
 #define ESPNetwork_h
@@ -21,9 +22,7 @@ class ESPNetwork {
   protected:
     unsigned long lastEmit = 0;
     unsigned long lastMDNS = 0;
-    unsigned long lastRSSIEmit = 0;
-    int lastRSSI = 0;
-    int lastChannel = 0;
+    RssiBroadcast rssiBroadcast;
     int linkSpeed = 0;
     bool _connecting = false;
   public:

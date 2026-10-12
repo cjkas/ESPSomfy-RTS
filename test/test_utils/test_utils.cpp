@@ -197,6 +197,49 @@ static void test_rssiNeedsEmit_either_direction() {
   TEST_ASSERT_TRUE(rssiNeedsEmit(-73, -70, 6, 6, 10000, 3, 10000));
 }
 
+/*********************************************************************
+ * RssiBroadcast
+ ********************************************************************/
+static RssiBroadcast broadcastAt(int rssi, int channel, uint32_t at) {
+  RssiBroadcast b;
+  b.sent(true, rssi, channel, at);
+  return b;
+}
+static void test_rssiBroadcast_client_emit_keeps_baseline() {
+  // A new client gets the current RSSI right as it drops 5 dBm.  The clients
+  // already connected must still get the change.
+  RssiBroadcast b = broadcastAt(-60, 6, 0);
+  b.sent(false, -65, 6, 20000);
+  TEST_ASSERT_EQUAL_INT(-60, b.rssi);
+  TEST_ASSERT_EQUAL_UINT32(0, b.at);
+  TEST_ASSERT_TRUE(b.due(-65, 6, 20000, 3, 10000));
+}
+static void test_rssiBroadcast_broadcast_moves_baseline() {
+  RssiBroadcast b = broadcastAt(-60, 6, 0);
+  b.sent(true, -65, 6, 20000);
+  TEST_ASSERT_EQUAL_INT(-65, b.rssi);
+  TEST_ASSERT_EQUAL_UINT32(20000, b.at);
+  // Measured from the new baseline and too soon after it.
+  TEST_ASSERT_FALSE(b.due(-66, 6, 40000, 3, 10000));
+  TEST_ASSERT_FALSE(b.due(-70, 6, 25000, 3, 10000));
+  TEST_ASSERT_TRUE(b.due(-70, 6, 30000, 3, 10000));
+}
+static void test_rssiBroadcast_channel_change_is_due() {
+  RssiBroadcast b = broadcastAt(-60, 6, 1000);
+  TEST_ASSERT_TRUE(b.due(-60, 11, 1000, 3, 10000));
+}
+static void test_rssiBroadcast_client_emit_on_disconnect_keeps_baseline() {
+  RssiBroadcast b = broadcastAt(-60, 6, 0);
+  b.sent(false, -100, -1, 5000);
+  TEST_ASSERT_EQUAL_INT(6, b.channel);
+  TEST_ASSERT_FALSE(b.due(-60, 6, 5000, 3, 10000));
+}
+static void test_rssiBroadcast_hold_off_across_millis_wrap() {
+  RssiBroadcast b = broadcastAt(-60, 6, 0xFFFFF000u);
+  TEST_ASSERT_FALSE(b.due(-70, 6, 0x00001000u, 3, 10000));  // 8192ms later
+  TEST_ASSERT_TRUE(b.due(-70, 6, 0x00002000u, 3, 10000));   // 12288ms later
+}
+
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
@@ -228,5 +271,10 @@ int main(int argc, char **argv) {
   RUN_TEST(test_rssiNeedsEmit_real_change_after_interval_emits);
   RUN_TEST(test_rssiNeedsEmit_real_change_too_soon_waits);
   RUN_TEST(test_rssiNeedsEmit_either_direction);
+  RUN_TEST(test_rssiBroadcast_client_emit_keeps_baseline);
+  RUN_TEST(test_rssiBroadcast_broadcast_moves_baseline);
+  RUN_TEST(test_rssiBroadcast_channel_change_is_due);
+  RUN_TEST(test_rssiBroadcast_client_emit_on_disconnect_keeps_baseline);
+  RUN_TEST(test_rssiBroadcast_hold_off_across_millis_wrap);
   return UNITY_END();
 }

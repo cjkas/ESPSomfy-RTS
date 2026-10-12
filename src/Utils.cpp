@@ -135,3 +135,12 @@ bool rssiNeedsEmit(int rssi, int lastRssi, int channel, int lastChannel, uint32_
   int delta = rssi > lastRssi ? rssi - lastRssi : lastRssi - rssi;
   return delta >= minDelta && sinceLastMs >= minMs;
 }
+bool RssiBroadcast::due(int rssi, int channel, uint32_t now, int minDelta, uint32_t minMs) const {
+  return rssiNeedsEmit(rssi, this->rssi, channel, this->channel, now - this->at, minDelta, minMs);
+}
+void RssiBroadcast::sent(bool broadcast, int rssi, int channel, uint32_t now) {
+  if(!broadcast) return;
+  this->rssi = rssi;
+  this->channel = channel;
+  this->at = now;
+}
