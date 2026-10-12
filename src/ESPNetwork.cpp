@@ -234,7 +234,8 @@ void ESPNetwork::emitSockets(uint8_t num) {
         this->lastRSSIEmit = millis();
       }
   }
-  this->emitHeap(num);
+  // A broadcast comes from emitSockets(), which has already sent memStatus.
+  if(num != 255) this->emitHeap(num);
 }
 void ESPNetwork::setConnected(conn_types_t connType) {
   safe_wdt_reset();
