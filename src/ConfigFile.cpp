@@ -612,7 +612,6 @@ bool ShadeConfigFile::restoreFile(SomfyShadeController *s, const char *filename,
     transceiver_config_t cfg = s->transceiver.config;
     this->readTransRecord(cfg);
     s->transceiver.setConfig(cfg);
-    s->transceiver.save();
   }
   if(opts.settings || opts.network) settings.save();
   if(opts.settings) settings.NTP.save();

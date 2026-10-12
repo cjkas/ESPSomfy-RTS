@@ -2411,7 +2411,6 @@ void Web::begin() {
       }
       JsonObject obj = json.as<JsonObject>();
       somfy.transceiver.fromJSON(obj);
-      somfy.transceiver.save();
       AsyncJsonResp resp;
       resp.beginResponse(request, g_async_content, sizeof(g_async_content));
       resp.beginObject();

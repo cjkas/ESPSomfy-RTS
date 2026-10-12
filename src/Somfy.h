@@ -482,8 +482,8 @@ class Transceiver {
     bool printBuffer = false;
     //bool toJSON(JsonObject& obj);
     bool fromJSON(JsonObject& obj);
+    // Swaps in, saves and applies the config.
     void setConfig(const transceiver_config_t &cfg);
-    bool save();
     bool begin();
     void loop();
     bool end();

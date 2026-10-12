@@ -4254,12 +4254,17 @@ bool Transceiver::fromJSON(JsonObject& obj) {
     return true;
 }
 void Transceiver::setConfig(const transceiver_config_t &cfg) {
-  // Swap the whole config in once any transmission in flight has stopped so the
-  // radio task never sees a half updated one.  Queued jobs are kept and go out
-  // with the new settings.
+  // Swap the whole config in, save it and set the radio up with it once any
+  // transmission in flight has stopped, all under one lock, so the radio task
+  // never sees a half updated config or transmits before the radio is set up
+  // for the new one.  Queued jobs are kept and go out with the new settings.
+  // Saving first means a radio that locks up while applying comes back with
+  // the new config after the reboot.
   RadioLock lock(portMAX_DELAY, true);
   if(this->config.enabled && this->config.TXPin != cfg.TXPin) pinMode(this->config.TXPin, INPUT);
   this->config = cfg;
+  this->config.save();
+  this->config.apply();
 }
 bool Transceiver::usesPin(uint8_t pin) {
   if(this->config.enabled) {
@@ -4272,11 +4277,6 @@ bool Transceiver::usesPin(uint8_t pin) {
       return true;
   }
   return false;  
-}
-bool Transceiver::save() {
-    this->config.save();
-    this->config.apply();
-    return true;
 }
 bool Transceiver::end() {
     // Nothing may transmit (and re-enable receive) after this.  It is not
