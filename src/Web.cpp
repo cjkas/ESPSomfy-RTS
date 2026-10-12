@@ -134,14 +134,19 @@ bool Web::queueCommand(const web_command_t &cmd) {
   }
   return true;
 }
+// Only setting positions never goes on air.
+static bool usesRadio(web_cmd_t type) { return type != web_cmd_t::set_positions; }
 void Web::processQueue() {
   if(!webCmdQueue) return;
   web_command_t cmd;
   // The client was already told the command was accepted so leave it queued
   // until the radio has room rather than have the radio drop it.  While TX is
   // suspended nothing gets through anyway so don't hold anything back then.
-  while((somfy.transceiver.txSuspended() || somfy.transceiver.txHasRoom()) &&
-        xQueueReceive(webCmdQueue, &cmd, 0) == pdTRUE) {
+  // Commands run in order, so only the one at the head can be held back.
+  while(xQueuePeek(webCmdQueue, &cmd, 0) == pdTRUE) {
+    if(usesRadio(cmd.type) && !somfy.transceiver.txSuspended() && !somfy.transceiver.txHasRoom()) break;
+    // loop() is the only consumer so this is the command we peeked.
+    xQueueReceive(webCmdQueue, &cmd, 0);
     bool sent = true;
     switch(cmd.type) {
       case web_cmd_t::shade_command: {
