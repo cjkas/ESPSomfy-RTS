@@ -216,6 +216,10 @@ class SomfyShade : public SomfyRemote {
     ShadeTxState tx;
     bool sendStop(int8_t dir, bool tilt);
     bool sendSetMy(uint16_t delayMs, float oldPos, float oldTiltPos);
+    // Makes pos/tiltPos the favorite and tells the motor to store it.
+    bool storeMyPosition(float pos, float tiltPos);
+    // Repeats for a tilt command, more for a separate tilt motor.
+    uint8_t tiltRepeats() const;
     void runToLimit(int8_t dir, bool tilt, uint32_t since);
   public:
     uint8_t roomId = 0;

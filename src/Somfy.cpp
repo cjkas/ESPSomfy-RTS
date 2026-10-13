@@ -2411,15 +2411,7 @@ bool SomfyShade::setMyPosition(int8_t pos, int8_t tilt) {
         this->settingMyPos = true;
       }
     }
-    else {
-      // Set it before sending so processFrame doesn't head for the old one.  It
-      // is only committed once the motor was told about it.
-      const float oldTiltPos = this->myTiltPos;
-      this->p_myTiltPos(this->currentTiltPos);
-      sent = this->sendSetMy(0, this->myPos, oldTiltPos);
-      this->emitState();
-      return sent;
-    }
+    else return this->storeMyPosition(-1.0f, this->currentTiltPos);
     this->commitMyPosition();
     this->emitState();
   }
@@ -2444,17 +2436,7 @@ bool SomfyShade::setMyPosition(int8_t pos, int8_t tilt) {
           this->settingMyPos = true;
         }
       }
-      else {
-        // Set it before sending so processFrame doesn't head for the old one.
-        // It is only committed once the motor was told about it.
-        const float oldPos = this->myPos;
-        const float oldTiltPos = this->myTiltPos;
-        this->p_myPos(this->currentPos);
-        this->p_myTiltPos(this->currentTiltPos);
-        sent = this->sendSetMy(0, oldPos, oldTiltPos);
-        this->emitState();
-        return sent;
-      }
+      else return this->storeMyPosition(this->currentPos, this->currentTiltPos);
       this->commitMyPosition();
       this->emitState();
   }
@@ -2478,17 +2460,19 @@ bool SomfyShade::setMyPosition(int8_t pos, int8_t tilt) {
         this->settingMyPos = true;
       }
     }
-    else {
-      // Set it before sending so processFrame doesn't head for the old one.  It
-      // is only committed once the motor was told about it.
-      const float oldPos = this->myPos;
-      const float oldTiltPos = this->myTiltPos;
-      this->p_myPos(this->currentPos);
-      this->p_myTiltPos(-1);
-      sent = this->sendSetMy(0, oldPos, oldTiltPos);
-      if(sent) this->emitState();
-    }
+    else sent = this->storeMyPosition(this->currentPos, -1.0f);
   }
+  return sent;
+}
+bool SomfyShade::storeMyPosition(float pos, float tiltPos) {
+  // Set it before sending so processFrame doesn't head for the old one.  It is
+  // only committed once the motor was told about it.
+  const float oldPos = this->myPos;
+  const float oldTiltPos = this->myTiltPos;
+  this->p_myPos(pos);
+  this->p_myTiltPos(tiltPos);
+  const bool sent = this->sendSetMy(0, oldPos, oldTiltPos);
+  this->emitState();
   return sent;
 }
 bool SomfyShade::moveToMyPosition() {
@@ -2639,14 +2623,14 @@ bool SomfyGroup::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSiz
   this->emitState();
   return true;
 }
+uint8_t SomfyShade::tiltRepeats() const { return this->tiltType == tilt_types::tiltmotor ? TILT_REPEATS : this->repeats; }
 bool SomfyShade::sendTiltCommand(somfy_commands cmd) {
-  const uint8_t repeat = this->tiltType == tilt_types::tiltmotor ? TILT_REPEATS : this->repeats;
   float target;
   if(cmd == somfy_commands::Up) target = 0.0f;
   else if(cmd == somfy_commands::Down) target = 100.0f;
   else if(cmd == somfy_commands::My) target = this->currentTiltPos;
   else return true;
-  if(!SomfyRemote::sendCommand(cmd, repeat)) return false;
+  if(!SomfyRemote::sendCommand(cmd, this->tiltRepeats())) return false;
   this->p_tiltTarget(target);
   return true;
 }
@@ -2662,7 +2646,7 @@ bool SomfyShade::moveToTiltTarget(float target) {
       if(cmd != somfy_commands::My) {
         ESP_LOGI(TAG, "Moving Tilt to %.2f%% from %.2f%% using %s",
             target, this->currentTiltPos, translateSomfyCommand(cmd).c_str());
-        if(!SomfyRemote::sendCommand(cmd, this->tiltType == tilt_types::tiltmotor ? TILT_REPEATS : this->repeats)) return false;
+        if(!SomfyRemote::sendCommand(cmd, this->tiltRepeats())) return false;
       }
       // If the blind is currently moving then the command to stop it
       // will occur on its own when the tilt target is set.

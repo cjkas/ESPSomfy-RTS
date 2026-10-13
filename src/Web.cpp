@@ -1282,6 +1282,14 @@ void Web::handleNotFound(AsyncWebServerRequest *request) {
 // long the whole exchange took.  The total includes chunked bodies like
 // /controller that are built while they are sent, after the handler returns.
 // The server name must be a literal as the disconnect handler keeps it.
+// Logs how long part of a request took, when it is worth logging.
+static void logRequestTime(const char *server, AsyncWebServerRequest *request, const IPAddress &ip, const char *part, uint32_t us) {
+  if(!worthLogging(us)) return;
+  char what[112];
+  snprintf(what, sizeof(what), "%s %s %s from %u.%u.%u.%u %s", server, request->methodToString(), request->url().c_str(),
+    ip[0], ip[1], ip[2], ip[3], part);
+  logElapsed(TAG, what, us);
+}
 static void timeRequest(AsyncWebServerRequest *request, ArMiddlewareNext next, const char *server) {
   ElapsedTimer timer;
   // Taken now as the client may already be gone when the disconnect runs.
@@ -1289,22 +1297,10 @@ static void timeRequest(AsyncWebServerRequest *request, ArMiddlewareNext next, c
   // Uploads set their own disconnect handler while the body arrives, before
   // this runs, and replacing it would stop the reboot after an update.
   if(!request->multipart()) {
-    request->onDisconnect([request, timer, server, ip]() {
-      const uint32_t us = timer.us();
-      if(!worthLogging(us)) return;
-      char what[112];
-      snprintf(what, sizeof(what), "%s %s %s from %u.%u.%u.%u total", server, request->methodToString(), request->url().c_str(),
-        ip[0], ip[1], ip[2], ip[3]);
-      logElapsed(TAG, what, us);
-    });
+    request->onDisconnect([request, timer, server, ip]() { logRequestTime(server, request, ip, "total", timer.us()); });
   }
   next();
-  const uint32_t us = timer.us();
-  if(!worthLogging(us)) return;
-  char what[112];
-  snprintf(what, sizeof(what), "%s %s %s from %u.%u.%u.%u handler", server, request->methodToString(), request->url().c_str(),
-    ip[0], ip[1], ip[2], ip[3]);
-  logElapsed(TAG, what, us);
+  logRequestTime(server, request, ip, "handler", timer.us());
 }
 
 void Web::begin() {
