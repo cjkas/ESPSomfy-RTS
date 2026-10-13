@@ -157,7 +157,7 @@ static void test_txhold_moving_shade_is_not_held() {
   hold.mark(7, true, 1000);
   TEST_ASSERT_FALSE(hold.held());
 }
-static void test_txhold_ignores_seq_zero() {
+static void test_txhold_ignores_ticket_zero() {
   TxHold hold;
   hold.mark(0, false, 1000);
   TEST_ASSERT_FALSE(hold.held());
@@ -232,7 +232,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_flipCommand_keeps_the_rest);
   RUN_TEST(test_txhold_idle_shade_is_held);
   RUN_TEST(test_txhold_moving_shade_is_not_held);
-  RUN_TEST(test_txhold_ignores_seq_zero);
+  RUN_TEST(test_txhold_ignores_ticket_zero);
   RUN_TEST(test_txhold_first_job_wins);
   RUN_TEST(test_txhold_release_only_matches_the_held_job);
   RUN_TEST(test_txhold_new_hold_after_release);

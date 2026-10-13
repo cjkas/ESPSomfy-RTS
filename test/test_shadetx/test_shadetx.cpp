@@ -155,7 +155,7 @@ static void test_one_event_for_the_held_job_and_the_favorite() {
   TEST_ASSERT_FALSE(tx.hold.held());
   TEST_ASSERT_EQUAL_UINT32(0, tx.myTicket);
 }
-static void test_seq_zero_is_ignored() {
+static void test_ticket_zero_is_ignored() {
   ShadeTxState tx;
   tx.setMySent(0, 40.0f, 10.0f);
   tx.stopSent(0, 5000, DOWN, false);
@@ -233,7 +233,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_stop_on_air_does_nothing);
   RUN_TEST(test_stop_aborted_does_not_run_on);
   RUN_TEST(test_one_event_for_the_held_job_and_the_favorite);
-  RUN_TEST(test_seq_zero_is_ignored);
+  RUN_TEST(test_ticket_zero_is_ignored);
   RUN_TEST(test_other_jobs_are_ignored);
   RUN_TEST(test_limitTarget);
   RUN_TEST(test_check_nothing_held);
