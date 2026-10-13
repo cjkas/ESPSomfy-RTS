@@ -72,6 +72,20 @@ SensorMove ShadeSensors::onSunFlag(bool sunny, bool windy) const {
   if(!sunny && this->noSunDone) return SensorMove::retract;
   return SensorMove::none;
 }
+SensorTargets sensorTargets(SensorMove move, tilt_types tilt, float myPos, float myTiltPos) {
+  SensorTargets t;
+  if(move == SensorMove::none) return t;
+  const bool extend = move == SensorMove::extend;
+  if(tilt == tilt_types::tiltonly) {
+    t.setTilt = true;
+    t.tilt = extend ? (myTiltPos >= 0 ? myTiltPos : 100.0f) : 0.0f;
+  }
+  else {
+    t.setLift = true;
+    t.lift = extend ? (myPos >= 0 ? myPos : 100.0f) : 0.0f;
+  }
+  return t;
+}
 bool ShadeSensors::windBlocksDown(uint32_t now) const {
   return this->windLast != 0 && now - this->windLast < SOMFY_NO_WIND_REMOTE_TIMEOUT;
 }

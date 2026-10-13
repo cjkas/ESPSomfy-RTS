@@ -152,17 +152,7 @@ void SomfyShade::checkMovement() {
     case TxHoldCheck::none:
       break;
   }
-  switch(this->sensors.check(sunFlag, isSunny, isWindy, (uint32_t)curTime)) {
-    case SensorMove::extend:
-      this->p_target(this->myPos >= 0 ? this->myPos : 100.0f);
-      break;
-    case SensorMove::retract:
-      if(this->tiltType == tilt_types::tiltonly) this->p_tiltTarget(0.0f);
-      this->p_target(0.0f);
-      break;
-    case SensorMove::none:
-      break;
-  }
+  this->applySensorMove(this->sensors.check(sunFlag, isSunny, isWindy, (uint32_t)curTime));
 
   if(!tilt_first && this->direction > 0) {
     this->p_currentPos(travelPosition(this->startPos, 1, (uint32_t)(curTime - this->moveStart), downTime));
@@ -609,22 +599,7 @@ void SomfyShade::processFrame(somfy_frame_t &frame, bool internal) {
         const bool isSunny = this->flags & static_cast<uint8_t>(somfy_flags_t::Sunny);
         //this->flags |= static_cast<uint8_t>(somfy_flags_t::SunFlag);
         this->p_sunFlag(true);
-        switch(this->sensors.onSunFlag(isSunny, isWindy)) {
-          case SensorMove::extend:
-            if(this->tiltType == tilt_types::tiltonly)
-              this->p_tiltTarget(this->myTiltPos >= 0 ? this->myTiltPos : 100.0f);
-            else
-              this->p_target(this->myPos >= 0 ? this->myPos : 100.0f);
-            break;
-          case SensorMove::retract:
-            if(this->tiltType == tilt_types::tiltonly)
-              this->p_tiltTarget(0.0f);
-            else
-              this->p_target(0.0f);
-            break;
-          case SensorMove::none:
-            break;
-        }
+        this->applySensorMove(this->sensors.onSunFlag(isSunny, isWindy));
         somfy.isDirty = true;
         this->emitState();
         this->emitCommand(cmd, internal ? "internal" : "remote", frame.remoteAddress);
@@ -1007,16 +982,7 @@ void SomfyShade::processInternalCommand(somfy_commands cmd, uint8_t repeat) {
         const bool isSunny = this->flags & static_cast<uint8_t>(somfy_flags_t::Sunny);
         this->p_sunFlag(true);
         //this->flags |= static_cast<uint8_t>(somfy_flags_t::SunFlag);
-        switch(this->sensors.onSunFlag(isSunny, isWindy)) {
-          case SensorMove::extend:
-            this->p_target(this->myPos >= 0 ? this->myPos : 100.0f);
-            break;
-          case SensorMove::retract:
-            this->p_target(0.0f);
-            break;
-          case SensorMove::none:
-            break;
-        }
+        this->applySensorMove(this->sensors.onSunFlag(isSunny, isWindy));
         somfy.isDirty = true;
         this->emitState();
       }
@@ -1125,6 +1091,11 @@ void SomfyShade::runToLimit(int8_t dir, bool tilt, uint32_t since) {
   }
   // The favorite can't be set where the shade won't stop.
   this->settingMyPos = false;
+}
+void SomfyShade::applySensorMove(SensorMove move) {
+  const SensorTargets t = sensorTargets(move, this->tiltType, this->myPos, this->myTiltPos);
+  if(t.setLift) this->p_target(t.lift);
+  if(t.setTilt) this->p_tiltTarget(t.tilt);
 }
 void SomfyShade::setMovement(int8_t dir) {
   int8_t currDir = this->direction;

@@ -135,6 +135,49 @@ static void test_timers_run_across_a_millis_rollover() {
   TEST_ASSERT_TRUE(s.windBlocksDown(start + 2000));
 }
 
+/*********************************************************************
+ * sensorTargets
+ ********************************************************************/
+#define ASSERT_POS(expected, actual) TEST_ASSERT_FLOAT_WITHIN(0.01f, (expected), (actual))
+static const float NO_FAVORITE = -1.0f;
+
+static void test_lift_shade_extends_to_its_favorite() {
+  SensorTargets t = sensorTargets(SensorMove::extend, tilt_types::none, 60.0f, NO_FAVORITE);
+  TEST_ASSERT_TRUE(t.setLift);
+  ASSERT_POS(60.0f, t.lift);
+  TEST_ASSERT_FALSE(t.setTilt);
+}
+static void test_lift_shade_extends_fully_without_a_favorite() {
+  SensorTargets t = sensorTargets(SensorMove::extend, tilt_types::integrated, NO_FAVORITE, 30.0f);
+  TEST_ASSERT_TRUE(t.setLift);
+  ASSERT_POS(100.0f, t.lift);
+  TEST_ASSERT_FALSE(t.setTilt);
+}
+static void test_lift_shade_retracts_fully() {
+  SensorTargets t = sensorTargets(SensorMove::retract, tilt_types::tiltmotor, 60.0f, 30.0f);
+  TEST_ASSERT_TRUE(t.setLift);
+  ASSERT_POS(0.0f, t.lift);
+  TEST_ASSERT_FALSE(t.setTilt);
+}
+static void test_tilt_only_shade_only_moves_its_tilt() {
+  SensorTargets t = sensorTargets(SensorMove::extend, tilt_types::tiltonly, 60.0f, 30.0f);
+  TEST_ASSERT_FALSE(t.setLift);
+  TEST_ASSERT_TRUE(t.setTilt);
+  ASSERT_POS(30.0f, t.tilt);
+  t = sensorTargets(SensorMove::extend, tilt_types::tiltonly, 60.0f, NO_FAVORITE);
+  TEST_ASSERT_FALSE(t.setLift);
+  ASSERT_POS(100.0f, t.tilt);
+  t = sensorTargets(SensorMove::retract, tilt_types::tiltonly, 60.0f, 30.0f);
+  TEST_ASSERT_FALSE(t.setLift);
+  TEST_ASSERT_TRUE(t.setTilt);
+  ASSERT_POS(0.0f, t.tilt);
+}
+static void test_no_move_sets_nothing() {
+  SensorTargets t = sensorTargets(SensorMove::none, tilt_types::tiltonly, 60.0f, 30.0f);
+  TEST_ASSERT_FALSE(t.setLift);
+  TEST_ASSERT_FALSE(t.setTilt);
+}
+
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
@@ -155,5 +198,10 @@ int main(int argc, char **argv) {
   RUN_TEST(test_sun_flag_does_nothing_in_wind);
   RUN_TEST(test_clear_forgets_pending_timers);
   RUN_TEST(test_timers_run_across_a_millis_rollover);
+  RUN_TEST(test_lift_shade_extends_to_its_favorite);
+  RUN_TEST(test_lift_shade_extends_fully_without_a_favorite);
+  RUN_TEST(test_lift_shade_retracts_fully);
+  RUN_TEST(test_tilt_only_shade_only_moves_its_tilt);
+  RUN_TEST(test_no_move_sets_nothing);
   return UNITY_END();
 }

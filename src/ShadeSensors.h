@@ -1,6 +1,7 @@
 #ifndef SHADE_SENSORS_H
 #define SHADE_SENSORS_H
 #include <stdint.h>
+#include "ShadeTypes.h"
 
 // Sun and wind automation for a shade with a sun sensor.  Kept free of the
 // shade, radio and network so it can be unit tested on the PC
@@ -49,4 +50,14 @@ struct ShadeSensors {
   // Whether a remote Down is ignored because the sensor reported wind lately.
   bool windBlocksDown(uint32_t now) const;
 };
+// The targets a sensor move sets.  A tilt-only shade only moves its tilt and
+// every other shade only its lift, as Up and Down do.
+struct SensorTargets {
+  bool setLift = false;
+  float lift = 0.0f;
+  bool setTilt = false;
+  float tilt = 0.0f;
+};
+// myPos and myTiltPos are the favorite, -1 when there is none.
+SensorTargets sensorTargets(SensorMove move, tilt_types tilt, float myPos, float myTiltPos);
 #endif

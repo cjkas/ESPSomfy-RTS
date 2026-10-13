@@ -134,6 +134,8 @@ class SomfyShade : public SomfyRemote {
     // Repeats for a tilt command, more for a separate tilt motor.
     uint8_t tiltRepeats() const;
     void runToLimit(int8_t dir, bool tilt, uint32_t since);
+    // Sets the targets the sun or wind sends the shade to.
+    void applySensorMove(SensorMove move);
   public:
     uint8_t roomId = 0;
     int8_t sortOrder = 0;
