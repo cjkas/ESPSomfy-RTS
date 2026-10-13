@@ -1,6 +1,6 @@
 # Plan: split and refactor Somfy.cpp
 
-**Status:** phases 0 and 1 done (2026-10-13, commits `bbfb23e`..`505108c`); phase 2 open.
+**Status:** done. Phases 0 and 1 in `bbfb23e`..`505108c`, phase 2 in `0eb0e63`..`a176017` (2026-10-13).
 **Written:** 2026-10-13, against commit `4544eb6` on `fix/live-bugs`. Line numbers in the analysis below refer to that commit. The code now lives in the files listed under [Phase 1](#phase-1-split-the-file-by-concern).
 
 ## Why
@@ -74,22 +74,28 @@ The `esp32devdbg` app partition is 1,572,864 bytes, and before the split the ima
 For phase 2, keep new modules free of ArduinoJson, and check the flash size of every commit. If space runs out, remove log lines first.
 
 ### Phase 2: pull out the copied logic
-One module per commit, each with native tests. These follow the `ShadeMotion` pattern: plain C++, no globals, and added to `build_src_filter` in the native env in `platformio.ini`.
+**Done** in `0eb0e63`..`a176017`. Each module is plain C++ like `ShadeMotion`, with native tests (222 tests in all now):
 
-1. **`ShadeSensors` (sun/wind).** Holds the seven sun/wind fields. Interface:
-   - `onSensorFrame(sunny, windy, now)`, called when a sensor frame arrives
-   - `onSunFlag()`, called when the sun flag is turned on
-   - `check(now, sunFlag)`, which returns `none`, `extend` or `retract`
-   - `windBlocksDown(now)`
+| Module | What it holds |
+|---|---|
+| `ShadeTypes.h` | `group_types`, `shade_types` and `tilt_types`, moved out of `Somfy.h` so the modules below can use them in the native tests. |
+| `ShadeSensors.h/.cpp` | The sun and wind timers and their rules: `onSensorFrame()`, `check()`, `onSunFlag()`, `windBlocksDown()`. `sensorTargets()` turns extend/retract into targets for all three callers. |
+| `stepTargets()` in `ShadeMotion` | Where a step takes a shade, shared by received steps (`processFrame`) and group steps (`processInternalCommand`). |
+| `PulseDecoder.h/.cpp` | `decodePulse()`, the RTS timings and `somfy_rx_t`, moved out of `handleReceive`. It stays in IRAM (`0x4008xxxx`), and the tests feed it the edges `sendFrame()` produces. |
 
-   One shade method turns `extend`/`retract` into lift and tilt targets, so all three call sites use the same rule. Move the code with behaviour unchanged first. Then fix the tilt-only bugs from problem 1 in a separate commit, with a test that shows the fix.
-2. **`stepTargets()` in `ShadeMotion`.** The integrated-tilt, tilt-only and lift-only branching, built on `stepPosition()`, used by both `processFrame` and `processInternalCommand`. The 1% step in `processWaitingFrame` (a held step button) may be deliberate; keep it unless decided otherwise.
-3. **`PulseDecoder`.** The bit decoding from `handleReceive`, as `feed(durationUs)` returning true when a frame is complete. It must stay in IRAM: mark it `IRAM_ATTR` and don't call out of IRAM. The interrupt handler keeps only the noise guard, the timing and the push to the RX queue. Tests feed recorded 56-bit and 80-bit pulse trains.
-4. **Optional, later.**
-   - The four arrive-at-target blocks in `checkMovement` (lift up/down, tilt up/down) are near-copies that could share one helper.
-   - The six `getNext*Id`/`getMax*Order` functions in the controller are copies of each other.
+What changed in behaviour:
+- **Tilt-only shades and the weather** (`5f26340`): sun and wind now move only the tilt of a tilt-only shade, to the favorite tilt (or fully) and back to 0, and only the lift of every other shade. Before, each of the three callers did something different.
+- **Sun and wind timers across the `millis()` rollover**: the timers are now 32-bit like `millis()`. As 64-bit values they fired at once after the rollover every 49.7 days. This also saves 768 bytes of RAM.
+- **Step edge cases**: a group step on a tilt-only shade already at its end now goes through like a remote step. A step that can't be sized (no travel time) leaves the targets alone.
+- The 8 debug logs of the sun and wind timers are gone. They were compiled out at `CORE_DEBUG_LEVEL=3`.
 
-When each module is created, add its terms to [GLOSSARY.md](../GLOSSARY.md): "sun flag", "sensor frame", "pulse decoder".
+Kept as it was: the fixed 1% step of a held step button in `processWaitingFrame`.
+
+Left out on purpose, since neither fixes a bug or can be reached by the native tests:
+- the four near-copy arrive-at-target blocks in `checkMovement`;
+- the six `getNext*Id`/`getMax*Order` copies in the controller.
+
+Flash went from 1,546,797 to 1,545,717 bytes.
 
 ## Risks
 
@@ -104,5 +110,6 @@ Decided for phases 0 and 1:
 - Headers: `Somfy.h` stays the one header, with only `Transceiver.h` split out.
 - Log tags: every file keeps `"Somfy"`. Files that never log (`SomfyMqtt.cpp`, `SomfyEvents.cpp`) have no tag.
 
-Still open for phase 2:
-- **Tilt-only sun/wind bugs.** Fix them in their own commit right after `ShadeSensors` is extracted (recommended), or record them in KNOWN_ISSUES.md for now.
+Decided for phase 2:
+- The tilt-only sun/wind bugs were fixed in their own commit, right after `ShadeSensors` was extracted with behaviour unchanged.
+- A tilt-only shade's lift is never moved by the weather.

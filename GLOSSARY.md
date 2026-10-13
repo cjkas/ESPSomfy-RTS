@@ -30,3 +30,24 @@ Every job we submit gets exactly one *started* event, unless it is dropped befor
 
 **Rolling code**
 The per-remote counter in every Somfy frame. A motor ignores any frame whose code is not newer than the last one it accepted, so a remote's frames must go on air in the order their codes were assigned.
+
+**Pulse decoder**
+Turns the times between edges of a received transmission into a frame's bits: it finds the hardware and software sync, which also tell a 56-bit frame from an 80-bit one, then reads the Manchester-coded bits.
+
+## Shades
+
+**Favorite**
+The position a motor stores and goes to on My. A shade may have none.
+_Avoid_: My position
+
+**Step**
+A short move in one direction, sized by the shade's step time and the number of steps the frame asks for. An integrated tilt turns its slats to the end first, then moves the lift.
+
+**Sensor frame**
+A frame from a sun and wind sensor reporting whether it is sunny and whether it is windy. It carries no command; the shade decides what to do.
+
+**Sun flag**
+The per-shade switch that lets the sun move a shade. While it is on, lasting sun extends the shade and lasting cloud retracts it; wind retracts the shade whether it is on or not.
+
+**Extend / retract**
+Where the weather sends a shade: extend to its favorite, or fully when it has none; retract fully. A tilt-only shade extends and retracts its tilt, every other shade its lift.
