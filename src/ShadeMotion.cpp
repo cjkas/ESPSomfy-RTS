@@ -30,6 +30,12 @@ int8_t displayPosition(float pos, bool flip) {
   return static_cast<int8_t>(flip && pos >= 0.00f ? floor(100.0f - pos) : floor(pos));
 }
 float limitTarget(int8_t dir) { return dir > 0 ? 100.0f : 0.0f; }
+bool stepPosition(float pos, int8_t dir, uint32_t travelMs, uint16_t stepSize, uint8_t frameStepSize, float &out) {
+  if(travelMs == 0 || stepSize == 0) return false;
+  const float step = 100.0f / (static_cast<float>(travelMs) / static_cast<float>(stepSize * frameStepSize));
+  out = dir > 0 ? std::min(100.0f, pos + step) : std::max(0.0f, pos - step);
+  return true;
+}
 void TxHold::mark(uint32_t jobSeq, bool moving, uint32_t now) {
   if(jobSeq == 0 || this->seq != 0 || moving) return;
   this->seq = jobSeq;

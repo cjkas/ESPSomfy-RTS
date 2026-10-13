@@ -1745,6 +1745,7 @@ void SomfyShade::processFrame(somfy_frame_t &frame, bool internal) {
   const uint64_t curTime = millis();
   this->lastFrame.copy(frame);
   int8_t dir = 0;
+  float step;  // Where a step command takes the shade.
   this->moveStart = this->tiltStart = curTime;
   this->startPos = this->currentPos;
   this->startTiltPos = this->currentTiltPos;
@@ -2004,23 +2005,23 @@ void SomfyShade::processFrame(somfy_frame_t &frame, bool internal) {
         else if(this->currentTiltPos > 0.0f) {
           // Set the tilt position.  This should stop the lift movement.
           this->p_target(this->currentPos);
-          if(this->tiltTime == 0) return; // Avoid divide by 0.
-          this->p_tiltTarget(max(0.0f, this->currentTiltPos - (100.0f/(static_cast<float>(this->tiltTime/static_cast<float>(this->stepSize * this->lastFrame.stepSize))))));
+          if(!stepPosition(this->currentTiltPos, -1, this->tiltTime, this->stepSize, this->lastFrame.stepSize, step)) return;
+          this->p_tiltTarget(step);
         }
         else {
           // We only have the lift to move.
-          if(this->upTime == 0) return; // Avoid divide by 0.
+          if(!stepPosition(this->currentPos, -1, this->upTime, this->stepSize, this->lastFrame.stepSize, step)) return;
           this->p_tiltTarget(this->currentTiltPos);
-          this->p_target(max(0.0f, this->currentPos - (100.0f/(static_cast<float>(this->upTime/static_cast<float>(this->stepSize * this->lastFrame.stepSize))))));
+          this->p_target(step);
         }
       }
       else if(this->tiltType == tilt_types::tiltonly) {
-        if(this->tiltTime == 0 || this->stepSize == 0) return;
-        this->p_tiltTarget(max(0.0f, this->currentTiltPos - (100.0f/(static_cast<float>(this->tiltTime/static_cast<float>(this->stepSize * this->lastFrame.stepSize))))));
+        if(!stepPosition(this->currentTiltPos, -1, this->tiltTime, this->stepSize, this->lastFrame.stepSize, step)) return;
+        this->p_tiltTarget(step);
       }
       else if(this->currentPos > 0.0f) {
-        if(this->upTime == 0 || this->stepSize == 0) return;
-        this->p_target(max(0.0f, this->currentPos - (100.0f/(static_cast<float>(this->upTime/static_cast<float>(this->stepSize * this->lastFrame.stepSize))))));
+        if(!stepPosition(this->currentPos, -1, this->upTime, this->stepSize, this->lastFrame.stepSize, step)) return;
+        this->p_target(step);
       }
       this->emitCommand(cmd, internal ? "internal" : "remote", frame.remoteAddress);
       break;
@@ -2046,23 +2047,23 @@ void SomfyShade::processFrame(somfy_frame_t &frame, bool internal) {
         else if(this->currentTiltPos < 100.0f) {
           // Set the tilt position.  This should stop the lift movement.
           this->p_target(this->currentPos);
-          if(this->tiltTime == 0) return; // Avoid divide by 0.
-          this->p_tiltTarget(min(100.0f, this->currentTiltPos + (100.0f/(static_cast<float>(this->tiltTime/static_cast<float>(this->stepSize * this->lastFrame.stepSize))))));
+          if(!stepPosition(this->currentTiltPos, 1, this->tiltTime, this->stepSize, this->lastFrame.stepSize, step)) return;
+          this->p_tiltTarget(step);
         }
         else {
           // We only have the lift to move.
           this->p_tiltTarget(this->currentTiltPos);
-          if(this->downTime == 0) return; // Avoid divide by 0.
-          this->p_target(min(100.0f, this->currentPos + (100.0f/(static_cast<float>(this->downTime/static_cast<float>(this->stepSize* this->lastFrame.stepSize))))));
+          if(!stepPosition(this->currentPos, 1, this->downTime, this->stepSize, this->lastFrame.stepSize, step)) return;
+          this->p_target(step);
         }
       }
       else if(this->tiltType == tilt_types::tiltonly) {
-        if(this->tiltTime == 0 || this->stepSize == 0) return;
-        this->p_tiltTarget(min(100.0f, this->currentTiltPos + (100.0f/(static_cast<float>(this->tiltTime/static_cast<float>(this->stepSize * this->lastFrame.stepSize))))));
+        if(!stepPosition(this->currentTiltPos, 1, this->tiltTime, this->stepSize, this->lastFrame.stepSize, step)) return;
+        this->p_tiltTarget(step);
       }
       else if(this->currentPos < 100.0f) {
-        if(this->downTime == 0 || this->stepSize == 0) return;
-        this->p_target(min(100.0f, this->currentPos + (100.0f/(static_cast<float>(this->downTime/static_cast<float>(this->stepSize * this->lastFrame.stepSize))))));
+        if(!stepPosition(this->currentPos, 1, this->downTime, this->stepSize, this->lastFrame.stepSize, step)) return;
+        this->p_target(step);
       }
       this->emitCommand(cmd, internal ? "internal" : "remote", frame.remoteAddress);
       break;

@@ -79,6 +79,38 @@ static void test_moves_steadily() {
 }
 
 /*********************************************************************
+ * stepPosition
+ ********************************************************************/
+static void test_step_down_and_up() {
+  // A step of 100ms x 2 is 200ms of a 10s travel, 2%.
+  float out = -1;
+  TEST_ASSERT_TRUE(stepPosition(40, DOWN, 10000, 100, 2, out));
+  ASSERT_POS(42.0f, out);
+  TEST_ASSERT_TRUE(stepPosition(40, UP, 10000, 100, 2, out));
+  ASSERT_POS(38.0f, out);
+}
+static void test_step_stops_at_the_ends() {
+  float out = -1;
+  TEST_ASSERT_TRUE(stepPosition(99.5f, DOWN, 1000, 100, 1, out));
+  ASSERT_POS(100.0f, out);
+  TEST_ASSERT_TRUE(stepPosition(0.5f, UP, 1000, 100, 1, out));
+  ASSERT_POS(0.0f, out);
+}
+static void test_step_is_ignored_without_a_travel_time_or_step_size() {
+  // A shade with no time configured for the direction it steps in.
+  float out = -1;
+  TEST_ASSERT_FALSE(stepPosition(40, UP, 0, 100, 1, out));
+  TEST_ASSERT_FALSE(stepPosition(40, DOWN, 0, 100, 1, out));
+  TEST_ASSERT_FALSE(stepPosition(40, DOWN, 10000, 0, 1, out));
+  ASSERT_POS(-1.0f, out);
+}
+static void test_step_of_no_frame_steps_stays_put() {
+  float out = -1;
+  TEST_ASSERT_TRUE(stepPosition(40, DOWN, 10000, 100, 0, out));
+  ASSERT_POS(40.0f, out);
+}
+
+/*********************************************************************
  * displayPosition
  ********************************************************************/
 static void test_displayPosition() {
@@ -191,6 +223,10 @@ int main(int argc, char **argv) {
   RUN_TEST(test_up_and_down_use_their_own_times);
   RUN_TEST(test_zero_travel_time_is_instant);
   RUN_TEST(test_moves_steadily);
+  RUN_TEST(test_step_down_and_up);
+  RUN_TEST(test_step_stops_at_the_ends);
+  RUN_TEST(test_step_is_ignored_without_a_travel_time_or_step_size);
+  RUN_TEST(test_step_of_no_frame_steps_stays_put);
   RUN_TEST(test_displayPosition);
   RUN_TEST(test_flipCommand_swaps_directions);
   RUN_TEST(test_flipCommand_keeps_the_rest);

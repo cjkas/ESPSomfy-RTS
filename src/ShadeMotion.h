@@ -15,6 +15,11 @@ float travelPosition(float startPos, int8_t dir, uint32_t elapsedMs, int32_t tra
 int8_t displayPosition(float pos, bool flip);
 // Where a shade (or its tilt) moving in dir ends up when nothing stops it.
 float limitTarget(int8_t dir);
+// Where a step command moves a shade (or its tilt) from pos, in out.  dir > 0
+// steps toward 100 and dir < 0 toward 0.  A step is stepSize * frameStepSize
+// ms of the travelMs a full travel takes in that direction.  False when
+// travelMs or stepSize is 0, so the step is ignored.
+bool stepPosition(float pos, int8_t dir, uint32_t travelMs, uint16_t stepSize, uint8_t frameStepSize, float &out);
 
 // What a held shade does on this pass of checkMovement().
 enum class TxHoldCheck {
