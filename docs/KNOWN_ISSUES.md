@@ -30,26 +30,27 @@ The new `ControllerChunker` reads state as the response drains. On a slow link o
 ### Related
 
 - Same exposure exists in any other endpoint converted to chunked responses next (`/discovery`, `/shades`). Resolve this issue before expanding the pattern.
+- Other handlers on the web server task still change the shade model that `loop()` owns: `/setPaired` sets `paired`, and `/setRollingCode` and a shades restore change rolling codes (see [Rolling codes written from two tasks](#rolling-codes-written-from-two-tasks)). Shade commands, set-My and unpair already go through the web command queue to `loop()`.
 
-## Silent truncation of large websocket events
+## Large websocket events are dropped
 
 **Status:** open
-**Location:** [`JsonSockEvent` in src/WResp.cpp](../src/WResp.cpp), buffer defined at [src/Sockets.cpp:45-46](../src/Sockets.cpp#L45-L46) as `g_response[MAX_SOCK_RESPONSE]` = 2048 bytes.
+**Location:** [`JsonSockEvent` in src/WResp.cpp](../src/WResp.cpp), buffer `g_response[MAX_SOCK_RESPONSE]` (2048 bytes) in [src/Sockets.cpp](../src/Sockets.cpp).
 
 ### Summary
 
-Socket events are built into a fixed 2 KB static buffer. On overflow, [`JsonSockEvent::_safecat`](../src/WResp.cpp) logs an error and returns without appending — the event is sent truncated, producing malformed socket.io text that the client drops silently.
+Socket events are built into a fixed 2 KB static buffer. When a value doesn't fit, [`JsonSockEvent::_safecat`](../src/WResp.cpp) marks the event as overflowed, and `endEvent` logs an error and doesn't send it. Clients never see malformed JSON. The event is simply lost, and the client isn't told.
 
 Unlike the `/controller` HTTP crash, this path does **not** abort — there is no growing cbuf and no `new[]` on the send path. Per-client frame allocations inside `AsyncWebSocket` are bounded by the 2 KB buffer size and have their own overflow guard (queue drop / client disconnect).
 
 ### Concrete failure modes
 
-1. A single event serializing a fully-populated shade (~1.3–1.5 KB for a shade with all `SOMFY_MAX_LINKED_REMOTES` = 7 populated) gets close to the 2 KB limit. Any additional fields or long names push it over and the JSON is silently cut mid-value.
-2. Any event that loops over a collection (e.g. frequency-scan results, batch emits in `Somfy.cpp` around lines 1870–1975) can exceed 2 KB depending on size, with no indication to the client beyond the ESP-side `ESP_LOGE` line.
+1. A single event serializing a fully-populated shade (~1.3–1.5 KB for a shade with all `SOMFY_MAX_LINKED_REMOTES` = 7 populated) gets close to the 2 KB limit. Any additional fields or long names push it over, and that shade's state update never reaches the clients.
+2. Any event that loops over a collection (e.g. frequency-scan results, batch emits in `Somfy.cpp`) can exceed 2 KB depending on size, with no indication to the client beyond the ESP-side `ESP_LOGE` line.
 
 ### Fix options (pick one later)
 
-- **(a) Fail loud.** Keep truncation but emit a sentinel/error frame so the client knows the event was lost, instead of sending a malformed one.
+- **(a) Fail loud.** Send a small error event in place of the dropped one so the client knows to reload the state.
 - **(b) Split large events across frames.** Use the socket.io ack/chunk pattern to send an event in multiple frames when it wouldn't fit. Requires matching client-side reassembly.
 - **(c) Raise `MAX_SOCK_RESPONSE`.** Cheapest, but just pushes the limit — doesn't eliminate the failure mode.
 
