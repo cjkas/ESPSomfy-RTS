@@ -4660,15 +4660,7 @@ bool Transceiver::txHasRoom() {
   // Without a radio task submitTx() fails straight away so there is no point waiting.
   if(!txTaskHandle) return true;
   TxQueueLock lock;
-  return this->sched.hasRoom(false);
-}
-void Transceiver::flushTx() {
-  {
-    TxQueueLock lock;
-    this->sched.flush(millis());
-  }
-  // Stop waiting on a delayed job that is gone.
-  if(txTaskHandle) xTaskNotifyGive(txTaskHandle);
+  return this->sched.hasRoom();
 }
 void Transceiver::suspendTx(uint8_t reason) {
   {
@@ -4742,7 +4734,7 @@ void Transceiver::txTask(void *arg) {
       haveJob = trans->sched.next(millis(), job, waitMs);
     }
     if(haveJob) trans->runJob(job);
-    // submitTx() and flushTx() wake us for a new job or a flush.
+    // submitTx() and suspendTx() wake us for a new job or a flush.
     else ulTaskNotifyTake(pdTRUE, waitMs == RADIO_WAIT_FOREVER ? portMAX_DELAY : pdMS_TO_TICKS(waitMs) + 1);
   }
 }

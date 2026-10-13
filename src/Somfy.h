@@ -462,7 +462,6 @@ class Transceiver {
     // Hands a job to the radio task, see RadioScheduler::submit().  Returns its
     // ticket, 0 when the radio can't take it.  Safe from any task.
     uint32_t submitTx(somfy_tx_job_t &job, bool priority = false, uint16_t delayMs = 0);
-    void flushTx();
     void suspendTx(uint8_t reason);
     void resumeTx(uint8_t reason);
     bool txSuspended();

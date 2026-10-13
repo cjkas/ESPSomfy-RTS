@@ -43,8 +43,8 @@ uint32_t RadioScheduler::submit(somfy_tx_job_t &job, bool priority, uint16_t del
   this->count++;
   return job.seq;
 }
-bool RadioScheduler::hasRoom(bool priority) const {
-  return !this->suspendMask && admits(TX_JOB_QUEUE_SIZE - this->count, priority) && this->outcomesFit();
+bool RadioScheduler::hasRoom() const {
+  return !this->suspendMask && admits(TX_JOB_QUEUE_SIZE - this->count, false) && this->outcomesFit();
 }
 bool RadioScheduler::outcomesFit() const {
   // Each job not yet ended reports at most two outcomes: started, then how it

@@ -136,16 +136,15 @@ static void test_normal_jobs_leave_the_reserved_slots() {
   RadioScheduler s;
   for(uint8_t i = 0; i < TX_JOB_QUEUE_SIZE - TX_RESERVED_SLOTS; i++)
     TEST_ASSERT_NOT_EQUAL(0, submit(s, REMOTE_B));
-  TEST_ASSERT_FALSE(s.hasRoom(false));
-  TEST_ASSERT_TRUE(s.hasRoom(true));
+  TEST_ASSERT_FALSE(s.hasRoom());
   TEST_ASSERT_EQUAL_UINT32(0, submit(s, REMOTE_B));
+  TEST_ASSERT_NOT_EQUAL(0, submit(s, REMOTE_A, 0, true));
 }
 static void test_stops_use_the_reserved_slots() {
   RadioScheduler s;
   for(uint8_t i = 0; i < TX_JOB_QUEUE_SIZE - TX_RESERVED_SLOTS; i++) submit(s, REMOTE_B);
   for(uint8_t i = 0; i < TX_RESERVED_SLOTS; i++)
     TEST_ASSERT_NOT_EQUAL(0, submit(s, REMOTE_A, 0, true));
-  TEST_ASSERT_FALSE(s.hasRoom(true));
   TEST_ASSERT_EQUAL_UINT32(0, submit(s, REMOTE_A, 0, true));
 }
 static void test_a_refused_job_has_no_ticket() {
@@ -160,7 +159,7 @@ static void test_taking_a_job_frees_its_slot() {
   RadioScheduler s;
   for(uint8_t i = 0; i < TX_JOB_QUEUE_SIZE - TX_RESERVED_SLOTS; i++) submit(s, REMOTE_B);
   runNext(s);
-  TEST_ASSERT_TRUE(s.hasRoom(false));
+  TEST_ASSERT_TRUE(s.hasRoom());
 }
 
 /*********************************************************************
@@ -368,7 +367,7 @@ static void test_no_outcome_is_lost_when_events_arent_collected() {
   }
   TEST_ASSERT_TRUE(accepted > 0);
   TEST_ASSERT_TRUE(accepted < 200);
-  TEST_ASSERT_FALSE(s.hasRoom(false));
+  TEST_ASSERT_FALSE(s.hasRoom());
   uint32_t started = 0, finished = 0;
   somfy_tx_event_t evt;
   while(s.popEvent(evt)) {
@@ -377,7 +376,7 @@ static void test_no_outcome_is_lost_when_events_arent_collected() {
   }
   TEST_ASSERT_EQUAL_UINT32(accepted, started);
   TEST_ASSERT_EQUAL_UINT32(accepted, finished);
-  TEST_ASSERT_TRUE(s.hasRoom(false));
+  TEST_ASSERT_TRUE(s.hasRoom());
   TEST_ASSERT_NOT_EQUAL(0, submit(s, REMOTE_A));
 }
 static void test_flush_reports_every_drop_when_events_arent_collected() {
@@ -422,7 +421,7 @@ static void test_suspend_flushes_and_refuses_jobs() {
   s.suspend(TX_SUSPEND_SCAN, 0);
   TEST_ASSERT_TRUE(s.suspended());
   assertEvent(s, tx_event_t::dropped, a);
-  TEST_ASSERT_FALSE(s.hasRoom(true));
+  TEST_ASSERT_FALSE(s.hasRoom());
   TEST_ASSERT_EQUAL_UINT32(0, submit(s, REMOTE_A));
   TEST_ASSERT_EQUAL_UINT32(0, submit(s, REMOTE_A, 0, true));
   assertNoEvents(s);
