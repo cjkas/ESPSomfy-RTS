@@ -79,7 +79,7 @@ Unlike the `/controller` HTTP crash, this path does **not** abort — there is n
 ### Concrete failure modes
 
 1. A single event serializing a fully-populated shade (~1.3–1.5 KB for a shade with all `SOMFY_MAX_LINKED_REMOTES` = 7 populated) gets close to the 2 KB limit. Any additional fields or long names push it over, and that shade's state update never reaches the clients.
-2. Any event that loops over a collection (e.g. frequency-scan results, batch emits in `Somfy.cpp`) can exceed 2 KB depending on size, with no indication to the client beyond the ESP-side `ESP_LOGE` line.
+2. Any event that loops over a collection (e.g. frequency-scan results in `Transceiver.cpp`, batch emits in `SomfyEvents.cpp`) can exceed 2 KB depending on size, with no indication to the client beyond the ESP-side `ESP_LOGE` line.
 
 ### Fix options (pick one later)
 
@@ -90,12 +90,12 @@ Unlike the `/controller` HTTP crash, this path does **not** abort — there is n
 ### Related
 
 - Not the same code path as the `/controller` crash. Solve independently.
-- Worth grepping for `JsonSockEvent` usages that iterate collections (see references in `Somfy.cpp`, `ESPNetwork.cpp`, `GitOTA.cpp`) to identify the most at-risk events.
+- Worth grepping for `JsonSockEvent` usages that iterate collections (see references in `SomfyEvents.cpp`, `Transceiver.cpp`, `ESPNetwork.cpp`, `GitOTA.cpp`) to identify the most at-risk events.
 
 ## Rolling codes written from two tasks
 
 **Status:** open
-**Location:** `SomfyRemote::sendCommandAfter` and `setRollingCode` in [src/Somfy.cpp](../src/Somfy.cpp), the `/setRollingCode` handlers in [src/Web.cpp](../src/Web.cpp), and `ShadeConfigFile::readShadeRecord`/`readGroupRecord` in [src/ConfigFile.cpp](../src/ConfigFile.cpp).
+**Location:** `SomfyRemote::sendCommandAfter` and `setRollingCode` in [src/SomfyRemote.cpp](../src/SomfyRemote.cpp), the `/setRollingCode` handlers in [src/Web.cpp](../src/Web.cpp), and `ShadeConfigFile::readShadeRecord`/`readGroupRecord` in [src/ConfigFile.cpp](../src/ConfigFile.cpp).
 
 ### Summary
 
