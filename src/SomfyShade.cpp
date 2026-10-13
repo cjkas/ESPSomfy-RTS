@@ -1,32 +1,11 @@
 #include <Preferences.h>
-#include <ELECHOUSE_CC1101_SRC_DRV.h>
-#include <SPI.h>
-#include <esp_task_wdt.h>
-#include <freertos/queue.h>
-#include <freertos/semphr.h>
-#include <atomic>
-#include <esp_chip_info.h>
-#include "driver/gpio.h"
 #include "esp_log.h"
-#include "Utils.h"
-#include "ConfigSettings.h"
 #include "Somfy.h"
 #include "ShadeMotion.h"
-#include "RollingCode.h"
-#include "Sockets.h"
-#include "MQTT.h"
-#include "ConfigFile.h"
-#include "GitOTA.h"
 
 static const char *TAG = "Somfy";
 
 extern SomfyShadeController somfy;
-extern SocketEmitter sockEmit;
-extern ConfigSettings settings;
-extern MQTTClass mqtt;
-extern GitUpdater git;
-
-
 
 #define SETMY_REPEATS 35
 #define TILT_REPEATS 15
