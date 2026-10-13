@@ -69,16 +69,13 @@ static bool queueSetMyPosition(AsyncWebServerRequest *request, SomfyShade *shade
   cmd.tiltPosition = tilt;
   return queueRadioCommand(request, cmd);
 }
+// The main loop clears paired and saves it once the Prog is queued.  The
+// shade belongs to the main loop so it isn't changed here.
 static bool queueUnpairShade(AsyncWebServerRequest *request, SomfyShade *shade) {
   web_command_t cmd = {};
   cmd.type = web_cmd_t::unpair_shade;
   cmd.shadeId = shade->getShadeId();
-  cmd.wasPaired = shade->paired;
-  if(!queueRadioCommand(request, cmd)) return false;
-  // Reflect the change in the response.  The main loop saves it once the Prog
-  // is queued or puts it back if it can't be.
-  shade->paired = false;
-  return true;
+  return queueRadioCommand(request, cmd);
 }
 // The radio and MQTT are shut down once an upload starts and only a reboot
 // brings them back.  The completion handler schedules it but never runs if the
@@ -220,11 +217,6 @@ void Web::processQueue() {
             shade->paired = false;
             shade->save();
           }
-          else {
-            // The motor is still paired so undo what the response showed.
-            shade->paired = cmd.wasPaired;
-            shade->emitState();
-          }
         }
         break;
       }
@@ -318,14 +310,16 @@ static void serializeShadeRef(SomfyShade *shade, JsonFormatter &json) {
   json.addElem("hasLight", shade->hasLight());
   json.addElem("repeats", shade->repeats);
 }
-static void serializeShade(SomfyShade *shade, JsonFormatter &json) {
+// paired is passed in for a response that reports the change the main loop
+// is about to make.
+static void serializeShade(SomfyShade *shade, JsonFormatter &json, bool paired) {
   json.addElem("shadeId", shade->getShadeId());
   json.addElem("roomId", shade->roomId);
   json.addElem("name", shade->name);
   json.addElem("remoteAddress", (uint32_t)shade->getRemoteAddress());
   json.addElem("upTime", (uint32_t)shade->upTime);
   json.addElem("downTime", (uint32_t)shade->downTime);
-  json.addElem("paired", shade->paired);
+  json.addElem("paired", paired);
   json.addElem("lastRollingCode", (uint32_t)shade->lastRollingCode);
   json.addElem("position", shade->transformPosition(shade->currentPos));
   json.addElem("tiltType", static_cast<uint8_t>(shade->tiltType));
@@ -366,6 +360,7 @@ static void serializeShade(SomfyShade *shade, JsonFormatter &json) {
   }
   json.endArray();
 }
+static void serializeShade(SomfyShade *shade, JsonFormatter &json) { serializeShade(shade, json, shade->paired); }
 static void serializeGroupRef(SomfyGroup *group, JsonFormatter &json) {
   group->updateFlags();
   json.addElem("groupId", group->getGroupId());
@@ -1900,7 +1895,7 @@ void Web::begin() {
         AsyncJsonResp resp;
         resp.beginResponse(request, g_async_content, sizeof(g_async_content));
         resp.beginObject();
-        serializeShade(shade, resp);
+        serializeShade(shade, resp, false);
         resp.endObject();
         resp.endResponse();
       }
@@ -1919,7 +1914,7 @@ void Web::begin() {
       AsyncJsonResp resp;
       resp.beginResponse(request, g_async_content, sizeof(g_async_content));
       resp.beginObject();
-      serializeShade(shade, resp);
+      serializeShade(shade, resp, false);
       resp.endObject();
       resp.endResponse();
     }

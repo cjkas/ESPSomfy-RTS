@@ -36,7 +36,6 @@ struct web_command_t {
     int8_t tiltPosition;    // for setPositions/tilt
     int8_t sunny;           // for sensor
     int8_t windy;           // for sensor
-    bool wasPaired;         // for unpair, restored if the Prog can't be sent
 };
 
 // Only setting positions never goes on air.
