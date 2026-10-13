@@ -356,6 +356,54 @@ static void test_every_job_gets_one_outcome_across_a_flush() {
   }
   for(uint8_t i = 0; i < 6; i++) TEST_ASSERT_EQUAL_UINT8(1, outcomes[i]);
 }
+static void test_no_outcome_is_lost_when_events_arent_collected() {
+  // loop() collects the events.  If it stalls, jobs are refused rather than
+  // their outcomes thrown away.
+  RadioScheduler s;
+  uint32_t accepted = 0;
+  for(uint32_t i = 0; i < 200; i++) {
+    if(!submit(s, REMOTE_A)) break;
+    accepted++;
+    runNext(s);
+  }
+  TEST_ASSERT_TRUE(accepted > 0);
+  TEST_ASSERT_TRUE(accepted < 200);
+  TEST_ASSERT_FALSE(s.hasRoom(false));
+  uint32_t started = 0, finished = 0;
+  somfy_tx_event_t evt;
+  while(s.popEvent(evt)) {
+    if(evt.type == tx_event_t::started) started++;
+    else if(evt.type == tx_event_t::finished) finished++;
+  }
+  TEST_ASSERT_EQUAL_UINT32(accepted, started);
+  TEST_ASSERT_EQUAL_UINT32(accepted, finished);
+  TEST_ASSERT_TRUE(s.hasRoom(false));
+  TEST_ASSERT_NOT_EQUAL(0, submit(s, REMOTE_A));
+}
+static void test_flush_reports_every_drop_when_events_arent_collected() {
+  RadioScheduler s;
+  uint32_t tickets[64];
+  uint8_t n = 0;
+  // Outcomes of jobs already sent take up part of the event ring.
+  for(uint8_t i = 0; i < 20; i++) {
+    tickets[n] = submit(s, REMOTE_A);
+    TEST_ASSERT_NOT_EQUAL(0, tickets[n]);
+    n++;
+    runNext(s);
+  }
+  // Queue as many as are taken.
+  for(uint32_t t; n < 64 && (t = submit(s, REMOTE_B, 0, true)) != 0;) tickets[n++] = t;
+  TEST_ASSERT_TRUE(n > 20);
+  s.flush(0);
+  uint8_t outcomes[64] = {};
+  somfy_tx_event_t evt;
+  while(s.popEvent(evt)) {
+    if(evt.type == tx_event_t::started) continue;
+    for(uint8_t i = 0; i < n; i++)
+      if(tickets[i] == evt.seq) outcomes[i]++;
+  }
+  for(uint8_t i = 0; i < n; i++) TEST_ASSERT_EQUAL_UINT8(1, outcomes[i]);
+}
 static void test_unknown_ticket_is_ignored() {
   RadioScheduler s;
   TEST_ASSERT_FALSE(s.keepSending(0));
@@ -454,6 +502,8 @@ int main(int argc, char **argv) {
   RUN_TEST(test_flush_cuts_short_the_job_on_air);
   RUN_TEST(test_job_flushed_before_it_starts_is_dropped);
   RUN_TEST(test_every_job_gets_one_outcome_across_a_flush);
+  RUN_TEST(test_no_outcome_is_lost_when_events_arent_collected);
+  RUN_TEST(test_flush_reports_every_drop_when_events_arent_collected);
   RUN_TEST(test_unknown_ticket_is_ignored);
   RUN_TEST(test_suspend_flushes_and_refuses_jobs);
   RUN_TEST(test_resume_needs_every_reason_cleared);

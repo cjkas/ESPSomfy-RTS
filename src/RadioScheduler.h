@@ -18,7 +18,8 @@
 class RadioScheduler {
   public:
     // Queues a job.  Its ticket comes back and is also set in job.seq, 0 when
-    // the queue is full or suspended.  A priority job (a stop) may use the
+    // the queue is full or suspended, or when outcomes aren't collected with
+    // popEvent() fast enough to leave room for its own.  A priority job (a stop) may use the
     // reserved slots and goes ahead of every job queued at the back, unless a
     // job of its remote is already waiting: overtaking that would put the
     // rolling codes out of order.  A delayed job doesn't go on air until
@@ -66,6 +67,9 @@ class RadioScheduler {
     somfy_tx_event_t events[TX_JOB_QUEUE_SIZE * 3];
     uint8_t eventHead = 0;
     uint8_t eventCount = 0;
+    // Whether the outcomes of every job not yet ended, and of one more, still
+    // fit in events.  A job is refused otherwise so no outcome is ever lost.
+    bool outcomesFit() const;
     // Whether a job of the remote is still waiting.
     bool waitingFor(uint32_t remoteAddress) const;
     void remove(uint8_t i);

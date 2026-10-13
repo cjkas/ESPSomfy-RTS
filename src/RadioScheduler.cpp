@@ -21,6 +21,10 @@ uint32_t RadioScheduler::submit(somfy_tx_job_t &job, bool priority, uint16_t del
     ESP_LOGE(TAG, "Radio TX queue full, dropping transmission");
     return 0;
   }
+  if(!this->outcomesFit()) {
+    ESP_LOGE(TAG, "Radio TX outcomes not collected, dropping transmission");
+    return 0;
+  }
   // 0 means no job so it is skipped on wrap.
   if(++this->lastSeq == 0) ++this->lastSeq;
   job.seq = this->lastSeq;
@@ -40,7 +44,13 @@ uint32_t RadioScheduler::submit(somfy_tx_job_t &job, bool priority, uint16_t del
   return job.seq;
 }
 bool RadioScheduler::hasRoom(bool priority) const {
-  return !this->suspendMask && admits(TX_JOB_QUEUE_SIZE - this->count, priority);
+  return !this->suspendMask && admits(TX_JOB_QUEUE_SIZE - this->count, priority) && this->outcomesFit();
+}
+bool RadioScheduler::outcomesFit() const {
+  // Each job not yet ended reports at most two outcomes: started, then how it
+  // ended.  Counting repeater frames too keeps this simple and errs safe.
+  const uint32_t unended = this->count + (this->taken ? 1u : 0u) + 1u;
+  return this->eventCount + 2u * unended <= TX_EVENT_QUEUE_SIZE;
 }
 bool RadioScheduler::waitingFor(uint32_t remoteAddress) const {
   for(uint8_t i = 0; i < this->count; i++) {
@@ -112,7 +122,8 @@ void RadioScheduler::post(tx_event_t type, const somfy_tx_job_t &job, uint32_t a
   // Repeater frames don't belong to any of our remotes.
   if(job.raw) return;
   if(this->eventCount >= TX_EVENT_QUEUE_SIZE) {
-    ESP_LOGW(TAG, "Radio TX event queue full");
+    // submit() leaves room for every outcome so this can't happen short of a bug.
+    ESP_LOGE(TAG, "Radio TX event queue full, outcome lost");
     return;
   }
   somfy_tx_event_t &evt = this->events[(this->eventHead + this->eventCount) % TX_EVENT_QUEUE_SIZE];
