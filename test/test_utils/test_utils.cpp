@@ -240,6 +240,38 @@ static void test_rssiBroadcast_hold_off_across_millis_wrap() {
   TEST_ASSERT_TRUE(b.due(-70, 6, 0x00002000u, 3, 10000));   // 12288ms later
 }
 
+/*********************************************************************
+ * worthRoaming
+ ********************************************************************/
+static void test_worthRoaming_needs_the_full_gain() {
+  TEST_ASSERT_FALSE(worthRoaming(true, -70, -65, 6));
+  TEST_ASSERT_TRUE(worthRoaming(true, -70, -64, 6));
+  TEST_ASSERT_TRUE(worthRoaming(true, -70, -50, 6));
+}
+static void test_worthRoaming_never_to_a_weaker_ap() {
+  // The scan also lists the AP we are on.
+  TEST_ASSERT_FALSE(worthRoaming(true, -70, -70, 6));
+  TEST_ASSERT_FALSE(worthRoaming(true, -70, -80, 6));
+}
+static void test_worthRoaming_any_ap_while_disconnected() {
+  TEST_ASSERT_TRUE(worthRoaming(false, 0, -90, 6));
+}
+
+/*********************************************************************
+ * heapEmitTarget
+ ********************************************************************/
+static void test_heapEmitTarget_one_client_always_gets_it() {
+  TEST_ASSERT_TRUE(heap_emit_t::client == heapEmitTarget(3, 0, 30000, false));
+  TEST_ASSERT_TRUE(heap_emit_t::client == heapEmitTarget(3, 60000, 30000, true));
+}
+static void test_heapEmitTarget_broadcasts_once_per_interval() {
+  TEST_ASSERT_TRUE(heap_emit_t::broadcast == heapEmitTarget(255, 30000, 30000, false));
+  TEST_ASSERT_TRUE(heap_emit_t::broadcast == heapEmitTarget(255, 30000, 30000, true));
+  TEST_ASSERT_TRUE(heap_emit_t::none == heapEmitTarget(255, 29999, 30000, false));
+}
+static void test_heapEmitTarget_room_in_between() {
+  TEST_ASSERT_TRUE(heap_emit_t::room == heapEmitTarget(255, 1000, 30000, true));
+}
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
@@ -276,5 +308,11 @@ int main(int argc, char **argv) {
   RUN_TEST(test_rssiBroadcast_channel_change_is_due);
   RUN_TEST(test_rssiBroadcast_client_emit_on_disconnect_keeps_baseline);
   RUN_TEST(test_rssiBroadcast_hold_off_across_millis_wrap);
+  RUN_TEST(test_worthRoaming_needs_the_full_gain);
+  RUN_TEST(test_worthRoaming_never_to_a_weaker_ap);
+  RUN_TEST(test_worthRoaming_any_ap_while_disconnected);
+  RUN_TEST(test_heapEmitTarget_one_client_always_gets_it);
+  RUN_TEST(test_heapEmitTarget_broadcasts_once_per_interval);
+  RUN_TEST(test_heapEmitTarget_room_in_between);
   return UNITY_END();
 }

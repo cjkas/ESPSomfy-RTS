@@ -16,7 +16,7 @@
 // How often memStatus is broadcast.  It is also the one event that is always
 // sent, so it must stay well under Home Assistant's 60s receive timeout.
 #define HEAP_EMIT_MS 30000
-// A roaming scan only moves to another AP this much stronger.
+// A roaming scan only moves to another AP at least this much stronger.
 #define ROAM_MIN_GAIN_DB 6
 class ESPNetwork {
   protected:

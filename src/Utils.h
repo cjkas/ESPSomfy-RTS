@@ -69,6 +69,15 @@ struct RssiBroadcast {
   bool due(int rssi, int channel, uint32_t now, int minDelta, uint32_t minMs) const;
   void sent(bool broadcast, int rssi, int channel, uint32_t now);
 };
+// Whether an AP a scan found for our SSID is worth connecting to.  While
+// connected it has to be at least minGain dBm stronger than the current AP so
+// a small swing doesn't make the device hop between APs.
+bool worthRoaming(bool connected, int currentRssi, int apRssi, int minGain);
+// Who gets a memStatus event.
+enum class heap_emit_t : uint8_t { none, client, broadcast, room };
+// num is the socket client asked for, 255 for everyone.  A broadcast goes out
+// every intervalMs; in between only the clients in room 0 get one.
+heap_emit_t heapEmitTarget(uint8_t num, uint32_t sinceLastMs, uint32_t intervalMs, bool roomHasClients);
 
 class Timestamp {
   char _timeBuffer[128];
