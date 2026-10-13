@@ -17,7 +17,7 @@
 // Not thread safe.  The caller serializes every call and passes the time in.
 class RadioScheduler {
   public:
-    // Queues a job.  Its ticket comes back and is also set in job.seq, 0 when
+    // Queues a job.  Its ticket comes back and is also set in job.ticket, 0 when
     // the queue is full or suspended, or when outcomes aren't collected with
     // popEvent() fast enough to leave room for its own.  A priority job (a stop) may use the
     // reserved slots and goes ahead of every job queued at the back, unless a
@@ -54,7 +54,7 @@ class RadioScheduler {
   private:
     somfy_tx_job_t jobs[TX_JOB_QUEUE_SIZE];
     uint8_t count = 0;
-    uint32_t lastSeq = 0;
+    uint32_t lastTicket = 0;
     uint8_t suspendMask = 0;
     // The job taken by next() and not yet ended (0 for none), kept for its
     // events.

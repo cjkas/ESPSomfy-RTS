@@ -30,20 +30,20 @@ enum class TxHoldCheck {
 // The radio job that set an idle shade moving.  Its simulated movement is held
 // until the job goes on air, since that is when the motor starts.
 struct TxHold {
-  uint32_t seq = 0;    // 0 when nothing is held.
+  uint32_t ticket = 0; // 0 when nothing is held.
   uint32_t since = 0;  // millis() when the hold started.
-  // Holds for job seq unless the shade was already moving (its motor carries on
+  // Holds for job ticket unless the shade was already moving (its motor carries on
   // with the earlier command) or a job is already held.  The first job held is
   // the one that starts the motor.  A command sent while processing another
   // registers before it: for a simMy shade My/Favorite queues its Up/Down from
   // moveToMyPosition() first, and that Up/Down is what starts a motor with no
   // favorite of its own, so the outer My/Favorite is ignored on purpose.
-  void mark(uint32_t jobSeq, bool moving, uint32_t now);
-  // Ends the hold when jobSeq is the held job.  True when it was.
-  bool release(uint32_t jobSeq);
-  bool held() const { return this->seq != 0; }
+  void mark(uint32_t ticket, bool moving, uint32_t now);
+  // Ends the hold when ticket is the held job.  True when it was.
+  bool release(uint32_t ticket);
+  bool held() const { return this->ticket != 0; }
   bool timedOut(uint32_t now, uint32_t timeoutMs) const { return now - this->since >= timeoutMs; }
-  void clear() { this->seq = 0; }
+  void clear() { this->ticket = 0; }
   // Drops a hold on a shade the command didn't set moving, or one that has
   // waited timeoutMs for the radio.
   TxHoldCheck check(bool moving, uint32_t now, uint32_t timeoutMs);
@@ -77,17 +77,17 @@ struct ShadeTxState {
   TxHold hold;
   // Stop sent when the simulated target was reached.  If it never goes on
   // air the motor runs on to its end limit.  0 once an event for it arrived.
-  uint32_t stopSeq = 0;
+  uint32_t stopTicket = 0;
   uint32_t stopAt = 0;
   int8_t stopDir = 0;
   bool stopTilt = false;
   // Command telling the motor to store the favorite.  The favorite is only
   // committed once all of it is on air and restored if it never is.
-  uint32_t mySeq = 0;
+  uint32_t myTicket = 0;
   float myOldPos = -1.0f;
   float myOldTiltPos = -1.0f;
-  void stopSent(uint32_t seq, uint32_t now, int8_t dir, bool tilt);
-  void setMySent(uint32_t seq, float oldPos, float oldTiltPos);
+  void stopSent(uint32_t ticket, uint32_t now, int8_t dir, bool tilt);
+  void setMySent(uint32_t ticket, float oldPos, float oldTiltPos);
   // What to do about evt.  moving is whether the shade is moving now.
   ShadeTxActions onEvent(const somfy_tx_event_t &evt, bool moving);
 };

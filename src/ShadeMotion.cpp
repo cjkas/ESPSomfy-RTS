@@ -36,14 +36,14 @@ bool stepPosition(float pos, int8_t dir, uint32_t travelMs, uint16_t stepSize, u
   out = dir > 0 ? std::min(100.0f, pos + step) : std::max(0.0f, pos - step);
   return true;
 }
-void TxHold::mark(uint32_t jobSeq, bool moving, uint32_t now) {
-  if(jobSeq == 0 || this->seq != 0 || moving) return;
-  this->seq = jobSeq;
+void TxHold::mark(uint32_t ticket, bool moving, uint32_t now) {
+  if(ticket == 0 || this->ticket != 0 || moving) return;
+  this->ticket = ticket;
   this->since = now;
 }
-bool TxHold::release(uint32_t jobSeq) {
-  if(jobSeq == 0 || jobSeq != this->seq) return false;
-  this->seq = 0;
+bool TxHold::release(uint32_t ticket) {
+  if(ticket == 0 || ticket != this->ticket) return false;
+  this->ticket = 0;
   return true;
 }
 TxHoldCheck TxHold::check(bool moving, uint32_t now, uint32_t timeoutMs) {
@@ -57,29 +57,29 @@ TxHoldCheck TxHold::check(bool moving, uint32_t now, uint32_t timeoutMs) {
   this->clear();
   return TxHoldCheck::expired;
 }
-void ShadeTxState::stopSent(uint32_t seq, uint32_t now, int8_t dir, bool tilt) {
-  this->stopSeq = seq;
+void ShadeTxState::stopSent(uint32_t ticket, uint32_t now, int8_t dir, bool tilt) {
+  this->stopTicket = ticket;
   this->stopAt = now;
   this->stopDir = dir;
   this->stopTilt = tilt;
 }
-void ShadeTxState::setMySent(uint32_t seq, float oldPos, float oldTiltPos) {
-  this->mySeq = seq;
+void ShadeTxState::setMySent(uint32_t ticket, float oldPos, float oldTiltPos) {
+  this->myTicket = ticket;
   this->myOldPos = oldPos;
   this->myOldTiltPos = oldTiltPos;
 }
 ShadeTxActions ShadeTxState::onEvent(const somfy_tx_event_t &evt, bool moving) {
   ShadeTxActions act;
-  if(evt.seq == 0) return act;
-  if(this->hold.release(evt.seq)) {
+  if(evt.ticket == 0) return act;
+  if(this->hold.release(evt.ticket)) {
     if(evt.type == tx_event_t::started) {
       act.startMovement = true;
       act.startAt = evt.at;
     }
     else act.cancelMovement = true;
   }
-  if(this->mySeq == evt.seq && evt.type != tx_event_t::started) {
-    this->mySeq = 0;
+  if(this->myTicket == evt.ticket && evt.type != tx_event_t::started) {
+    this->myTicket = 0;
     // The motor only stores the favorite when it gets the whole long press.
     if(evt.type == tx_event_t::finished) act.commitMy = true;
     else {
@@ -88,8 +88,8 @@ ShadeTxActions ShadeTxState::onEvent(const somfy_tx_event_t &evt, bool moving) {
       act.myOldTiltPos = this->myOldTiltPos;
     }
   }
-  if(this->stopSeq == evt.seq) {
-    this->stopSeq = 0;
+  if(this->stopTicket == evt.ticket) {
+    this->stopTicket = 0;
     // Unless something has moved the shade since, the motor never got the stop
     // and is still running.
     if(evt.type == tx_event_t::dropped && !moving) {

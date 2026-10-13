@@ -2295,12 +2295,12 @@ void SomfyShade::setTiltMovement(int8_t dir) {
     this->emitState();
   }
 }
-void SomfyShade::markTxPending(uint32_t seq) {
+void SomfyShade::markTxPending(uint32_t ticket) {
   // This runs before the caller sets the new target so direction still says
   // whether the shade was moving.  A reversal is simulated as soon as it is
   // queued even though the motor turns once it is on air.  See TxHold::mark
   // for which of several queued commands is held.
-  this->tx.hold.mark(seq, this->direction != 0 || this->tiltDirection != 0, millis());
+  this->tx.hold.mark(ticket, this->direction != 0 || this->tiltDirection != 0, millis());
 }
 void SomfyShade::processTxEvent(const somfy_tx_event_t &evt) {
   const ShadeTxActions act = this->tx.onEvent(evt, this->direction != 0 || this->tiltDirection != 0);
@@ -3078,10 +3078,10 @@ void SomfyShadeController::processFrame(somfy_frame_t &frame, bool internal) {
     if(this->shades[i].getShadeId() != 255) this->shades[i].processFrame(frame, internal);
   }
 }
-void SomfyShadeController::markTxPending(uint32_t remoteAddress, uint32_t seq) {
+void SomfyShadeController::markTxPending(uint32_t remoteAddress, uint32_t ticket) {
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
     SomfyShade *shade = &this->shades[i];
-    if(shade->getShadeId() != 255 && shade->findRemote(remoteAddress)) shade->markTxPending(seq);
+    if(shade->getShadeId() != 255 && shade->findRemote(remoteAddress)) shade->markTxPending(ticket);
   }
   // Group commands move their member shades through processInternalCommand.
   for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++) {
@@ -3090,7 +3090,7 @@ void SomfyShadeController::markTxPending(uint32_t remoteAddress, uint32_t seq) {
     for(uint8_t j = 0; j < SOMFY_MAX_GROUPED_SHADES; j++) {
       if(group->linkedShades[j] == 0) continue;
       SomfyShade *shade = this->getShadeById(group->linkedShades[j]);
-      if(shade) shade->markTxPending(seq);
+      if(shade) shade->markTxPending(ticket);
     }
   }
 }
@@ -4618,7 +4618,7 @@ void Transceiver::loop() {
     if(tx_queue.length > 0 && millis() > tx_queue.delay_time && somfy_rx.cpt_synchro_hw == 0 &&
       (this->txSuspended() || this->txHasRoom())) {
       somfy_tx_job_t job;
-      job.raw = true;
+      job.repeater = true;
       tx_queue.peek(&job.tx);
       {
         somfy_tx_t &tx = job.tx;
@@ -4685,7 +4685,7 @@ bool Transceiver::transmitJob(somfy_tx_job_t &job) {
     bool keep;
     {
       TxQueueLock lock;
-      keep = this->sched.keepSending(job.seq);
+      keep = this->sched.keepSending(job.ticket);
     }
     // Stop early when flushed or when someone is waiting to reconfigure the
     // radio so they get it within a frame.
@@ -4702,7 +4702,7 @@ bool Transceiver::transmitJob(somfy_tx_job_t &job) {
   return complete;
 }
 void Transceiver::runJob(somfy_tx_job_t &job) {
-  if(job.raw) {
+  if(job.repeater) {
     // Don't step on a remote that is transmitting right now.
     for(uint32_t waited = 0; rxInProgress() && waited < TX_RX_IDLE_WAIT; waited += 5)
       vTaskDelay(pdMS_TO_TICKS(5));
@@ -4713,12 +4713,12 @@ void Transceiver::runJob(somfy_tx_job_t &job) {
     {
       // The queue may have been flushed while we waited.
       TxQueueLock qlock;
-      start = this->sched.start(job.seq, millis());
+      start = this->sched.start(job.ticket, millis());
     }
     if(!start) return;
     const bool complete = this->transmitJob(job);
     TxQueueLock qlock;
-    this->sched.ended(job.seq, complete, millis());
+    this->sched.ended(job.ticket, complete, millis());
   }
   // Give the motors a full frame beat between separate transmissions.
   vTaskDelay(pdMS_TO_TICKS(TX_QUEUE_DELAY));

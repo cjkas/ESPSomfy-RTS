@@ -24,15 +24,15 @@ static uint32_t runNext(RadioScheduler &s, uint32_t now = 0) {
   somfy_tx_job_t job;
   uint32_t waitMs;
   if(!s.next(now, job, waitMs)) return 0;
-  if(!s.start(job.seq, now)) return job.seq;
-  s.ended(job.seq, true, now);
-  return job.seq;
+  if(!s.start(job.ticket, now)) return job.ticket;
+  s.ended(job.ticket, true, now);
+  return job.ticket;
 }
 static void assertEvent(RadioScheduler &s, tx_event_t type, uint32_t ticket) {
   somfy_tx_event_t evt;
   TEST_ASSERT_TRUE_MESSAGE(s.popEvent(evt), "expected another event");
   TEST_ASSERT_EQUAL_UINT8((uint8_t)type, (uint8_t)evt.type);
-  TEST_ASSERT_EQUAL_UINT32(ticket, evt.seq);
+  TEST_ASSERT_EQUAL_UINT32(ticket, evt.ticket);
 }
 static void assertNoEvents(RadioScheduler &s) {
   somfy_tx_event_t evt;
@@ -61,7 +61,7 @@ static void test_tickets_are_distinct_and_set_in_the_job() {
   RadioScheduler s;
   somfy_tx_job_t job = makeJob(REMOTE_A);
   const uint32_t a = s.submit(job, false, 0, 0);
-  TEST_ASSERT_EQUAL_UINT32(a, job.seq);
+  TEST_ASSERT_EQUAL_UINT32(a, job.ticket);
   TEST_ASSERT_NOT_EQUAL(a, submit(s, REMOTE_A));
 }
 static void test_nothing_waiting_sleeps_until_woken() {
@@ -102,7 +102,7 @@ static void test_stop_goes_ahead_once_its_remote_is_on_air() {
   somfy_tx_job_t job;
   uint32_t waitMs;
   TEST_ASSERT_TRUE(s.next(0, job, waitMs));
-  TEST_ASSERT_EQUAL_UINT32(up, job.seq);
+  TEST_ASSERT_EQUAL_UINT32(up, job.ticket);
   // The remote's frame is already going out so the stop can't overtake it.
   const uint32_t stop = submit(s, REMOTE_A, 0, true);
   s.start(up, 0);
@@ -151,9 +151,9 @@ static void test_a_refused_job_has_no_ticket() {
   RadioScheduler s;
   for(uint8_t i = 0; i < TX_JOB_QUEUE_SIZE - TX_RESERVED_SLOTS; i++) submit(s, REMOTE_B);
   somfy_tx_job_t job = makeJob(REMOTE_A);
-  job.seq = 99;
+  job.ticket = 99;
   TEST_ASSERT_EQUAL_UINT32(0, s.submit(job, false, 0, 0));
-  TEST_ASSERT_EQUAL_UINT32(0, job.seq);
+  TEST_ASSERT_EQUAL_UINT32(0, job.ticket);
 }
 static void test_taking_a_job_frees_its_slot() {
   RadioScheduler s;
@@ -175,7 +175,7 @@ static void test_delayed_job_waits_until_due() {
   TEST_ASSERT_FALSE(s.next(1400, job, waitMs));
   TEST_ASSERT_EQUAL_UINT32(100, waitMs);
   TEST_ASSERT_TRUE(s.next(1500, job, waitMs));
-  TEST_ASSERT_EQUAL_UINT32(a, job.seq);
+  TEST_ASSERT_EQUAL_UINT32(a, job.ticket);
 }
 static void test_delayed_job_holds_up_the_jobs_behind_it() {
   RadioScheduler s;
@@ -208,7 +208,7 @@ static void test_delay_counts_from_the_job_ahead_going_off_air() {
   TEST_ASSERT_FALSE(s.next(350, job, waitMs));
   TEST_ASSERT_EQUAL_UINT32(100, waitMs);
   TEST_ASSERT_TRUE(s.next(450, job, waitMs));
-  TEST_ASSERT_EQUAL_UINT32(setMy, job.seq);
+  TEST_ASSERT_EQUAL_UINT32(setMy, job.ticket);
 }
 static void test_delay_ignores_a_job_that_ended_before_it_was_queued() {
   RadioScheduler s;
@@ -220,7 +220,7 @@ static void test_delay_ignores_a_job_that_ended_before_it_was_queued() {
   TEST_ASSERT_FALSE(s.next(100, job, waitMs));
   TEST_ASSERT_EQUAL_UINT32(200, waitMs);
   TEST_ASSERT_TRUE(s.next(300, job, waitMs));
-  TEST_ASSERT_EQUAL_UINT32(a, job.seq);
+  TEST_ASSERT_EQUAL_UINT32(a, job.ticket);
 }
 static void test_delay_after_a_job_ended_across_millis_wrap() {
   RadioScheduler s;
@@ -234,7 +234,7 @@ static void test_delay_after_a_job_ended_across_millis_wrap() {
   TEST_ASSERT_FALSE(s.next(0x100, job, waitMs));
   TEST_ASSERT_EQUAL_UINT32(0x80, waitMs);
   TEST_ASSERT_TRUE(s.next(0x180, job, waitMs));
-  TEST_ASSERT_EQUAL_UINT32(setMy, job.seq);
+  TEST_ASSERT_EQUAL_UINT32(setMy, job.ticket);
 }
 static void test_stop_waits_behind_its_remotes_delayed_job() {
   // The favorite's long press holds a rolling code, so the stop can't go first.
@@ -255,7 +255,7 @@ static void test_delay_across_millis_wrap() {
   TEST_ASSERT_FALSE(s.next(0x50, job, waitMs));
   TEST_ASSERT_EQUAL_UINT32(0xB0, waitMs);
   TEST_ASSERT_TRUE(s.next(0x100, job, waitMs));
-  TEST_ASSERT_EQUAL_UINT32(a, job.seq);
+  TEST_ASSERT_EQUAL_UINT32(a, job.ticket);
 }
 
 /*********************************************************************
@@ -273,7 +273,7 @@ static void test_job_reports_started_then_finished() {
   somfy_tx_event_t evt;
   TEST_ASSERT_TRUE(s.popEvent(evt));
   TEST_ASSERT_EQUAL_UINT8((uint8_t)tx_event_t::started, (uint8_t)evt.type);
-  TEST_ASSERT_EQUAL_UINT32(a, evt.seq);
+  TEST_ASSERT_EQUAL_UINT32(a, evt.ticket);
   TEST_ASSERT_EQUAL_UINT32(20, evt.at);
   TEST_ASSERT_EQUAL_UINT32(REMOTE_A, evt.remoteAddress);
   TEST_ASSERT_EQUAL_UINT8((uint8_t)somfy_commands::Up, (uint8_t)evt.cmd);
@@ -340,18 +340,18 @@ static void test_every_job_gets_one_outcome_across_a_flush() {
   somfy_tx_job_t job;
   uint32_t waitMs;
   s.next(0, job, waitMs);
-  s.start(job.seq, 0);
+  s.start(job.ticket, 0);
   s.flush(0);
   // Jobs queued after the flush are unaffected by it.
   for(uint8_t i = 3; i < 6; i++) tickets[i] = submit(s, REMOTE_B + i);
-  s.ended(job.seq, s.keepSending(job.seq), 0);
+  s.ended(job.ticket, s.keepSending(job.ticket), 0);
   while(runNext(s)) {}
   uint8_t outcomes[6] = {};
   somfy_tx_event_t evt;
   while(s.popEvent(evt)) {
     if(evt.type == tx_event_t::started) continue;
     for(uint8_t i = 0; i < 6; i++)
-      if(tickets[i] == evt.seq) outcomes[i]++;
+      if(tickets[i] == evt.ticket) outcomes[i]++;
   }
   for(uint8_t i = 0; i < 6; i++) TEST_ASSERT_EQUAL_UINT8(1, outcomes[i]);
 }
@@ -399,7 +399,7 @@ static void test_flush_reports_every_drop_when_events_arent_collected() {
   while(s.popEvent(evt)) {
     if(evt.type == tx_event_t::started) continue;
     for(uint8_t i = 0; i < n; i++)
-      if(tickets[i] == evt.seq) outcomes[i]++;
+      if(tickets[i] == evt.ticket) outcomes[i]++;
   }
   for(uint8_t i = 0; i < n; i++) TEST_ASSERT_EQUAL_UINT8(1, outcomes[i]);
 }
@@ -444,13 +444,13 @@ static void test_resume_needs_every_reason_cleared() {
 static void test_repeater_frames_report_nothing() {
   RadioScheduler s;
   somfy_tx_job_t job = makeJob(REMOTE_A);
-  job.raw = true;
+  job.repeater = true;
   const uint32_t r = s.submit(job, false, 0, 0);
   TEST_ASSERT_NOT_EQUAL(0, r);
   TEST_ASSERT_EQUAL_UINT32(r, runNext(s));
   submit(s, REMOTE_B);
   job = makeJob(REMOTE_A);
-  job.raw = true;
+  job.repeater = true;
   s.submit(job, false, 0, 0);
   s.flush(0);
   somfy_tx_event_t evt;
@@ -463,7 +463,7 @@ static void test_repeater_frame_doesnt_hold_back_a_stop() {
   // order.
   RadioScheduler s;
   somfy_tx_job_t job = makeJob(REMOTE_A);
-  job.raw = true;
+  job.repeater = true;
   const uint32_t r = s.submit(job, false, 0, 0);
   const uint32_t stop = submit(s, REMOTE_A, 0, true);
   TEST_ASSERT_EQUAL_UINT32(stop, runNext(s));

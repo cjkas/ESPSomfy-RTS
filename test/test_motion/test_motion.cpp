@@ -149,7 +149,7 @@ static void test_txhold_idle_shade_is_held() {
   TxHold hold;
   hold.mark(7, false, 1000);
   TEST_ASSERT_TRUE(hold.held());
-  TEST_ASSERT_EQUAL_UINT32(7, hold.seq);
+  TEST_ASSERT_EQUAL_UINT32(7, hold.ticket);
   TEST_ASSERT_EQUAL_UINT32(1000, hold.since);
 }
 static void test_txhold_moving_shade_is_not_held() {
@@ -171,7 +171,7 @@ static void test_txhold_first_job_wins() {
   TxHold hold;
   hold.mark(11, false, 1000);
   hold.mark(10, false, 1005);
-  TEST_ASSERT_EQUAL_UINT32(11, hold.seq);
+  TEST_ASSERT_EQUAL_UINT32(11, hold.ticket);
   TEST_ASSERT_EQUAL_UINT32(1000, hold.since);
   TEST_ASSERT_FALSE(hold.release(10));
   TEST_ASSERT_TRUE(hold.held());
@@ -192,7 +192,7 @@ static void test_txhold_new_hold_after_release() {
   hold.mark(5, false, 0);
   hold.release(5);
   hold.mark(6, false, 200);
-  TEST_ASSERT_EQUAL_UINT32(6, hold.seq);
+  TEST_ASSERT_EQUAL_UINT32(6, hold.ticket);
   TEST_ASSERT_EQUAL_UINT32(200, hold.since);
 }
 static void test_txhold_times_out() {

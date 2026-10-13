@@ -259,7 +259,7 @@ class SomfyShade : public SomfyRemote {
     // The shade itself or the linked remote with this address, else nullptr.
     SomfyRemote *findRemote(uint32_t address);
     void processInternalCommand(somfy_commands cmd, uint8_t repeat = 1);
-    void markTxPending(uint32_t seq);
+    void markTxPending(uint32_t ticket);
     void processTxEvent(const somfy_tx_event_t &evt);
     void setTiltMovement(int8_t dir);
     void setMovement(int8_t dir);
@@ -524,7 +524,7 @@ class SomfyShadeController {
     // Returns the radio job's ticket, 0 when the radio can't take it.
     uint32_t sendFrame(somfy_frame_t &frame, uint8_t repeats = 0, uint16_t delayMs = 0, bool priority = false);
     void processFrame(somfy_frame_t &frame, bool internal = false);
-    void markTxPending(uint32_t remoteAddress, uint32_t seq);
+    void markTxPending(uint32_t remoteAddress, uint32_t ticket);
     void processTxEvent(const somfy_tx_event_t &evt);
     void emitState(uint8_t num = 255);
     void publish();
