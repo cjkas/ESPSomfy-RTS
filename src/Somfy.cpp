@@ -187,14 +187,6 @@ void SomfyRoom::clear() {
   this->roomId = 0;
   strcpy(this->name, "");
 }
-void SomfyGroup::clear() {
-  this->setGroupId(255);
-  this->setRemoteAddress(0);
-  this->repeats = 0;
-  this->roomId = 0;
-  this->name[0] = 0x00;
-  memset(&this->linkedShades, 0x00, sizeof(this->linkedShades));
-}
 bool SomfyShade::linkRemote(uint32_t address, uint16_t rollingCode) {
   Preferences pref;
   // Check to see if the remote is already linked. If it is
@@ -210,22 +202,6 @@ bool SomfyShade::linkRemote(uint32_t address, uint16_t rollingCode) {
       this->linkedRemotes[i].setRemoteAddress(address);
       this->linkedRemotes[i].setRollingCode(rollingCode);
       this->commit();
-      return true;
-    }
-  }
-  return false;
-}
-bool SomfyGroup::linkShade(uint8_t shadeId) {
-  // Check to see if the shade is already linked. If it is just return true
-  for(uint8_t i = 0; i < SOMFY_MAX_GROUPED_SHADES; i++) {
-    if(this->linkedShades[i] == shadeId) {
-      return true;
-    }
-  }
-  for(uint8_t i = 0; i < SOMFY_MAX_GROUPED_SHADES; i++) {
-    if(this->linkedShades[i] == 0) {
-      this->linkedShades[i] = shadeId;
-      somfy.commit();
       return true;
     }
   }
@@ -255,44 +231,6 @@ bool SomfyShade::unlinkRemote(uint32_t address) {
   }
   return false;
 }
-bool SomfyGroup::unlinkShade(uint8_t shadeId) {
-  bool removed = false;
-  for(uint8_t i = 0; i < SOMFY_MAX_GROUPED_SHADES; i++) {
-    if(this->linkedShades[i] == shadeId) {
-      this->linkedShades[i] = 0;
-      removed = true;
-    }
-  }
-  // Compress the linked shade ids so we can stop looking on the first 0
-  if(removed) {
-    this->compressLinkedShadeIds();
-    somfy.commit();
-  }
-  return removed;
-}
-void SomfyGroup::compressLinkedShadeIds() {
-  // [1,0,4,3,0,0,0] i:0,j:0
-  // [1,0,4,3,0,0,0] i:1,j:1
-  // [1,4,0,3,0,0,0] i:2,j:1
-  // [1,4,3,0,0,0,0] i:3,j:2
-  // [1,4,3,0,0,0,0] i:4,j:2
-
-  // [1,2,0,0,3,0,0] i:0,j:0
-  // [1,2,0,0,3,0,0] i:1,j:1
-  // [1,2,0,0,3,0,0] i:2,j:2
-  // [1,2,0,0,3,0,0] i:3,j:2
-  // [1,2,3,0,0,0,0] i:4,j:2
-  // [1,2,3,0,0,0,0] i:5,j:3
-  for(uint8_t i = 0, j = 0; i < SOMFY_MAX_GROUPED_SHADES; i++) {
-    if(this->linkedShades[i] != 0) {
-      if(i != j) {
-        this->linkedShades[j] = this->linkedShades[i];
-        this->linkedShades[i] = 0;
-      }
-      j++;
-    }
-  }
-}
 void SomfyShadeController::compressRepeaters() {
   for(uint8_t i = 0, j = 0; i < SOMFY_MAX_REPEATERS; i++) {
     if(this->repeaters[i] != 0) {
@@ -304,13 +242,6 @@ void SomfyShadeController::compressRepeaters() {
     }
   }
 }
-bool SomfyGroup::hasShadeId(uint8_t shadeId) {
-  for(uint8_t i = 0; i < SOMFY_MAX_GROUPED_SHADES; i++) {
-    if(this->linkedShades[i] == 0) break;
-    if(this->linkedShades[i] == shadeId) return true;
-  }
-  return false;
-}
 bool SomfyShade::isAtTarget() { 
   float epsilon = .00001;
   if(this->tiltType == tilt_types::tiltonly) return fabs(this->currentTiltPos - this->tiltTarget) < epsilon;
@@ -318,18 +249,6 @@ bool SomfyShade::isAtTarget() {
   return fabs(this->currentPos - this->target) < epsilon && fabs(this->currentTiltPos - this->tiltTarget) < epsilon; 
 }
 
-void SomfyGroup::updateFlags() { 
-  uint8_t oldFlags = this->flags;
-  this->flags = 0;
-  for(uint8_t i = 0; i < SOMFY_MAX_GROUPED_SHADES; i++) {
-    if(this->linkedShades[i] != 0) {
-      SomfyShade *shade = somfy.getShadeById(this->linkedShades[i]);
-      if(shade) this->flags |= shade->flags;
-    }
-    else break;
-  }
-  if(oldFlags != this->flags) this->emitState();
-}
 bool SomfyShade::isInGroup() {
   if(this->getShadeId() == 255) return false;
   for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++) {
@@ -613,14 +532,6 @@ int8_t SomfyShade::p_direction(int8_t dir) {
   if(old != dir) {
     this->direction = dir;
     this->publish("direction", this->direction, true);
-  }
-  return old;
-}
-int8_t SomfyGroup::p_direction(int8_t dir) {
-  int8_t old = this->direction;
-  if(old != dir) {
-    this->direction = dir;
-    this->publish("direction", this->direction);
   }
   return old;
 }
@@ -1647,43 +1558,6 @@ bool SomfyShade::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSiz
   ESP_LOGD(TAG, "Send command end");
   return true;
 }
-bool SomfyGroup::sendCommand(somfy_commands cmd) { return this->sendCommand(cmd, this->repeats); }
-bool SomfyGroup::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize) {
-  ESP_LOGI(TAG, "[Group %u] sendCommand cmd=%s repeat=%u", this->getGroupId(), translateSomfyCommand(cmd).c_str(), repeat);
-  // This sendCommand function will always be called externally. sendCommand at the remote level
-  // is expected to be called internally when the motor needs commanded.
-  if(this->bitLength == 0) this->bitLength = somfy.transceiver.config.type;
-  // Leave the group and its shades alone if the radio didn't take the command.
-  if(!SomfyRemote::sendCommand(cmd, repeat, stepSize)) return false;
-
-  switch(cmd) {
-    case somfy_commands::My:
-      this->p_direction(0);
-      break;
-    case somfy_commands::Up:
-      this->p_direction(-1);
-      break;
-    case somfy_commands::Down:
-      this->p_direction(1);
-      break;
-    default:
-      break;
-  }
-  
-  for(uint8_t i = 0; i < SOMFY_MAX_GROUPED_SHADES; i++) {
-    if(this->linkedShades[i] != 0) {
-      SomfyShade *shade = somfy.getShadeById(this->linkedShades[i]);
-      if(shade) {
-        ESP_LOGI(TAG, "[Group %u] processInternalCommand on shade %u cmd=%s", this->getGroupId(), shade->getShadeId(), translateSomfyCommand(cmd).c_str());
-        shade->processInternalCommand(cmd, repeat);
-        shade->emitCommand(cmd, "group", this->getRemoteAddress());
-      }
-    }
-  }
-  this->updateFlags();
-  this->emitState();
-  return true;
-}
 uint8_t SomfyShade::tiltRepeats() const { return this->tiltType == tilt_types::tiltmotor ? TILT_REPEATS : this->repeats; }
 bool SomfyShade::sendTiltCommand(somfy_commands cmd) {
   float target;
@@ -1772,7 +1646,6 @@ bool SomfyShade::save() {
   return true;
 }
 bool SomfyRoom::save() { somfy.commit(); return true; }
-bool SomfyGroup::save() { somfy.commit(); return true; }
 bool SomfyShade::isToggle() {
   switch(this->shadeType) {
     case shade_types::garage1:
