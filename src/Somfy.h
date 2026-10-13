@@ -136,6 +136,8 @@ class SomfyShade : public SomfyRemote {
     void runToLimit(int8_t dir, bool tilt, uint32_t since);
     // Sets the targets the sun or wind sends the shade to.
     void applySensorMove(SensorMove move);
+    // Sets the targets for a step in dir.  False when the step is dropped.
+    bool applyStep(int8_t dir, uint8_t frameStepSize);
   public:
     uint8_t roomId = 0;
     int8_t sortOrder = 0;

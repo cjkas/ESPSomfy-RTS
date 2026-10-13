@@ -36,6 +36,47 @@ bool stepPosition(float pos, int8_t dir, uint32_t travelMs, uint16_t stepSize, u
   out = dir > 0 ? std::min(100.0f, pos + step) : std::max(0.0f, pos - step);
   return true;
 }
+StepTargets stepTargets(tilt_types tilt, int8_t dir, float pos, float tiltPos,
+    uint32_t upTime, uint32_t downTime, uint32_t tiltTime, uint16_t stepSize, uint8_t frameStepSize) {
+  StepTargets t;
+  if(stepSize == 0) return t;
+  auto atEnd = [dir](float p) { return dir > 0 ? p >= 100.0f : p <= 0.0f; };
+  const uint32_t liftTime = dir > 0 ? downTime : upTime;
+  float step;
+  if(tilt == tilt_types::integrated) {
+    if(atEnd(tiltPos) && atEnd(pos)) return t;
+    if(!atEnd(tiltPos)) {
+      if(!stepPosition(tiltPos, dir, tiltTime, stepSize, frameStepSize, step)) return t;
+      t.setLift = true;
+      t.lift = pos;
+      t.setTilt = true;
+      t.tilt = step;
+    }
+    else {
+      if(!stepPosition(pos, dir, liftTime, stepSize, frameStepSize, step)) return t;
+      t.setLift = true;
+      t.lift = step;
+      t.setTilt = true;
+      t.tilt = tiltPos;
+    }
+  }
+  else if(tilt == tilt_types::tiltonly) {
+    if(!stepPosition(tiltPos, dir, tiltTime, stepSize, frameStepSize, step)) return t;
+    t.setTilt = true;
+    t.tilt = step;
+  }
+  else {
+    if(atEnd(pos)) {
+      t.action = StepAction::none;
+      return t;
+    }
+    if(!stepPosition(pos, dir, liftTime, stepSize, frameStepSize, step)) return t;
+    t.setLift = true;
+    t.lift = step;
+  }
+  t.action = StepAction::move;
+  return t;
+}
 void TxHold::mark(uint32_t ticket, bool moving, uint32_t now) {
   if(ticket == 0 || this->ticket != 0 || moving) return;
   this->ticket = ticket;

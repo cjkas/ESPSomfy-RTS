@@ -2,6 +2,7 @@
 #define SHADE_MOTION_H
 #include <Arduino.h>
 #include "TxBuffer.h"
+#include "ShadeTypes.h"
 
 // Shade position maths.  Kept free of the shade state, radio and network so it
 // can be unit tested on the PC (pio test -e native).
@@ -20,6 +21,25 @@ float limitTarget(int8_t dir);
 // ms of the travelMs a full travel takes in that direction.  False when
 // travelMs or stepSize is 0, so the step is ignored.
 bool stepPosition(float pos, int8_t dir, uint32_t travelMs, uint16_t stepSize, uint8_t frameStepSize, float &out);
+// What a step command does to a shade.
+enum class StepAction : uint8_t {
+  ignore,  // The step can't be sized or the shade is at both ends: drop it.
+  none,    // A lift shade already at the end: nothing moves.
+  move     // Set the targets below.
+};
+struct StepTargets {
+  StepAction action = StepAction::ignore;
+  bool setLift = false;
+  float lift = 0.0f;
+  bool setTilt = false;
+  float tilt = 0.0f;
+};
+// Where a step in dir (> 0 down, < 0 up) takes a shade at pos and tiltPos.  A
+// tilt-only shade steps its tilt.  An integrated tilt turns its slats to the
+// end first, holding the lift, and then steps the lift.  Every other shade
+// steps its lift.
+StepTargets stepTargets(tilt_types tilt, int8_t dir, float pos, float tiltPos,
+    uint32_t upTime, uint32_t downTime, uint32_t tiltTime, uint16_t stepSize, uint8_t frameStepSize);
 
 // What a held shade does on this pass of checkMovement().
 enum class TxHoldCheck {
