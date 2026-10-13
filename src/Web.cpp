@@ -311,7 +311,8 @@ static void serializeShadeRef(SomfyShade *shade, JsonFormatter &json) {
   json.addElem("repeats", shade->repeats);
 }
 // paired is passed in for a response that reports the change the main loop
-// is about to make.
+// is about to make.  The unpair is held until it goes on air (holdWebCommand),
+// so the answer comes true.
 static void serializeShade(SomfyShade *shade, JsonFormatter &json, bool paired) {
   json.addElem("shadeId", shade->getShadeId());
   json.addElem("roomId", shade->roomId);

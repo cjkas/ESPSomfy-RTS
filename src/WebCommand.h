@@ -43,8 +43,10 @@ inline bool webCommandUsesRadio(web_cmd_t type) { return type != web_cmd_t::set_
 // Whether the command at the head of the queue waits for the radio.  The
 // client was already told it was accepted so it stays queued until the radio
 // has room rather than have the radio drop it.  While TX is suspended nothing
-// gets through anyway so nothing is held back then.
+// gets through anyway so nothing is held back then, except an unpair: the
+// client was told the shade is unpaired, so it waits until TX resumes.
 inline bool holdWebCommand(web_cmd_t type, bool txSuspended, bool txHasRoom) {
-  return webCommandUsesRadio(type) && !txSuspended && !txHasRoom;
+  if(txSuspended) return type == web_cmd_t::unpair_shade;
+  return webCommandUsesRadio(type) && !txHasRoom;
 }
 #endif
