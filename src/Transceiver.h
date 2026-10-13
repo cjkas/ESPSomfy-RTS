@@ -6,41 +6,12 @@
 #include "SomfyFrame.h"
 #include "TxBuffer.h"
 #include "RadioScheduler.h"
+#include "PulseDecoder.h"
 
 // The CC1101 radio: receive decoding, the radio task that transmits radio
 // jobs, the frequency scan and the radio config.
 
-#define MAX_TIMINGS 300
 #define MAX_RX_BUFFER 3
-
-typedef enum {
-    waiting_synchro = 0,
-    receiving_data = 1,
-    complete = 2
-} t_status;
-
-struct somfy_rx_t {
-    void clear() {
-      this->status = t_status::waiting_synchro;
-      this->bit_length = 56;
-      this->cpt_synchro_hw = 0;
-      this->cpt_bits = 0;
-      this->previous_bit = 0;
-      this->waiting_half_symbol = false;
-      memset(this->payload, 0, sizeof(this->payload));
-      memset(this->pulses, 0, sizeof(this->pulses));
-      this->pulseCount = 0;
-    }
-    t_status status;
-    uint8_t bit_length = 56;
-    uint8_t cpt_synchro_hw = 0;
-    uint8_t cpt_bits = 0;
-    uint8_t previous_bit = 0;
-    bool waiting_half_symbol;
-    uint8_t payload[10];
-    unsigned int pulses[MAX_TIMINGS];
-    uint16_t pulseCount = 0;
-};
 // A simple FIFO queue to hold rx buffers.  We are using
 // a byte index to make it so we don't have to reorganize
 // the storage each time we push or pop.

@@ -19,7 +19,6 @@ extern SocketEmitter sockEmit;
 extern ConfigSettings settings;
 
 uint8_t rxmode = 0;  // Indicates whether the radio is in receive mode.  Just to ensure there isn't more than one interrupt hooked.
-#define SYMBOL 640
 #if defined(ESP8266)
     #define RECEIVE_ATTR ICACHE_RAM_ATTR
 #elif defined(ESP32)
@@ -75,24 +74,6 @@ void somfy_frame_t::decodeFrame(somfy_rx_t *rx) {
   this->decodeFrame(rx->payload);
 }
 // Transceiver Implementation
-#define TOLERANCE_MIN 0.7
-#define TOLERANCE_MAX 1.3
-static const uint32_t tempo_wakeup_pulse = 9415;
-static const uint32_t tempo_wakeup_min = 9415 * TOLERANCE_MIN;
-static const uint32_t tempo_wakeup_max = 9415 * TOLERANCE_MAX;
-static const uint32_t tempo_wakeup_silence = 89565;
-static const uint32_t tempo_wakeup_silence_min = 89565 * TOLERANCE_MIN;
-static const uint32_t tempo_wakeup_silence_max = 89565 * TOLERANCE_MAX;
-static const uint32_t tempo_synchro_hw_min = SYMBOL * 4 * TOLERANCE_MIN;
-static const uint32_t tempo_synchro_hw_max = SYMBOL * 4 * TOLERANCE_MAX;
-static const uint32_t tempo_synchro_sw_min = 4850 * TOLERANCE_MIN;
-static const uint32_t tempo_synchro_sw_max = 4850 * TOLERANCE_MAX;
-static const uint32_t tempo_half_symbol_min = SYMBOL * TOLERANCE_MIN;
-static const uint32_t tempo_half_symbol_max = SYMBOL * TOLERANCE_MAX;
-static const uint32_t tempo_symbol_min = SYMBOL * 2 * TOLERANCE_MIN;
-static const uint32_t tempo_symbol_max = SYMBOL * 2 * TOLERANCE_MAX;
-static const uint32_t tempo_if_gap = 30415;  // Gap between frames
-static int16_t  bitMin = SYMBOL * TOLERANCE_MIN;
 static somfy_rx_t somfy_rx;
 static somfy_rx_queue_t rx_queue;
 static somfy_tx_queue_t tx_queue;
@@ -210,95 +191,10 @@ void RECEIVE_ATTR Transceiver::handleReceive() {
     static unsigned long last_time = 0;
     const long time = micros();
     const unsigned int duration = time - last_time;
-    if (duration < bitMin) {
-        // The incoming bit is < 448us so it is probably a glitch so blow it off.
-        // We need to ignore this bit.
-        // REMOVE THIS AFTER WE DETERMINE THAT THE out-of-bounds stuff isn't a problem.  If there are bits
-        // from the previous frame then we will capture this data here.
-        if(somfy_rx.pulseCount < MAX_TIMINGS && somfy_rx.cpt_synchro_hw > 0) somfy_rx.pulses[somfy_rx.pulseCount++] = duration;
-        return;
-    }
+    const PulseResult result = decodePulse(somfy_rx, duration);
+    if (result == PulseResult::glitch) return;
     last_time = time;
-    switch (somfy_rx.status) {
-    case waiting_synchro:
-        if(somfy_rx.pulseCount < MAX_TIMINGS) somfy_rx.pulses[somfy_rx.pulseCount++] = duration;
-        if (duration > tempo_synchro_hw_min && duration < tempo_synchro_hw_max) {
-            // We have found a hardware sync bit.  There should be at least 4 of these.
-            ++somfy_rx.cpt_synchro_hw;
-        }
-        else if (duration > tempo_synchro_sw_min && duration < tempo_synchro_sw_max && somfy_rx.cpt_synchro_hw >= 4) {
-            // If we have a full hardware sync then we should look for the software sync.  If we have a software sync
-            // bit and enough hardware sync bits then we should start receiving data.  It turns out that a 56 bit packet
-            // with give 4 or 14 bits of hardware sync.  An 80 bit packet gives 12, 13 or 24 bits of hw sync.  Early on
-            // I had some shorter and longer hw syncs but I can no longer repeat this.
-            memset(somfy_rx.payload, 0x00, sizeof(somfy_rx.payload));
-            somfy_rx.previous_bit = 0x00;
-            somfy_rx.waiting_half_symbol = false;
-            somfy_rx.cpt_bits = 0;
-            // Keep an eye on this as it is possible that we might get fewer or more synchro bits.
-            if (somfy_rx.cpt_synchro_hw <= 7) somfy_rx.bit_length = 56;
-            else if (somfy_rx.cpt_synchro_hw == 14) somfy_rx.bit_length = 56;
-            else if (somfy_rx.cpt_synchro_hw == 13) somfy_rx.bit_length = 80; // The RS485 device sends this sync.
-            else if (somfy_rx.cpt_synchro_hw == 12) somfy_rx.bit_length = 80;
-            else if (somfy_rx.cpt_synchro_hw > 17) somfy_rx.bit_length = 80;
-            else somfy_rx.bit_length = 56;
-            //somfy_rx.bit_length = 80;
-            somfy_rx.status = receiving_data;
-        }
-        else {
-            // Reset and start looking for hardware sync again.
-            somfy_rx.cpt_synchro_hw = 0;
-            // Try to capture the wakeup pulse.
-            if(duration > tempo_wakeup_min && duration < tempo_wakeup_max)
-            {
-                memset(&somfy_rx.payload, 0x00, sizeof(somfy_rx.payload));
-                somfy_rx.previous_bit = 0x00;
-                somfy_rx.waiting_half_symbol = false;
-                somfy_rx.cpt_bits = 0;
-                somfy_rx.bit_length = 56;
-            }
-            else if((somfy_rx.pulseCount > 20 && somfy_rx.cpt_synchro_hw == 0) || duration > 250000) {
-              somfy_rx.pulseCount = 0;
-            }
-        }
-        break;
-    case receiving_data:
-        if(somfy_rx.pulseCount < MAX_TIMINGS) somfy_rx.pulses[somfy_rx.pulseCount++] = duration;
-        // We should be receiving data at this point.
-        if (duration > tempo_symbol_min && duration < tempo_symbol_max && !somfy_rx.waiting_half_symbol) {
-            somfy_rx.previous_bit = 1 - somfy_rx.previous_bit;
-            // Bits come in high order bit first.
-            somfy_rx.payload[somfy_rx.cpt_bits / 8] += somfy_rx.previous_bit << (7 - somfy_rx.cpt_bits % 8);
-            ++somfy_rx.cpt_bits;
-        }
-        else if (duration > tempo_half_symbol_min && duration < tempo_half_symbol_max) {
-            if (somfy_rx.waiting_half_symbol) {
-                somfy_rx.waiting_half_symbol = false;
-                somfy_rx.payload[somfy_rx.cpt_bits / 8] += somfy_rx.previous_bit << (7 - somfy_rx.cpt_bits % 8);
-                ++somfy_rx.cpt_bits;
-            }
-            else {
-                somfy_rx.waiting_half_symbol = true;
-            }
-        }
-        else {
-            //++somfy_rx.cpt_bits;
-            // Start over we are not within our parameters for bit timing.
-            memset(&somfy_rx.payload, 0x00, sizeof(somfy_rx.payload));
-            somfy_rx.pulseCount = 1;
-            somfy_rx.cpt_synchro_hw = 0;
-            somfy_rx.previous_bit = 0x00;
-            somfy_rx.waiting_half_symbol = false;
-            somfy_rx.cpt_bits = 0;
-            somfy_rx.bit_length = 56;
-            somfy_rx.status = waiting_synchro;
-            somfy_rx.pulses[0] = duration;
-        }
-        break;
-    default:
-        break;
-    }
-    if (somfy_rx.status == receiving_data && somfy_rx.cpt_bits >= somfy_rx.bit_length) {
+    if (result == PulseResult::frame) {
         // Since we are operating within the interrupt all data really needs to be static
         // for the handoff to the frame decoder.  For this reason we are buffering up to
         // 3 total frames.  Althought it may not matter considering the length of a packet
