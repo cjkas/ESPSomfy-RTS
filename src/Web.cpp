@@ -703,8 +703,8 @@ void Web::handleDiscovery(AsyncWebServerRequest *request) {
     char connType[10] = "Unknown";
     if(net.connType == conn_types_t::ethernet) strcpy(connType, "Ethernet");
     else if(net.connType == conn_types_t::wifi) strcpy(connType, "Wifi");
-    // This handler takes about 200ms on the async_tcp task for no obvious
-    // reason, so time each part to find out where it goes.
+    // This handler runs on the async_tcp task, which also serves the sockets,
+    // so a slow one is logged with where its time went.
     ElapsedTimer total, step;
     uint32_t usHead, usMem, usRooms, usShades, usGroups, usSend;
     AsyncJsonResp resp;
@@ -720,7 +720,7 @@ void Web::handleDiscovery(AsyncWebServerRequest *request) {
     resp.addElem("chipModel", settings.chipModel);
     resp.addElem("connType", connType);
     resp.addElem("checkForUpdate", settings.checkForUpdate);
-    usHead = step.us(); step.restart();
+    usHead = step.lap();
     resp.beginObject("memory");
     resp.addElem("max", ESP.getMaxAllocHeap());
     resp.addElem("free", ESP.getFreeHeap());
@@ -728,20 +728,20 @@ void Web::handleDiscovery(AsyncWebServerRequest *request) {
     resp.addElem("total", ESP.getHeapSize());
     resp.addElem("uptime", (uint64_t)millis());
     resp.endObject();
-    usMem = step.us(); step.restart();
+    usMem = step.lap();
     resp.beginArray("rooms");
     serializeRooms(resp);
     resp.endArray();
-    usRooms = step.us(); step.restart();
+    usRooms = step.lap();
     resp.beginArray("shades");
     serializeShades(resp);
     resp.endArray();
-    usShades = step.us(); step.restart();
+    usShades = step.lap();
     resp.beginArray("groups");
     serializeGroups(resp);
     resp.endArray();
     resp.endObject();
-    usGroups = step.us(); step.restart();
+    usGroups = step.lap();
     resp.endResponse();
     usSend = step.us();
     net.needsBroadcast = true;
@@ -1279,10 +1279,6 @@ void Web::handleNotFound(AsyncWebServerRequest *request) {
   request->send(404, _encoding_text, g_async_content);
 }
 
-// Logs how long a request takes to handle and, once the connection closes, how
-// long the whole exchange took.  The total includes chunked bodies like
-// /controller that are built while they are sent, after the handler returns.
-// The server name must be a literal as the disconnect handler keeps it.
 // Logs how long part of a request took, when it is worth logging.
 static void logRequestTime(const char *server, AsyncWebServerRequest *request, const IPAddress &ip, const char *part, uint32_t us) {
   if(!worthLogging(us)) return;
@@ -1291,6 +1287,10 @@ static void logRequestTime(const char *server, AsyncWebServerRequest *request, c
     ip[0], ip[1], ip[2], ip[3], part);
   logElapsed(TAG, what, us);
 }
+// Logs how long a request takes to handle and, once the connection closes, how
+// long the whole exchange took.  The total includes chunked bodies like
+// /controller that are built while they are sent, after the handler returns.
+// The server name must be a literal as the disconnect handler keeps it.
 static void timeRequest(AsyncWebServerRequest *request, ArMiddlewareNext next, const char *server) {
   ElapsedTimer timer;
   // Taken now as the client may already be gone when the disconnect runs.

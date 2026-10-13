@@ -140,19 +140,16 @@ void SocketEmitter::initClients() {
         esp_task_wdt_reset();
         ElapsedTimer total, step;
         settings.emitSockets(slot);
-        logElapsed(TAG, "Socket init settings", step.us());
+        logElapsed(TAG, "Socket init settings", step.lap());
         if(!ws.hasClient(asyncId)) { this->newClients[i] = 255; continue; }
-        step.restart();
         somfy.emitState(slot);
-        logElapsed(TAG, "Socket init somfy state", step.us());
+        logElapsed(TAG, "Socket init somfy state", step.lap());
         if(!ws.hasClient(asyncId)) { this->newClients[i] = 255; continue; }
-        step.restart();
         git.emitUpdateCheck(slot);
-        logElapsed(TAG, "Socket init update check", step.us());
+        logElapsed(TAG, "Socket init update check", step.lap());
         if(!ws.hasClient(asyncId)) { this->newClients[i] = 255; continue; }
-        step.restart();
         net.emitSockets(slot);
-        logElapsed(TAG, "Socket init network", step.us());
+        logElapsed(TAG, "Socket init network", step.lap());
         logElapsed(TAG, "Socket init total", total.us());
         esp_task_wdt_reset();
       }

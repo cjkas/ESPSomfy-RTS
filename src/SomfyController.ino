@@ -140,26 +140,22 @@ void loop() {
   // Each step only logs when it holds up the loop for LOOP_SLOW_MS or more.
   ElapsedTimer timing;
   net.loop();
-  logIfSlow(TAG, "Loop net", timing.us(), LOOP_SLOW_MS);
-  timing.restart();
+  logIfSlow(TAG, "Loop net", timing.lap(), LOOP_SLOW_MS);
   esp_task_wdt_reset();
   somfy.loop();
-  logIfSlow(TAG, "Loop somfy", timing.us(), LOOP_SLOW_MS);
+  logIfSlow(TAG, "Loop somfy", timing.lap(), LOOP_SLOW_MS);
   esp_task_wdt_reset();
   if(net.connected() || net.softAPOpened) {
     if(!rebootDelay.reboot && net.connected() && !net.softAPOpened) {
-      timing.restart();
       git.loop();
-      logIfSlow(TAG, "Loop git", timing.us(), LOOP_SLOW_MS);
+      logIfSlow(TAG, "Loop git", timing.lap(), LOOP_SLOW_MS);
       esp_task_wdt_reset();
     }
-    timing.restart();
     webServer.loop();
-    logIfSlow(TAG, "Loop web server", timing.us(), LOOP_SLOW_MS);
+    logIfSlow(TAG, "Loop web server", timing.lap(), LOOP_SLOW_MS);
     esp_task_wdt_reset();
-    timing.restart();
     sockEmit.loop();
-    logIfSlow(TAG, "Loop sockets", timing.us(), LOOP_SLOW_MS);
+    logIfSlow(TAG, "Loop sockets", timing.lap(), LOOP_SLOW_MS);
     esp_task_wdt_reset();
   }
   if(rebootDelay.reboot && millis() > rebootDelay.rebootTime) {

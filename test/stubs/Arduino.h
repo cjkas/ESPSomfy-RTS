@@ -16,7 +16,9 @@ typedef uint8_t byte;
 
 // Fixed so anything formatted from it is deterministic.
 inline unsigned long millis() { return 0; }
-inline unsigned long micros() { return 0; }
+// Tests that measure time set this.
+inline unsigned long stubMicros = 0;
+inline unsigned long micros() { return stubMicros; }
 inline bool getLocalTime(struct tm *info, uint32_t ms = 5000) {
   (void)ms;
   time_t now = time(nullptr);
