@@ -17,7 +17,7 @@ What submitting a radio job returns: the job's sequence number, 0 when the radio
 A job normally joins the back of the queue. A *priority* job (a stop) goes to the front, unless an earlier job from the same remote is still waiting. Overtaking that job would put the remote's rolling codes out of order, and the motor would reject the older frame.
 
 **Delayed job**
-A job that must not go on air before a given time (for example the long press that stores a favorite). It holds up the jobs behind it, but front jobs may overtake it while it waits.
+A job that must wait a given time after it was queued and after the transmission ahead of it ended, so the motor has settled (for example the long press that stores a favorite). It holds up the jobs behind it, but front jobs may overtake it while it waits.
 
 **Flush**
 Drops every waiting job (each gets a *dropped* event) and stops the job on air after its current frame (it gets *aborted*).

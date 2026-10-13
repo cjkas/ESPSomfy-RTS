@@ -21,8 +21,9 @@ class RadioScheduler {
     // the queue is full or suspended.  A priority job (a stop) may use the
     // reserved slots and goes ahead of every job queued at the back, unless a
     // job of its remote is already waiting: overtaking that would put the
-    // rolling codes out of order.  A delayed job doesn't go on air before
-    // delayMs from now and holds up the jobs queued behind it.
+    // rolling codes out of order.  A delayed job doesn't go on air until
+    // delayMs after it was queued and after the job ahead of it ended, and holds
+    // up the jobs queued behind it.
     uint32_t submit(somfy_tx_job_t &job, bool priority, uint16_t delayMs, uint32_t now);
     // Whether a job would be taken right now.
     bool hasRoom(bool priority) const;
@@ -59,6 +60,9 @@ class RadioScheduler {
     uint32_t taken = 0;
     somfy_tx_job_t takenJob;
     bool takenFlushed = false;
+    // When a job last went off air, for the delay of the job after it.
+    uint32_t lastEnded = 0;
+    bool endedOnce = false;
     somfy_tx_event_t events[TX_JOB_QUEUE_SIZE * 3];
     uint8_t eventHead = 0;
     uint8_t eventCount = 0;

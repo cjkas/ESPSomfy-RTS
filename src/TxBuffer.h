@@ -62,7 +62,8 @@ struct somfy_tx_job_t {
   bool priority = false;    // May use the reserved slots.
   bool front = false;       // Queued ahead of the back.  Only for priority jobs.
   uint32_t seq = 0;         // Ticket the job's events are matched up by.
-  uint32_t notBefore = 0;   // millis() before which the job must not go on air (0 = none).
+  uint32_t queuedAt = 0;    // millis() when it was submitted.
+  uint16_t delayMs = 0;     // How long it waits after it was queued and after the job ahead of it ended.
 };
 enum class tx_event_t : uint8_t {
   started,  // The job is going on air.

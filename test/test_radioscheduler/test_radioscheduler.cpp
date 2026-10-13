@@ -191,8 +191,51 @@ static void test_stop_overtakes_a_delayed_job_of_another_remote() {
   const uint32_t a = submit(s, REMOTE_A, 0, false, 500);
   const uint32_t stop = submit(s, REMOTE_B, 100, true);
   TEST_ASSERT_EQUAL_UINT32(stop, runNext(s, 100));
-  TEST_ASSERT_EQUAL_UINT32(0, runNext(s, 200));
-  TEST_ASSERT_EQUAL_UINT32(a, runNext(s, 500));
+  // The stop went off air at 100 so the delay starts again from there.
+  TEST_ASSERT_EQUAL_UINT32(0, runNext(s, 500));
+  TEST_ASSERT_EQUAL_UINT32(a, runNext(s, 600));
+}
+static void test_delay_counts_from_the_job_ahead_going_off_air() {
+  // The stop at the target is queued just before the favorite and is on air
+  // longer than the favorite's delay.
+  RadioScheduler s;
+  const uint32_t stop = submit(s, REMOTE_A, 0, true);
+  const uint32_t setMy = submit(s, REMOTE_A, 0, false, 200);
+  somfy_tx_job_t job;
+  uint32_t waitMs;
+  TEST_ASSERT_TRUE(s.next(0, job, waitMs));
+  TEST_ASSERT_TRUE(s.start(stop, 0));
+  s.ended(stop, true, 250);
+  TEST_ASSERT_FALSE(s.next(350, job, waitMs));
+  TEST_ASSERT_EQUAL_UINT32(100, waitMs);
+  TEST_ASSERT_TRUE(s.next(450, job, waitMs));
+  TEST_ASSERT_EQUAL_UINT32(setMy, job.seq);
+}
+static void test_delay_ignores_a_job_that_ended_before_it_was_queued() {
+  RadioScheduler s;
+  submit(s, REMOTE_B, 0);
+  runNext(s, 50);
+  const uint32_t a = submit(s, REMOTE_A, 100, false, 200);
+  somfy_tx_job_t job;
+  uint32_t waitMs;
+  TEST_ASSERT_FALSE(s.next(100, job, waitMs));
+  TEST_ASSERT_EQUAL_UINT32(200, waitMs);
+  TEST_ASSERT_TRUE(s.next(300, job, waitMs));
+  TEST_ASSERT_EQUAL_UINT32(a, job.seq);
+}
+static void test_delay_after_a_job_ended_across_millis_wrap() {
+  RadioScheduler s;
+  const uint32_t stop = submit(s, REMOTE_A, 0xFFFFFF00u, true);
+  const uint32_t setMy = submit(s, REMOTE_A, 0xFFFFFF00u, false, 0x100);
+  somfy_tx_job_t job;
+  uint32_t waitMs;
+  s.next(0xFFFFFF00u, job, waitMs);
+  s.start(stop, 0xFFFFFF00u);
+  s.ended(stop, true, 0x80);
+  TEST_ASSERT_FALSE(s.next(0x100, job, waitMs));
+  TEST_ASSERT_EQUAL_UINT32(0x80, waitMs);
+  TEST_ASSERT_TRUE(s.next(0x180, job, waitMs));
+  TEST_ASSERT_EQUAL_UINT32(setMy, job.seq);
 }
 static void test_stop_waits_behind_its_remotes_delayed_job() {
   // The favorite's long press holds a rolling code, so the stop can't go first.
@@ -400,6 +443,9 @@ int main(int argc, char **argv) {
   RUN_TEST(test_delayed_job_waits_until_due);
   RUN_TEST(test_delayed_job_holds_up_the_jobs_behind_it);
   RUN_TEST(test_stop_overtakes_a_delayed_job_of_another_remote);
+  RUN_TEST(test_delay_counts_from_the_job_ahead_going_off_air);
+  RUN_TEST(test_delay_ignores_a_job_that_ended_before_it_was_queued);
+  RUN_TEST(test_delay_after_a_job_ended_across_millis_wrap);
   RUN_TEST(test_stop_waits_behind_its_remotes_delayed_job);
   RUN_TEST(test_delay_across_millis_wrap);
   RUN_TEST(test_job_reports_started_then_finished);

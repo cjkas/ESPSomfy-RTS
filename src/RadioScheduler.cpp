@@ -26,11 +26,8 @@ uint32_t RadioScheduler::submit(somfy_tx_job_t &job, bool priority, uint16_t del
   job.seq = this->lastSeq;
   job.priority = priority;
   job.front = priority && !job.raw && !this->waitingFor(job.frame.remoteAddress);
-  job.notBefore = 0;
-  if(delayMs > 0) {
-    job.notBefore = now + delayMs;
-    if(job.notBefore == 0) job.notBefore = 1;  // 0 means not delayed.
-  }
+  job.queuedAt = now;
+  job.delayMs = delayMs;
   // Front jobs go out in the order they came, ahead of the back.
   uint8_t at = this->count;
   if(job.front) {
@@ -61,11 +58,14 @@ bool RadioScheduler::next(uint32_t now, somfy_tx_job_t &job, uint32_t &waitMs) {
   // Jobs go out in order, so a delayed job holds up the ones behind it.  A
   // front job queued meanwhile is ahead of it.
   const somfy_tx_job_t &head = this->jobs[0];
-  if(head.notBefore != 0) {
-    // Works across a millis() wrap.
-    const int32_t due = (int32_t)(head.notBefore - now);
-    if(due > 0) {
-      waitMs = (uint32_t)due;
+  if(head.delayMs != 0) {
+    // The delay lets the motor settle, so it counts from the job ahead of it
+    // going off air when that came after the job was queued.  Ages are unsigned
+    // so this works across a millis() wrap.
+    uint32_t waited = now - head.queuedAt;
+    if(this->endedOnce && now - this->lastEnded < waited) waited = now - this->lastEnded;
+    if(waited < head.delayMs) {
+      waitMs = head.delayMs - waited;
       return false;
     }
   }
@@ -94,6 +94,8 @@ void RadioScheduler::ended(uint32_t ticket, bool complete, uint32_t now) {
   if(ticket == 0 || ticket != this->taken) return;
   this->post(complete ? tx_event_t::finished : tx_event_t::aborted, this->takenJob, now);
   this->taken = 0;
+  this->lastEnded = now;
+  this->endedOnce = true;
 }
 void RadioScheduler::flush(uint32_t now) {
   // Every discarded job is reported as dropped.
