@@ -89,14 +89,6 @@ static bool startsMovement(somfy_commands cmd) {
   }
 }
 
-int sort_asc(const void *cmp1, const void *cmp2) {
-  int a = *((uint8_t *)cmp1);
-  int b = *((uint8_t *)cmp2);
-  if(a == b) return 0;
-  else if(a < b) return -1;
-  return 1;
-}
-
 static int interruptPin = 0;
 static volatile bool noiseDetected = false;
 static volatile unsigned long noiseStart = 0;
@@ -120,7 +112,6 @@ SomfyShadeController::SomfyShadeController() {
   uint64_t mac = ESP.getEfuseMac();
   this->startingAddress = mac & 0x0FFFFF;
 }
-bool SomfyShadeController::useNVS() { return !(settings.appVersion.major > 1 || settings.appVersion.minor >= 4); };
 SomfyShade *SomfyShadeController::findShadeByRemoteAddress(uint32_t address) {
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
     SomfyShade &shade = this->shades[i];
@@ -151,99 +142,17 @@ void SomfyShadeController::updateGroupFlags() {
     }
   }
 }
-#ifdef USE_NVS
-bool SomfyShadeController::loadLegacy() {
-  Preferences pref;
-  ESP_LOGI(TAG, "Loading Legacy shades using NVS");
-  pref.begin("Shades", true);
-  pref.getBytes("shadeIds", this->m_shadeIds, sizeof(this->m_shadeIds));
-  pref.end();
-  for(uint8_t i = 0; i < sizeof(this->m_shadeIds); i++) {
-    if(i != 0) DEBUG_SOMFY.print(",");
-    DEBUG_SOMFY.print(this->m_shadeIds[i]);
-  }
-  DEBUG_SOMFY.println();
-  sortArray<uint8_t>(this->m_shadeIds, sizeof(this->m_shadeIds));
-  #ifdef DEBUG_SOMFY
-  for(uint8_t i = 0; i < sizeof(this->m_shadeIds); i++) {
-    if(i != 0) DEBUG_SOMFY.print(",");
-    DEBUG_SOMFY.print(this->m_shadeIds[i]);
-  }
-  DEBUG_SOMFY.println();
-  #endif
-
-  uint8_t id = 0;
-  for(uint8_t i = 0; i < sizeof(this->m_shadeIds); i++) {
-    if(this->m_shadeIds[i] == id) this->m_shadeIds[i] = 255;
-    id = this->m_shadeIds[i];
-    SomfyShade *shade = &this->shades[i];
-    shade->setShadeId(id);
-    if(id == 255) {
-      continue;
-    }
-    shade->load();
-  }
-  #ifdef DEBUG_SOMFY
-  for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
-    DEBUG_SOMFY.print(this->shades[i].getShadeId());
-    DEBUG_SOMFY.print(":");
-    DEBUG_SOMFY.print(this->m_shadeIds[i]);
-    if(i < SOMFY_MAX_SHADES - 1) DEBUG_SOMFY.print(",");
-  }
-  #endif
-  #ifdef USE_NVS
-  if(!this->useNVS()) {
-    pref.begin("Shades");
-    pref.putBytes("shadeIds", this->m_shadeIds, sizeof(this->m_shadeIds));
-    pref.end();
-  }
-  #endif
-  this->commit();
-  return true;
-}
-#endif
 bool SomfyShadeController::begin() {
   Preferences pref;
   // Load up all the configuration data.
   //ShadeConfigFile::getAppVersion(this->appVersion);
   ESP_LOGI(TAG, "App Version:%u.%u.%u", settings.appVersion.major, settings.appVersion.minor, settings.appVersion.build);
-  #ifdef USE_NVS
-  if(!this->useNVS()) {  // At 1.4 we started using the configuration file.  If the file doesn't exist then booh.
-    // We need to remove all the extraeneous data from NVS for the shades.  From here on out we
-    // will rely on the shade configuration.
-    ESP_LOGI(TAG, "No longer using NVS");
-    if(ShadeConfigFile::exists()) {
-      ShadeConfigFile::load(this);
-    }
-    else {
-      this->loadLegacy();
-    }
-    pref.begin("Shades");
-    if(pref.isKey("shadeIds")) {
-      pref.getBytes("shadeIds", this->m_shadeIds, sizeof(this->m_shadeIds));
-      pref.clear(); // Delete all the keys.
-    }
-    pref.end();
-    for(uint8_t i = 0; i < sizeof(this->m_shadeIds); i++) {
-      // Start deleting the keys for the shades.
-      if(this->m_shadeIds[i] == 255) continue;
-      char shadeKey[15];
-      sprintf(shadeKey, "SomfyShade%u", this->m_shadeIds[i]);
-      pref.begin(shadeKey);
-      pref.clear();
-      pref.end();
-    }
-  }
-  #endif
   if(ShadeConfigFile::exists()) {
     ESP_LOGI(TAG, "shades.cfg exists so we are using that");
     ShadeConfigFile::load(this);
   }
   else {
     ESP_LOGI(TAG, "Starting clean");
-    #ifdef USE_NVS
-    this->loadLegacy();
-    #endif
   }
   this->transceiver.begin();
 
@@ -371,22 +280,6 @@ bool SomfyShade::linkRemote(uint32_t address, uint16_t rollingCode) {
     if(this->linkedRemotes[i].getRemoteAddress() == 0) {
       this->linkedRemotes[i].setRemoteAddress(address);
       this->linkedRemotes[i].setRollingCode(rollingCode);
-      #ifdef USE_NVS
-      if(somfy.useNVS()) {
-        uint32_t linkedAddresses[SOMFY_MAX_LINKED_REMOTES];
-        memset(linkedAddresses, 0x00, sizeof(linkedAddresses));
-        uint8_t j = 0;
-        for(uint8_t i = 0; i < SOMFY_MAX_LINKED_REMOTES; i++) {
-          SomfyLinkedRemote lremote = this->linkedRemotes[i];
-          if(lremote.getRemoteAddress() != 0) linkedAddresses[j++] = lremote.getRemoteAddress();
-        }
-        char shadeKey[15];
-        snprintf(shadeKey, sizeof(shadeKey), "SomfyShade%u", this->getShadeId());
-        pref.begin(shadeKey);
-        pref.putBytes("linkedAddr", linkedAddresses, sizeof(uint32_t) * SOMFY_MAX_LINKED_REMOTES);
-        pref.end();
-      }
-      #endif
       this->commit();
       return true;
     }
@@ -413,66 +306,20 @@ void SomfyShade::commit() { somfy.commit(); }
 void SomfyShade::commitShadePosition() {
   Preferences pref;
   somfy.isDirty = true;
-  #ifdef USE_NVS
-  char shadeKey[15];
-  if(somfy.useNVS()) {
-    snprintf(shadeKey, sizeof(shadeKey), "SomfyShade%u", this->shadeId);
-    ESP_LOGD(TAG, "Writing current shade position: %.4f", this->currentPos);
-    pref.begin(shadeKey);
-    pref.putFloat("currentPos", this->currentPos);
-    pref.end();
-  }
-  #endif
 }
 void SomfyShade::commitMyPosition() {
   Preferences pref;
   somfy.isDirty = true;
-  #ifdef USE_NVS
-  if(somfy.useNVS()) {
-    char shadeKey[15];
-    snprintf(shadeKey, sizeof(shadeKey), "SomfyShade%u", this->shadeId);
-    ESP_LOGD(TAG, "Writing my shade position:%.2f%%", this->myPos);
-    pref.begin(shadeKey);
-    pref.putUShort("myPos", this->myPos);
-    pref.end();
-  }
-  #endif
 }
 void SomfyShade::commitTiltPosition() {
   Preferences pref;
   somfy.isDirty = true;
-  #ifdef USE_NVS
-  if(somfy.useNVS()) {
-    char shadeKey[15];
-    snprintf(shadeKey, sizeof(shadeKey), "SomfyShade%u", this->shadeId);
-    ESP_LOGD(TAG, "Writing current shade tilt position: %.4f", this->currentTiltPos);
-    pref.begin(shadeKey);
-    pref.putFloat("currentTiltPos", this->currentTiltPos);
-    pref.end();
-  }
-  #endif
 }
 bool SomfyShade::unlinkRemote(uint32_t address) {
   Preferences pref;
   for(uint8_t i = 0; i < SOMFY_MAX_LINKED_REMOTES; i++) {
     if(this->linkedRemotes[i].getRemoteAddress() == address) {
       this->linkedRemotes[i].setRemoteAddress(0);
-      #ifdef USE_NVS
-      if(somfy.useNVS()) {
-        char shadeKey[15];
-        snprintf(shadeKey, sizeof(shadeKey), "SomfyShade%u", this->getShadeId());
-        uint32_t linkedAddresses[SOMFY_MAX_LINKED_REMOTES];
-        memset(linkedAddresses, 0x00, sizeof(linkedAddresses));
-        uint8_t j = 0;
-        for(uint8_t i = 0; i < SOMFY_MAX_LINKED_REMOTES; i++) {
-          SomfyLinkedRemote lremote = this->linkedRemotes[i];
-          if(lremote.getRemoteAddress() != 0) linkedAddresses[j++] = lremote.getRemoteAddress();
-        }
-        pref.begin(shadeKey);
-        pref.putBytes("linkedAddr", linkedAddresses, sizeof(uint32_t) * SOMFY_MAX_LINKED_REMOTES);
-        pref.end();
-      }
-      #endif
       this->commit();
       return true;
     }
@@ -921,62 +768,6 @@ void SomfyShade::checkMovement() {
     this->emitState();
   }
 }
-#ifdef USE_NVS
-void SomfyShade::load() {
-    Preferences pref;
-    char shadeKey[15];
-    uint32_t linkedAddresses[SOMFY_MAX_LINKED_REMOTES];
-    memset(linkedAddresses, 0x00, sizeof(uint32_t) * SOMFY_MAX_LINKED_REMOTES);
-    snprintf(shadeKey, sizeof(shadeKey), "SomfyShade%u", this->shadeId);
-    // Now load up each of the shades into memory.
-    //Serial.print("key:");
-    //Serial.println(shadeKey);
-    
-    pref.begin(shadeKey, !somfy.useNVS());
-    pref.getString("name", this->name, sizeof(this->name));
-    this->paired = pref.getBool("paired", false);
-    if(pref.isKey("upTime") && pref.getType("upTime") != PreferenceType::PT_U32) {
-      // We need to convert these to 32 bits because earlier versions did not support this.
-      this->upTime = static_cast<uint32_t>(pref.getUShort("upTime", 1000));
-      this->downTime = static_cast<uint32_t>(pref.getUShort("downTime", 1000));
-      this->tiltTime = static_cast<uint32_t>(pref.getUShort("tiltTime", 7000));
-      if(somfy.useNVS()) {
-        pref.remove("upTime");
-        pref.putUInt("upTime", this->upTime);
-        pref.remove("downTime");
-        pref.putUInt("downTime", this->downTime);
-        pref.remove("tiltTime");
-        pref.putUInt("tiltTime", this->tiltTime);
-      }
-    }
-    else {
-      this->upTime = pref.getUInt("upTime", this->upTime);
-      this->downTime = pref.getUInt("downTime", this->downTime);
-      this->tiltTime = pref.getUInt("tiltTime", this->tiltTime);
-    }
-    this->setRemoteAddress(pref.getUInt("remoteAddress", 0));
-    this->currentPos = pref.getFloat("currentPos", 0);
-    this->target = floor(this->currentPos);
-    this->myPos = static_cast<float>(pref.getUShort("myPos", this->myPos));
-    this->tiltType = pref.getBool("hasTilt", false) ? tilt_types::none : tilt_types::tiltmotor;
-    this->shadeType = static_cast<shade_types>(pref.getChar("shadeType", static_cast<uint8_t>(this->shadeType)));
-    this->currentTiltPos = pref.getFloat("currentTiltPos", 0);
-    this->tiltTarget = floor(this->currentTiltPos);
-    pref.getBytes("linkedAddr", linkedAddresses, sizeof(linkedAddresses));
-    pref.end();
-    ESP_LOGI(TAG, "shadeId:%d name:%s address:%d position:%.2f myPos:%.2f",
-        this->getShadeId(), this->name, this->getRemoteAddress(),
-        this->currentPos, this->myPos);
-    pref.begin("ShadeCodes");
-    this->lastRollingCode = pref.getUShort(this->m_remotePrefId, 0);
-    for(uint8_t j = 0; j < SOMFY_MAX_LINKED_REMOTES; j++) {
-      SomfyLinkedRemote &lremote = this->linkedRemotes[j];
-      lremote.setRemoteAddress(linkedAddresses[j]);
-      lremote.lastRollingCode = pref.getUShort(lremote.getRemotePrefId(), 0);
-    }
-    pref.end();
-}
-#endif
 void SomfyRoom::publish() {
   if(mqtt.connected()) {
     char topic[64];
@@ -1475,22 +1266,6 @@ void SomfyShade::emitState(uint8_t num, const char *evt) {
   }
   json->endObject();
   sockEmit.endEmit(num);
-  /*
-  char buf[420];
-  if(this->tiltType != tilt_types::none)
-    snprintf(buf, sizeof(buf), "{\"shadeId\":%d,\"type\":%u,\"remoteAddress\":%d,\"name\":\"%s\",\"direction\":%d,\"position\":%d,\"target\":%d,\"myPos\":%d,\"myTiltPos\":%d,\"tiltType\":%u,\"tiltDirection\":%d,\"tiltTarget\":%d,\"tiltPosition\":%d,\"flipCommands\":%s,\"flipPosition\":%s,\"flags\":%d,\"sunSensor\":%s,\"light\":%s,\"sortOrder\":%d}", 
-      this->shadeId, static_cast<uint8_t>(this->shadeType), this->getRemoteAddress(), this->name, this->direction, 
-      this->transformPosition(this->currentPos), this->transformPosition(this->target), this->transformPosition(this->myPos), this->transformPosition(this->myTiltPos), static_cast<uint8_t>(this->tiltType), this->tiltDirection, 
-      this->transformPosition(this->tiltTarget), this->transformPosition(this->currentTiltPos),
-      this->flipCommands ? "true" : "false", this->flipPosition ? "true": "false", this->flags, this->hasSunSensor() ? "true" : "false", this->hasLight() ? "true" : "false", this->sortOrder);
-  else
-    snprintf(buf, sizeof(buf), "{\"shadeId\":%d,\"type\":%u,\"remoteAddress\":%d,\"name\":\"%s\",\"direction\":%d,\"position\":%d,\"target\":%d,\"myPos\":%d,\"tiltType\":%u,\"flipCommands\":%s,\"flipPosition\":%s,\"flags\":%d,\"sunSensor\":%s,\"light\":%s,\"sortOrder\":%d}", 
-      this->shadeId, static_cast<uint8_t>(this->shadeType), this->getRemoteAddress(), this->name, this->direction, 
-      this->transformPosition(this->currentPos), this->transformPosition(this->target), this->transformPosition(this->myPos), 
-      static_cast<uint8_t>(this->tiltType), this->flipCommands ? "true" : "false", this->flipPosition ? "true": "false", this->flags, this->hasSunSensor() ? "true" : "false", this->hasLight() ? "true" : "false", this->sortOrder);
-  if(num >= 255) sockEmit.sendToClients(evt, buf);
-  else sockEmit.sendToClient(num, evt, buf);
-  */
 }
 void SomfyShade::emitCommand(somfy_commands cmd, const char *source, uint32_t sourceAddress, const char *evt) { this->emitCommand(255, cmd, source, sourceAddress, evt); }
 void SomfyShade::emitCommand(uint8_t num, somfy_commands cmd, const char *source, uint32_t sourceAddress, const char *evt) {
@@ -1504,24 +1279,6 @@ void SomfyShade::emitCommand(uint8_t num, somfy_commands cmd, const char *source
   json->addElem("sourceAddress", (uint32_t)sourceAddress);
   json->endObject();
   sockEmit.endEmit(num);
-  /*
-  ClientSocketEvent e(evt);
-  char buf[30];
-  snprintf(buf, sizeof(buf), "{\"shadeId\":%d", this->shadeId);
-  e.appendMessage(buf);
-  snprintf(buf, sizeof(buf), ",\"remoteAddress\":%d", this->getRemoteAddress());
-  e.appendMessage(buf);
-  snprintf(buf, sizeof(buf), ",\"cmd\":\"%s\"", translateSomfyCommand(cmd).c_str());
-  e.appendMessage(buf);
-  snprintf(buf, sizeof(buf), ",\"source\":\"%s\"", source);
-  e.appendMessage(buf);
-  snprintf(buf, sizeof(buf), ",\"rcode\":%d", this->lastRollingCode);
-  e.appendMessage(buf);
-  snprintf(buf, sizeof(buf), ",\"sourceAddress\":%d}", sourceAddress);
-  e.appendMessage(buf);
-  if(num >= 255) sockEmit.sendToClients(&e);
-  else sockEmit.sendToClient(num, &e);
-  */
   if(mqtt.connected()) {
     this->publish("cmdSource", source);
     this->publish("cmdAddress", sourceAddress);
@@ -1537,19 +1294,6 @@ void SomfyRoom::emitState(uint8_t num, const char *evt) {
   json->addElem("sortOrder", this->sortOrder);
   json->endObject();
   sockEmit.endEmit(num);
-  /*
-  ClientSocketEvent e(evt);
-  char buf[55];
-  uint8_t flags = 0;
-  snprintf(buf, sizeof(buf), "{\"roomId\":%d,", this->roomId);
-  e.appendMessage(buf);
-  snprintf(buf, sizeof(buf), "\"name\":\"%s\",", this->name);
-  e.appendMessage(buf);
-  snprintf(buf, sizeof(buf), "\"sortOrder\":%d}", this->sortOrder);
-  e.appendMessage(buf);
-  if(num >= 255) sockEmit.sendToClients(&e);
-  else sockEmit.sendToClient(num, &e);
-  */
   this->publish();
 }
 void SomfyGroup::emitState(const char *evt) { this->emitState(255, evt); }
@@ -1575,38 +1319,6 @@ void SomfyGroup::emitState(uint8_t num, const char *evt) {
   json->addElem("flags", flags);
   json->endObject();
   sockEmit.endEmit(num);
-  /*
-  ClientSocketEvent e(evt);
-  char buf[55];
-  uint8_t flags = 0;
-  snprintf(buf, sizeof(buf), "{\"groupId\":%d,", this->groupId);
-  e.appendMessage(buf);
-  snprintf(buf, sizeof(buf), "\"remoteAddress\":%d,", this->getRemoteAddress());
-  e.appendMessage(buf);
-  snprintf(buf, sizeof(buf), "\"name\":\"%s\",", this->name);
-  e.appendMessage(buf);
-  snprintf(buf, sizeof(buf), "\"sunSensor\":%s,", this->hasSunSensor() ? "true" : "false");
-  e.appendMessage(buf);
-  snprintf(buf, sizeof(buf), "\"shades\":[");
-  e.appendMessage(buf);
-  for(uint8_t i = 0; i < SOMFY_MAX_GROUPED_SHADES; i++) {
-    if(this->linkedShades[i] != 255) {
-      if(this->linkedShades[i] != 0) {
-        SomfyShade *shade = somfy.getShadeById(this->linkedShades[i]);
-        if(shade) {
-          flags |= shade->flags;
-          snprintf(buf, sizeof(buf), "%s%d", i != 0 ? "," : "", this->linkedShades[i]);
-          e.appendMessage(buf);
-        }
-      }
-    }
-  }
-  snprintf(buf, sizeof(buf), "],\"flags\":%d}", flags);
-  e.appendMessage(buf);
-  
-  if(num >= 255) sockEmit.sendToClients(&e);
-  else sockEmit.sendToClient(num, &e);
-  */
   this->publish();
 }
 int8_t SomfyShade::transformPosition(float fpos) { return displayPosition(fpos, this->flipPosition); }
@@ -2706,37 +2418,6 @@ bool SomfyShade::moveToTarget(float pos, float tilt) {
 }
 bool SomfyShade::save() {
   Preferences pref;
-  #ifdef USE_NVS
-  if(somfy.useNVS()) {
-    char shadeKey[15];
-    snprintf(shadeKey, sizeof(shadeKey), "SomfyShade%u", this->getShadeId());
-    if(!pref.begin(shadeKey)) {
-      ESP_LOGE(TAG, "[Shade %u] save() pref.begin(%s) FAILED", this->getShadeId(), shadeKey);
-    }
-    pref.clear();
-    pref.putChar("shadeType", static_cast<uint8_t>(this->shadeType));
-    pref.putUInt("remoteAddress", this->getRemoteAddress());
-    pref.putString("name", this->name);
-    pref.putBool("hasTilt", this->tiltType != tilt_types::none);
-    pref.putBool("paired", this->paired);
-    pref.putUInt("upTime", this->upTime);
-    pref.putUInt("downTime", this->downTime);
-    pref.putUInt("tiltTime", this->tiltTime);
-    pref.putFloat("currentPos", this->currentPos);
-    pref.putFloat("currentTiltPos", this->currentTiltPos);
-    pref.putUShort("myPos", this->myPos);
-    uint32_t linkedAddresses[SOMFY_MAX_LINKED_REMOTES];
-    memset(linkedAddresses, 0x00, sizeof(linkedAddresses));
-    uint8_t j = 0;
-    for(uint8_t i = 0; i < SOMFY_MAX_LINKED_REMOTES; i++) {
-      SomfyLinkedRemote lremote = this->linkedRemotes[i];
-      if(lremote.getRemoteAddress() != 0) linkedAddresses[j++] = lremote.getRemoteAddress();
-    }
-    pref.remove("linkedAddr");
-    pref.putBytes("linkedAddr", linkedAddresses, sizeof(uint32_t) * SOMFY_MAX_LINKED_REMOTES);
-    pref.end();
-  }
-  #endif
   this->commit();
   this->publish();
   return true;
@@ -2944,73 +2625,11 @@ int8_t SomfyShade::fromJSON(JsonObject &obj) {
   }
   return err;
 }
-/*
-bool SomfyShade::toJSON(JsonObject &obj) {
-  //Serial.print("Serializing Shade:");
-  //Serial.print(this->getShadeId());
-  //Serial.print("  ");
-  //Serial.println(this->name);
-  obj["shadeId"] = this->getShadeId();
-  obj["roomId"] = this->roomId;
-  obj["name"] = this->name;
-  obj["remoteAddress"] = this->m_remoteAddress;
-  obj["upTime"] = this->upTime;
-  obj["downTime"] = this->downTime;
-  obj["paired"] = this->paired;
-  //obj["remotePrefId"] = this->getRemotePrefId();
-  obj["lastRollingCode"] = this->lastRollingCode;
-  obj["position"] = this->transformPosition(this->currentPos);
-  obj["tiltPosition"] = this->transformPosition(this->currentTiltPos);
-  obj["tiltDirection"] = this->tiltDirection;
-  obj["tiltTime"] = this->tiltTime;
-  obj["stepSize"] = this->stepSize;
-  obj["tiltTarget"] = this->transformPosition(this->tiltTarget);
-  obj["target"] = this->transformPosition(this->target);
-  obj["myPos"] = this->transformPosition(this->myPos);
-  obj["myTiltPos"] = this->transformPosition(this->myTiltPos);
-  obj["direction"] = this->direction;
-  obj["tiltType"] = static_cast<uint8_t>(this->tiltType);
-  obj["tiltTime"] = this->tiltTime;
-  obj["shadeType"] = static_cast<uint8_t>(this->shadeType);
-  obj["bitLength"] = this->bitLength;
-  obj["proto"] = static_cast<uint8_t>(this->proto);
-  obj["flags"] = this->flags;
-  obj["flipCommands"] = this->flipCommands;
-  obj["flipPosition"] = this->flipPosition;
-  obj["inGroup"] = this->isInGroup();
-  obj["sunSensor"] = this->hasSunSensor();
-  obj["light"] = this->hasLight();
-  obj["repeats"] = this->repeats;
-  obj["sortOrder"] = this->sortOrder;  
-  obj["gpioUp"] = this->gpioUp;
-  obj["gpioDown"] = this->gpioDown;
-  obj["gpioMy"] = this->gpioMy;
-  obj["gpioLLTrigger"] = ((this->gpioFlags & (uint8_t)gpio_flags_t::LowLevelTrigger) == 0) ? false : true;
-  SomfyRemote::toJSON(obj);
-  JsonArray arr = obj.createNestedArray("linkedRemotes");
-  for(uint8_t i = 0; i < SOMFY_MAX_LINKED_REMOTES; i++) {
-    SomfyLinkedRemote &lremote = this->linkedRemotes[i];
-    if(lremote.getRemoteAddress() != 0) {
-      JsonObject lro = arr.createNestedObject();
-      lremote.toJSON(lro);
-    }
-  }
-  return true;
-}
-*/
 bool SomfyRoom::fromJSON(JsonObject &obj) {
   if(!obj["name"].isNull()) strlcpy(this->name, obj["name"], sizeof(this->name));
   if(!obj["sortOrder"].isNull()) this->sortOrder = obj["sortOrder"];
   return true;
 }
-/*
-bool SomfyRoom::toJSON(JsonObject &obj) {
-  obj["roomId"] = this->roomId;
-  obj["name"] = this->name;
-  obj["sortOrder"] = this->sortOrder;
-  return true;
-}
-*/
 bool SomfyGroup::fromJSON(JsonObject &obj) {
   if(!obj["name"].isNull()) strlcpy(this->name, obj["name"], sizeof(this->name));
   if(!obj["roomId"].isNull()) this->roomId = obj["roomId"];
@@ -3032,45 +2651,7 @@ bool SomfyGroup::fromJSON(JsonObject &obj) {
   }
   return true;
 }
-/*
-bool SomfyGroup::toJSON(JsonObject &obj) {
-  this->updateFlags();
-  obj["groupId"] = this->getGroupId();
-  obj["roomId"] = this->roomId;
-  obj["name"] = this->name;
-  obj["remoteAddress"] = this->m_remoteAddress;
-  obj["lastRollingCode"] = this->lastRollingCode;
-  obj["bitLength"] = this->bitLength;
-  obj["proto"] = static_cast<uint8_t>(this->proto);
-  obj["sunSensor"] = this->hasSunSensor();
-  obj["flipCommands"] = this->flipCommands;
-  obj["flags"] = this->flags;
-  obj["repeats"] = this->repeats;
-  obj["sortOrder"] = this->sortOrder;
-  SomfyRemote::toJSON(obj);
-  JsonArray arr = obj.createNestedArray("linkedShades");
-  for(uint8_t i = 0; i < SOMFY_MAX_GROUPED_SHADES; i++) {
-    uint8_t shadeId = this->linkedShades[i];
-    if(shadeId > 0 && shadeId < 255) {
-      SomfyShade *shade = somfy.getShadeById(shadeId);
-      if(shade) {
-        JsonObject lsd = arr.createNestedObject();
-        shade->toJSONRef(lsd);
-      }
-    }
-  }
-  return true;
-}
-*/
 
-/*
-bool SomfyRemote::toJSON(JsonObject &obj) {
-  //obj["remotePrefId"] = this->getRemotePrefId();
-  obj["remoteAddress"] = this->getRemoteAddress();
-  obj["lastRollingCode"] = this->lastRollingCode;
-  return true;  
-}
-*/
 void SomfyRemote::setRemoteAddress(uint32_t address) { this->m_remoteAddress = address; this->m_rollingCodeSynced = false; snprintf(this->m_remotePrefId, sizeof(this->m_remotePrefId), "_%lu", (unsigned long)this->m_remoteAddress); }
 uint32_t SomfyRemote::getRemoteAddress() { return this->m_remoteAddress; }
 void SomfyShadeController::processFrame(somfy_frame_t &frame, bool internal) {
@@ -3296,59 +2877,6 @@ SomfyShade *SomfyShadeController::addShade() {
     shade->sortOrder = this->getMaxShadeOrder() + 1;
     ESP_LOGD(TAG, "Sort order set to %d", shade->sortOrder);
     this->isDirty = true;
-    #ifdef USE_NVS
-    if(this->useNVS()) {
-      for(uint8_t i = 0; i < sizeof(this->m_shadeIds); i++) {
-        this->m_shadeIds[i] = this->shades[i].getShadeId();
-      }
-      sortArray<uint8_t>(this->m_shadeIds, sizeof(this->m_shadeIds));
-      uint8_t id = 0;
-      // This little diddy is about a bug I had previously that left duplicates in the
-      // sorted array.  So we will walk the sorted array until we hit a duplicate where the previous
-      // value == the current value.  Set it to 255 then sort the array again.
-      // 1,1,2,2,3,3,255...
-      bool hadDups = false;
-      for(uint8_t i = 0; i < sizeof(this->m_shadeIds); i++) {
-        if(this->m_shadeIds[i] == 255) break;
-        if(id == this->m_shadeIds[i]) {
-          id = this->m_shadeIds[i];
-          this->m_shadeIds[i] = 255;
-          hadDups = true;
-        }
-        else {
-          id = this->m_shadeIds[i];
-        }
-      }
-      if(hadDups) sortArray<uint8_t>(this->m_shadeIds, sizeof(this->m_shadeIds));
-      pref.begin("Shades");
-      pref.remove("shadeIds");
-      int x = pref.putBytes("shadeIds", this->m_shadeIds, sizeof(this->m_shadeIds));
-      ESP_LOGD(TAG, "WROTE %d bytes to shadeIds", x);
-      pref.end();
-      {
-        char shade_ids_buf[256];
-        int spos = snprintf(shade_ids_buf, sizeof(shade_ids_buf), "Shade Ids: ");
-        for(uint8_t i = 0; i < sizeof(this->m_shadeIds); i++) {
-          if(i != 0) spos += snprintf(shade_ids_buf + spos, sizeof(shade_ids_buf) - spos, ",");
-          spos += snprintf(shade_ids_buf + spos, sizeof(shade_ids_buf) - spos, "%d", this->m_shadeIds[i]);
-        }
-        ESP_LOGD(TAG, "%s", shade_ids_buf);
-      }
-      pref.begin("Shades");
-      pref.getBytes("shadeIds", this->m_shadeIds, sizeof(this->m_shadeIds));
-      ESP_LOGD(TAG, "LENGTH:%d", pref.getBytesLength("shadeIds"));
-      pref.end();
-      {
-        char shade_ids_buf[256];
-        int spos = snprintf(shade_ids_buf, sizeof(shade_ids_buf), "Shade Ids: ");
-        for(uint8_t i = 0; i < sizeof(this->m_shadeIds); i++) {
-          if(i != 0) spos += snprintf(shade_ids_buf + spos, sizeof(shade_ids_buf) - spos, ",");
-          spos += snprintf(shade_ids_buf + spos, sizeof(shade_ids_buf) - spos, "%d", this->m_shadeIds[i]);
-        }
-        ESP_LOGD(TAG, "%s", shade_ids_buf);
-      }
-    }
-    #endif
   }
   return shade;
 }
@@ -3534,22 +3062,6 @@ bool SomfyShadeController::deleteShade(uint8_t shadeId) {
       this->shades[i].clear();
     }
   }
-  #ifdef USE_NVS
-  if(this->useNVS()) {
-    for(uint8_t i = 0; i < sizeof(this->m_shadeIds) - 1; i++) {
-      if(this->m_shadeIds[i] == shadeId) {
-        this->m_shadeIds[i] = 255;
-      }
-    }
-    
-    //qsort(this->m_shadeIds, sizeof(this->m_shadeIds)/sizeof(this->m_shadeIds[0]), sizeof(this->m_shadeIds[0]), sort_asc);
-    sortArray<uint8_t>(this->m_shadeIds, sizeof(this->m_shadeIds));
-    
-    pref.begin("Shades");
-    pref.putBytes("shadeIds", this->m_shadeIds, sizeof(this->m_shadeIds));
-    pref.end();
-  }
-  #endif
   this->commit();
   return true;
 }
@@ -3631,59 +3143,6 @@ uint16_t SomfyRemote::setRollingCode(uint16_t code) {
   return code;
 }
 
-/*
-bool SomfyShadeController::toJSON(DynamicJsonDocument &doc) {
-  doc["maxRooms"] = SOMFY_MAX_ROOMS;
-  doc["maxShades"] = SOMFY_MAX_SHADES;
-  doc["maxGroups"] = SOMFY_MAX_GROUPS;
-  doc["maxGroupedShades"] = SOMFY_MAX_GROUPED_SHADES;
-  doc["maxLinkedRemotes"] = SOMFY_MAX_LINKED_REMOTES;
-  doc["startingAddress"] = this->startingAddress;
-  JsonObject objRadio = doc.createNestedObject("transceiver");
-  this->transceiver.toJSON(objRadio);
-  JsonArray arrRooms = doc.createNestedArray("rooms");
-  this->toJSONRooms(arrRooms);
-  JsonArray arrShades = doc.createNestedArray("shades");
-  this->toJSONShades(arrShades);
-  JsonArray arrGroups = doc.createNestedArray("groups");
-  this->toJSONGroups(arrGroups);
-  return true;
-}
-bool SomfyShadeController::toJSON(JsonObject &obj) {
-  obj["maxShades"] = SOMFY_MAX_SHADES;
-  obj["maxLinkedRemotes"] = SOMFY_MAX_LINKED_REMOTES;
-  obj["startingAddress"] = this->startingAddress;
-  JsonObject oradio = obj.createNestedObject("transceiver");
-  this->transceiver.toJSON(oradio);
-  JsonArray arrShades = obj.createNestedArray("shades");
-  this->toJSONShades(arrShades);
-  JsonArray arrGroups = obj.createNestedArray("groups");
-  this->toJSONGroups(arrGroups);
-  return true;
-}
-
-
-bool SomfyShadeController::toJSONShades(JsonArray &arr) {
-  for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
-    SomfyShade &shade = this->shades[i];
-    if(shade.getShadeId() != 255) {
-      JsonObject oshade = arr.createNestedObject();
-      shade.toJSON(oshade);
-    }
-  }
-  return true;
-}
-bool SomfyShadeController::toJSONGroups(JsonArray &arr) {
-  for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++) {
-    SomfyGroup &group = this->groups[i];
-    if(group.getGroupId() != 255) {
-      JsonObject ogroup = arr.createNestedObject();
-      group.toJSON(ogroup);
-    }
-  }
-  return true;
-}
-*/
 void SomfyShadeController::loop() { 
   this->transceiver.loop(); 
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
@@ -4052,12 +3511,6 @@ void Transceiver::emitFrequencyScan(uint8_t num) {
   json->addElem("RSSI", (int32_t)markRSSI);
   json->endObject();
   sockEmit.endEmit(num);
-  /*
-  char buf[420];
-  snprintf(buf, sizeof(buf), "{\"scanning\":%s,\"testFreq\":%f,\"testRSSI\":%d,\"frequency\":%f,\"RSSI\":%d}", rxmode == 3 ? "true" : "false", currFreq, currRSSI, markFreq, markRSSI); 
-  if(num >= 255) sockEmit.sendToClients("frequencyScan", buf);
-  else sockEmit.sendToClient(num, "frequencyScan", buf);
-  */
 }
 bool Transceiver::receive(somfy_rx_t *rx) {
     // Check to see if there is anything in the buffer
@@ -4100,37 +3553,6 @@ void Transceiver::emitFrame(somfy_frame_t *frame, somfy_rx_t *rx) {
     json->endArray();
     json->endObject();
     sockEmit.endEmitRoom(ROOM_EMIT_FRAME);
-    /*
-    ClientSocketEvent evt("remoteFrame");
-    char buf[30];
-    snprintf(buf, sizeof(buf), "{\"encKey\":%d,", frame->encKey);
-    evt.appendMessage(buf);
-    snprintf(buf, sizeof(buf), "\"address\":%d,", frame->remoteAddress);
-    evt.appendMessage(buf);
-    snprintf(buf, sizeof(buf), "\"rcode\":%d,", frame->rollingCode);
-    evt.appendMessage(buf);
-    snprintf(buf, sizeof(buf), "\"command\":\"%s\",", translateSomfyCommand(frame->cmd).c_str());
-    evt.appendMessage(buf);
-    snprintf(buf, sizeof(buf), "\"rssi\":%d,", frame->rssi);
-    evt.appendMessage(buf);
-    snprintf(buf, sizeof(buf), "\"bits\":%d,", rx->bit_length);
-    evt.appendMessage(buf);
-    snprintf(buf, sizeof(buf), "\"proto\":%d,", static_cast<uint8_t>(frame->proto));
-    evt.appendMessage(buf);
-    snprintf(buf, sizeof(buf), "\"valid\":%s,", frame->valid ? "true" : "false");
-    evt.appendMessage(buf);
-    snprintf(buf, sizeof(buf), "\"sync\":%d,\"pulses\":[", frame->hwsync);
-    evt.appendMessage(buf);
-    
-    if(rx) {
-      for(uint16_t i = 0; i < rx->pulseCount; i++) {
-        snprintf(buf, sizeof(buf), "%s%d", i != 0 ? "," : "", rx->pulses[i]);
-        evt.appendMessage(buf);
-      }
-    }
-    evt.appendMessage("]}");
-    sockEmit.sendToRoom(ROOM_EMIT_FRAME, &evt);
-    */
   }
 }
 void Transceiver::clearReceived(void) {
@@ -4159,14 +3581,6 @@ void Transceiver::disableReceive(void) {
   interruptPin = 0;
   
 }
-/*
-bool Transceiver::toJSON(JsonObject& obj) {
-    //Serial.println("Setting Transceiver Json");
-    JsonObject objConfig = obj.createNestedObject("config");
-    this->config.toJSON(objConfig);
-    return true;
-}
-*/
 bool Transceiver::fromJSON(JsonObject& obj) {
     if (!obj["config"].isNull()) {
       JsonObject objConfig = obj["config"];
@@ -4227,76 +3641,8 @@ void transceiver_config_t::fromJSON(JsonObject& obj) {
     if(!obj["txPower"].isNull()) this->txPower = obj["txPower"];
     if(!obj["proto"].isNull()) this->proto = static_cast<radio_proto>(obj["proto"].as<uint8_t>());
     if(!obj["noiseDetection"].isNull()) this->noiseDetection = obj["noiseDetection"];
-    /*
-    if (!obj["internalCCMode"].isNull()) this->internalCCMode = obj["internalCCMode"];
-    if (!obj["modulationMode"].isNull()) this->modulationMode = obj["modulationMode"];
-    if (!obj["channel"].isNull()) this->channel = obj["channel"];
-    if (!obj["channelSpacing"].isNull()) this->channelSpacing = obj["channelSpacing"]; // float
-    if (!obj["dataRate"].isNull()) this->dataRate = obj["dataRate"]; // float
-    if (!obj["syncMode"].isNull()) this->syncMode = obj["syncMode"];
-    if (!obj["syncWordHigh"].isNull()) this->syncWordHigh = obj["syncWordHigh"];
-    if (!obj["syncWordLow"].isNull()) this->syncWordLow = obj["syncWordLow"];
-    if (!obj["addrCheckMode"].isNull()) this->addrCheckMode = obj["addrCheckMode"];
-    if (!obj["checkAddr"].isNull()) this->checkAddr = obj["checkAddr"];
-    if (!obj["dataWhitening"].isNull()) this->dataWhitening = obj["dataWhitening"];
-    if (!obj["pktFormat"].isNull()) this->pktFormat = obj["pktFormat"];
-    if (!obj["pktLengthMode"].isNull()) this->pktLengthMode = obj["pktLengthMode"];
-    if (!obj["pktLength"].isNull()) this->pktLength = obj["pktLength"];
-    if (!obj["useCRC"].isNull()) this->useCRC = obj["useCRC"];
-    if (!obj["autoFlushCRC"].isNull()) this->autoFlushCRC = obj["autoFlushCRC"];
-    if (!obj["disableDCFilter"].isNull()) this->disableDCFilter = obj["disableCRCFilter"];
-    if (!obj["enableManchester"].isNull()) this->enableManchester = obj["enableManchester"];
-    if (!obj["enableFEC"].isNull()) this->enableFEC = obj["enableFEC"];
-    if (!obj["minPreambleBytes"].isNull()) this->minPreambleBytes = obj["minPreambleBytes"];
-    if (!obj["pqtThreshold"].isNull()) this->pqtThreshold = obj["pqtThreshold"];
-    if (!obj["appendStatus"].isNull()) this->appendStatus = obj["appendStatus"];
-    if (!obj["printBuffer"].isNull()) this->printBuffer = obj["printBuffer"];
-    */
     ESP_LOGD(TAG, "SCK:%u MISO:%u MOSI:%u CSN:%u RX:%u TX:%u", this->SCKPin, this->MISOPin, this->MOSIPin, this->CSNPin, this->RXPin, this->TXPin);
 }
-/*
-void transceiver_config_t::toJSON(JsonObject& obj) {
-    obj["type"] = this->type;
-    obj["TXPin"] = this->TXPin;
-    obj["RXPin"] = this->RXPin;
-    obj["SCKPin"] = this->SCKPin;
-    obj["MOSIPin"] = this->MOSIPin;
-    obj["MISOPin"] = this->MISOPin;
-    obj["CSNPin"] = this->CSNPin;
-    obj["rxBandwidth"] = this->rxBandwidth; // float
-    obj["frequency"] = this->frequency;  // float
-    obj["deviation"] = this->deviation;  // float
-    obj["txPower"] = this->txPower;
-    obj["proto"] = static_cast<uint8_t>(this->proto);
-    //obj["internalCCMode"] = this->internalCCMode;
-    //obj["modulationMode"] = this->modulationMode;
-    //obj["channel"] = this->channel;
-    //obj["channelSpacing"] = this->channelSpacing; // float
-    //obj["dataRate"] = this->dataRate; // float
-    //obj["syncMode"] = this->syncMode;
-    //obj["syncWordHigh"] = this->syncWordHigh;
-    //obj["syncWordLow"] = this->syncWordLow;
-    //obj["addrCheckMode"] = this->addrCheckMode;
-    //obj["checkAddr"] = this->checkAddr;
-    //obj["dataWhitening"] = this->dataWhitening;
-    //obj["pktFormat"] = this->pktFormat;
-    //obj["pktLengthMode"] = this->pktLengthMode;
-    //obj["pktLength"] = this->pktLength;
-    //obj["useCRC"] = this->useCRC;
-    //obj["autoFlushCRC"] = this->autoFlushCRC;
-    //obj["disableDCFilter"] = this->disableDCFilter;
-    //obj["enableManchester"] = this->enableManchester;
-    //obj["enableFEC"] = this->enableFEC;
-    //obj["minPreambleBytes"] = this->minPreambleBytes;
-    //obj["pqtThreshold"] = this->pqtThreshold;
-    //obj["appendStatus"] = this->appendStatus;
-    //obj["printBuffer"] = somfy.transceiver.printBuffer;
-    obj["enabled"] = this->enabled;
-    obj["radioInit"] = this->radioInit;
-    //Serial.print("Serialize Radio JSON ");
-    //Serial.printf("SCK:%u MISO:%u MOSI:%u CSN:%u RX:%u TX:%u\n", this->SCKPin, this->MISOPin, this->MOSIPin, this->CSNPin, this->RXPin, this->TXPin);
-}
-*/
 void transceiver_config_t::save() {
     Preferences pref;
     pref.begin("CC1101");
@@ -4317,32 +3663,6 @@ void transceiver_config_t::save() {
     pref.putChar("proto", static_cast<uint8_t>(this->proto));
     pref.putBool("noiseDetect", this->noiseDetection);
 
-    /*
-    pref.putBool("internalCCMode", this->internalCCMode);
-    pref.putUChar("modulationMode", this->modulationMode);
-    pref.putUChar("channel", this->channel);
-    pref.putFloat("channelSpacing", this->channelSpacing); // float
-    pref.putFloat("rxBandwidth", this->rxBandwidth); // float
-    pref.putFloat("dataRate", this->dataRate); // float
-    pref.putChar("txPower", this->txPower);
-    pref.putUChar("syncMode", this->syncMode);
-    pref.putUShort("syncWordHigh", this->syncWordHigh);
-    pref.putUShort("syncWordLow", this->syncWordLow);
-    pref.putUChar("addrCheckMode", this->addrCheckMode);
-    pref.putUChar("checkAddr", this->checkAddr);
-    pref.putBool("dataWhitening", this->dataWhitening);
-    pref.putUChar("pktFormat", this->pktFormat);
-    pref.putUChar("pktLengthMode", this->pktLengthMode);
-    pref.putUChar("pktLength", this->pktLength);
-    pref.putBool("useCRC", this->useCRC);
-    pref.putBool("autoFlushCRC", this->autoFlushCRC);
-    pref.putBool("disableDCFilter", this->disableDCFilter);
-    pref.putBool("enableManchester", this->enableManchester);
-    pref.putBool("enableFEC", this->enableFEC);
-    pref.putUChar("minPreambleBytes", this->minPreambleBytes);
-    pref.putUChar("pqtThreshold", this->pqtThreshold);
-    pref.putBool("appendStatus", this->appendStatus);
-    */
     pref.end();
    
     ESP_LOGI(TAG, "Save Radio Settings SCK:%u MISO:%u MOSI:%u CSN:%u RX:%u TX:%u", this->SCKPin, this->MISOPin, this->MOSIPin, this->CSNPin, this->RXPin, this->TXPin);
@@ -4531,27 +3851,6 @@ void transceiver_config_t::apply() {
       somfy.transceiver.disableReceive();
       this->radioInit = false;
     }
-    /*
-    ELECHOUSE_cc1101.setChannel(this->channel);               // Set the Channelnumber from 0 to 255. Default is cahnnel 0.
-    ELECHOUSE_cc1101.setChsp(this->channelSpacing);           // The channel spacing is multiplied by the channel number CHAN and added to the base frequency in kHz. Value from 25.39 to 405.45. Default is 199.95 kHz.
-    ELECHOUSE_cc1101.setDRate(this->dataRate);                // Set the Data Rate in kBaud. Value from 0.02 to 1621.83. Default is 99.97 kBaud!
-    ELECHOUSE_cc1101.setSyncMode(this->syncMode);             // Combined sync-word qualifier mode. 0 = No preamble/sync. 1 = 16 sync word bits detected. 2 = 16/16 sync word bits detected. 3 = 30/32 sync word bits detected. 4 = No preamble/sync, carrier-sense above threshold. 5 = 15/16 + carrier-sense above threshold. 6 = 16/16 + carrier-sense above threshold. 7 = 30/32 + carrier-sense above threshold.
-    ELECHOUSE_cc1101.setSyncWord(this->syncWordHigh, this->syncWordLow); // Set sync word. Must be the same for the transmitter and receiver. (Syncword high, Syncword low)
-    ELECHOUSE_cc1101.setAdrChk(this->addrCheckMode);          // Controls address check configuration of received packages. 0 = No address check. 1 = Address check, no broadcast. 2 = Address check and 0 (0x00) broadcast. 3 = Address check and 0 (0x00) and 255 (0xFF) broadcast.
-    ELECHOUSE_cc1101.setAddr(this->checkAddr);                // Address used for packet filtration. Optional broadcast addresses are 0 (0x00) and 255 (0xFF).
-    ELECHOUSE_cc1101.setWhiteData(this->dataWhitening);       // Turn data whitening on / off. 0 = Whitening off. 1 = Whitening on.
-    ELECHOUSE_cc1101.setPktFormat(this->pktFormat);           // Format of RX and TX data. 0 = Normal mode, use FIFOs for RX and TX. 1 = Synchronous serial mode, Data in on GDO0 and data out on either of the GDOx pins. 2 = Random TX mode; sends random data using PN9 generator. Used for test. Works as normal mode, setting 0 (00), in RX. 3 = Asynchronous serial mode, Data in on GDO0 and data out on either of the GDOx pins.
-    ELECHOUSE_cc1101.setLengthConfig(this->pktLengthMode);    // 0 = Fixed packet length mode. 1 = Variable packet length mode. 2 = Infinite packet length mode. 3 = Reserved
-    ELECHOUSE_cc1101.setPacketLength(this->pktLength);        // Indicates the packet length when fixed packet length mode is enabled. If variable packet length mode is used, this value indicates the maximum packet length allowed.
-    ELECHOUSE_cc1101.setCrc(this->useCRC);                    // 1 = CRC calculation in TX and CRC check in RX enabled. 0 = CRC disabled for TX and RX.
-    ELECHOUSE_cc1101.setCRC_AF(this->autoFlushCRC);           // Enable automatic flush of RX FIFO when CRC is not OK. This requires that only one packet is in the RXIFIFO and that packet length is limited to the RX FIFO size.
-    ELECHOUSE_cc1101.setDcFilterOff(this->disableDCFilter);   // Disable digital DC blocking filter before demodulator. Only for data rates â‰¤ 250 kBaud The recommended IF frequency changes when the DC blocking is disabled. 1 = Disable (current optimized). 0 = Enable (better sensitivity).
-    ELECHOUSE_cc1101.setManchester(this->enableManchester);   // Enables Manchester encoding/decoding. 0 = Disable. 1 = Enable.
-    ELECHOUSE_cc1101.setFEC(this->enableFEC);                 // Enable Forward Error Correction (FEC) with interleaving for packet payload (Only supported for fixed packet length mode. 0 = Disable. 1 = Enable.
-    ELECHOUSE_cc1101.setPRE(this->minPreambleBytes);          // Sets the minimum number of preamble bytes to be transmitted. Values: 0 : 2, 1 : 3, 2 : 4, 3 : 6, 4 : 8, 5 : 12, 6 : 16, 7 : 24
-    ELECHOUSE_cc1101.setPQT(this->pqtThreshold);              // Preamble quality estimator threshold. The preamble quality estimator increases an internal counter by one each time a bit is received that is different from the previous bit, and decreases the counter by 8 each time a bit is received that is the same as the last bit. A threshold of 4âˆ™PQT for this counter is used to gate sync word detection. When PQT=0 a sync word is always accepted.
-    ELECHOUSE_cc1101.setAppendStatus(this->appendStatus);     // When enabled, two status bytes will be appended to the payload of the packet. The status bytes contain RSSI and LQI values, as well as CRC OK.
-    */
     //somfy.transceiver.printBuffer = this->printBuffer;
 }
 bool Transceiver::begin() {
