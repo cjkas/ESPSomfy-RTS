@@ -1,11 +1,8 @@
-#include "esp_log.h"
 #include "Utils.h"
 #include "ConfigSettings.h"
 #include "Somfy.h"
 #include "Sockets.h"
 #include "MQTT.h"
-
-static const char *TAG = "Somfy";
 
 extern SomfyShadeController somfy;
 extern SocketEmitter sockEmit;
