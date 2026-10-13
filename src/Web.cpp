@@ -160,8 +160,8 @@ void Web::processQueue() {
       case web_cmd_t::tilt_command: {
         SomfyShade *shade = somfy.getShadeById(cmd.shadeId);
         if(shade) {
-          if(cmd.target <= 100) shade->moveToTiltTarget(shade->transformPosition(cmd.target));
-          else shade->sendTiltCommand(cmd.command);
+          if(cmd.target <= 100) sent = shade->moveToTiltTarget(shade->transformPosition(cmd.target));
+          else sent = shade->sendTiltCommand(cmd.command);
         }
         break;
       }
@@ -209,7 +209,7 @@ void Web::processQueue() {
       }
       case web_cmd_t::set_my_position: {
         SomfyShade *shade = somfy.getShadeById(cmd.shadeId);
-        if(shade) shade->setMyPosition(cmd.position, cmd.tiltPosition);
+        if(shade) sent = shade->setMyPosition(cmd.position, cmd.tiltPosition);
         break;
       }
       case web_cmd_t::unpair_shade: {

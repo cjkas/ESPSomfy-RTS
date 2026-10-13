@@ -2386,25 +2386,26 @@ void SomfyShade::setMovement(int8_t dir) {
     this->emitState();
   }
 }
-void SomfyShade::setMyPosition(int8_t pos, int8_t tilt) {
-  if(!this->isIdle()) return; // Don't do this if it is moving.
+bool SomfyShade::setMyPosition(int8_t pos, int8_t tilt) {
+  if(!this->isIdle()) return true; // Don't do this if it is moving.
+  bool sent = true;
   if(this->tiltType == tilt_types::tiltonly) {
     this->p_myPos(-1.0f);    
     if(tilt != floor(this->currentTiltPos)) {
       // The favorite is set once we get there, if the move went out.
       if(tilt == floor(this->myTiltPos))
-        this->settingMyPos = this->moveToMyPosition();
+        sent = this->settingMyPos = this->moveToMyPosition();
       else
-        this->settingMyPos = this->moveToTarget(100, tilt);
+        sent = this->settingMyPos = this->moveToTarget(100, tilt);
     }
     else if(tilt == floor(this->myTiltPos)) {
       // Of so we need to clear the my position. These motors are finicky so send
       // a my command to ensure we are actually at the my position then send the clear
       // command.  There really is no other way to do this.
       if(this->currentTiltPos != this->myTiltPos) {
-        this->settingMyPos = this->moveToMyPosition();
+        sent = this->settingMyPos = this->moveToMyPosition();
       }
-      else if(SomfyRemote::sendCommand(somfy_commands::My, this->repeats)) {
+      else if((sent = SomfyRemote::sendCommand(somfy_commands::My, this->repeats))) {
         this->settingPos = false;
         this->settingMyPos = true;
       }
@@ -2414,9 +2415,9 @@ void SomfyShade::setMyPosition(int8_t pos, int8_t tilt) {
       // is only committed once the motor was told about it.
       const float oldTiltPos = this->myTiltPos;
       this->p_myTiltPos(this->currentTiltPos);
-      this->sendSetMy(0, this->myPos, oldTiltPos);
+      sent = this->sendSetMy(0, this->myPos, oldTiltPos);
       this->emitState();
-      return;
+      return sent;
     }
     this->commitMyPosition();
     this->emitState();
@@ -2426,18 +2427,18 @@ void SomfyShade::setMyPosition(int8_t pos, int8_t tilt) {
       if(pos != floor(this->currentPos) || tilt != floor(this->currentTiltPos)) {
         // The favorite is set once we get there, if the move went out.
         if(pos == floor(this->myPos) && tilt == floor(this->myTiltPos))
-          this->settingMyPos = this->moveToMyPosition();
+          sent = this->settingMyPos = this->moveToMyPosition();
         else
-          this->settingMyPos = this->moveToTarget(pos, tilt);
+          sent = this->settingMyPos = this->moveToTarget(pos, tilt);
       }
       else if(pos == floor(this->myPos) && tilt == floor(this->myTiltPos)) {
         // Of so we need to clear the my position. These motors are finicky so send
         // a my command to ensure we are actually at the my position then send the clear
         // command.  There really is no other way to do this.
         if(this->currentPos != this->myPos || this->currentTiltPos != this->myTiltPos) {
-          this->settingMyPos = this->moveToMyPosition();
+          sent = this->settingMyPos = this->moveToMyPosition();
         }
-        else if(SomfyRemote::sendCommand(somfy_commands::My, this->repeats)) {
+        else if((sent = SomfyRemote::sendCommand(somfy_commands::My, this->repeats))) {
           this->settingPos = false;
           this->settingMyPos = true;
         }
@@ -2449,9 +2450,9 @@ void SomfyShade::setMyPosition(int8_t pos, int8_t tilt) {
         const float oldTiltPos = this->myTiltPos;
         this->p_myPos(this->currentPos);
         this->p_myTiltPos(this->currentTiltPos);
-        this->sendSetMy(0, oldPos, oldTiltPos);
+        sent = this->sendSetMy(0, oldPos, oldTiltPos);
         this->emitState();
-        return;
+        return sent;
       }
       this->commitMyPosition();
       this->emitState();
@@ -2460,18 +2461,18 @@ void SomfyShade::setMyPosition(int8_t pos, int8_t tilt) {
     if(pos != floor(this->currentPos)) {
       // The favorite is set once we get there, if the move went out.
       if(pos == floor(this->myPos))
-        this->settingMyPos = this->moveToMyPosition();
+        sent = this->settingMyPos = this->moveToMyPosition();
       else
-        this->settingMyPos = this->moveToTarget(pos);
+        sent = this->settingMyPos = this->moveToTarget(pos);
     }
     else if(pos == floor(this->myPos)) {
       // Of so we need to clear the my position. These motors are finicky so send
       // a my command to ensure we are actually at the my position then send the clear
       // command.  There really is no other way to do this.
       if(this->myPos != this->currentPos) {
-        this->settingMyPos = this->moveToMyPosition();
+        sent = this->settingMyPos = this->moveToMyPosition();
       }
-      else if(SomfyRemote::sendCommand(somfy_commands::My, this->repeats)) {
+      else if((sent = SomfyRemote::sendCommand(somfy_commands::My, this->repeats))) {
         this->settingPos = false;
         this->settingMyPos = true;
       }
@@ -2483,9 +2484,11 @@ void SomfyShade::setMyPosition(int8_t pos, int8_t tilt) {
       const float oldTiltPos = this->myTiltPos;
       this->p_myPos(this->currentPos);
       this->p_myTiltPos(-1);
-      if(this->sendSetMy(0, oldPos, oldTiltPos)) this->emitState();
+      sent = this->sendSetMy(0, oldPos, oldTiltPos);
+      if(sent) this->emitState();
     }
   }
+  return sent;
 }
 bool SomfyShade::moveToMyPosition() {
   if(!this->isIdle()) return true;
@@ -2635,19 +2638,18 @@ bool SomfyGroup::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSiz
   this->emitState();
   return true;
 }
-void SomfyShade::sendTiltCommand(somfy_commands cmd) {
+bool SomfyShade::sendTiltCommand(somfy_commands cmd) {
   const uint8_t repeat = this->tiltType == tilt_types::tiltmotor ? TILT_REPEATS : this->repeats;
-  if(cmd == somfy_commands::Up) {
-    if(SomfyRemote::sendCommand(cmd, repeat)) this->p_tiltTarget(0.0f);
-  }
-  else if(cmd == somfy_commands::Down) {
-    if(SomfyRemote::sendCommand(cmd, repeat)) this->p_tiltTarget(100.0f);
-  }
-  else if(cmd == somfy_commands::My) {
-    if(SomfyRemote::sendCommand(cmd, repeat)) this->p_tiltTarget(this->currentTiltPos);
-  }
+  float target;
+  if(cmd == somfy_commands::Up) target = 0.0f;
+  else if(cmd == somfy_commands::Down) target = 100.0f;
+  else if(cmd == somfy_commands::My) target = this->currentTiltPos;
+  else return true;
+  if(!SomfyRemote::sendCommand(cmd, repeat)) return false;
+  this->p_tiltTarget(target);
+  return true;
 }
-void SomfyShade::moveToTiltTarget(float target) {
+bool SomfyShade::moveToTiltTarget(float target) {
   somfy_commands cmd = somfy_commands::My;
   if(target < this->currentTiltPos)
     cmd = somfy_commands::Up;
@@ -2659,7 +2661,7 @@ void SomfyShade::moveToTiltTarget(float target) {
       if(cmd != somfy_commands::My) {
         ESP_LOGI(TAG, "Moving Tilt to %.2f%% from %.2f%% using %s",
             target, this->currentTiltPos, translateSomfyCommand(cmd).c_str());
-        if(!SomfyRemote::sendCommand(cmd, this->tiltType == tilt_types::tiltmotor ? TILT_REPEATS : this->repeats)) return;
+        if(!SomfyRemote::sendCommand(cmd, this->tiltType == tilt_types::tiltmotor ? TILT_REPEATS : this->repeats)) return false;
       }
       // If the blind is currently moving then the command to stop it
       // will occur on its own when the tilt target is set.
@@ -2667,6 +2669,7 @@ void SomfyShade::moveToTiltTarget(float target) {
     this->p_tiltTarget(target);
   }
   if(cmd != somfy_commands::My) this->settingTiltPos = true;
+  return true;
 }
 bool SomfyShade::moveToTarget(float pos, float tilt) {
   ESP_LOGI(TAG, "[Shade %u] moveToTarget(pos=%.2f, tilt=%.2f) settingPos=%d direction=%d currentTarget=%.2f currentPos=%.2f",

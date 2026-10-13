@@ -263,8 +263,9 @@ class SomfyShade : public SomfyRemote {
     bool isAtTarget();
     bool isToggle();
     bool moveToTarget(float pos, float tilt = -1.0f);
-    void moveToTiltTarget(float target);
-    void sendTiltCommand(somfy_commands cmd);
+    // These return false when the radio refused a command they sent.
+    bool moveToTiltTarget(float target);
+    bool sendTiltCommand(somfy_commands cmd);
     bool sendCommand(somfy_commands cmd);
     bool sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize = 0);
     bool linkRemote(uint32_t remoteAddress, uint16_t rollingCode = 0);
@@ -273,7 +274,8 @@ class SomfyShade : public SomfyRemote {
     void emitState(uint8_t num, const char *evt = "shadeState");
     void emitCommand(somfy_commands cmd, const char *source, uint32_t sourceAddress, const char *evt = "shadeCommand");
     void emitCommand(uint8_t num, somfy_commands cmd, const char *source, uint32_t sourceAddress, const char *evt = "shadeCommand");
-    void setMyPosition(int8_t pos, int8_t tilt = -1);
+    // False when the radio refused a command it sent.
+    bool setMyPosition(int8_t pos, int8_t tilt = -1);
     bool moveToMyPosition();
     void processWaitingFrame();
     void publish();
