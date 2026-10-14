@@ -285,6 +285,25 @@ static void test_stepTargets_without_a_travel_time_or_step_size_is_ignored() {
   ASSERT_ACTION(StepAction::ignore, stepOf(tilt_types::none, DOWN, 100, 0, 1, 20000, 10000, 5000, 0).action);
 }
 
+/*********************************************************************
+ * requestedFavoriteTilt
+ ********************************************************************/
+static void test_favorite_tilt_keeps_the_requested_tilt() {
+  TEST_ASSERT_EQUAL_INT8(25, requestedFavoriteTilt(25, tilt_types::integrated, 70.0f, false));
+}
+static void test_favorite_tilt_defaults_to_the_favorite_tilt() {
+  // Not the lift favorite: that was the old default.
+  TEST_ASSERT_EQUAL_INT8(70, requestedFavoriteTilt(-1, tilt_types::tiltmotor, 70.0f, false));
+  // The request is in display positions, so a flipped shade gets its favorite flipped.
+  TEST_ASSERT_EQUAL_INT8(30, requestedFavoriteTilt(-1, tilt_types::tiltmotor, 70.0f, true));
+}
+static void test_favorite_tilt_without_a_favorite_is_unset() {
+  TEST_ASSERT_EQUAL_INT8(-1, requestedFavoriteTilt(-1, tilt_types::integrated, -1.0f, false));
+}
+static void test_favorite_tilt_of_a_shade_without_tilt_is_unset() {
+  TEST_ASSERT_EQUAL_INT8(-1, requestedFavoriteTilt(25, tilt_types::none, 70.0f, false));
+}
+
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
@@ -312,6 +331,10 @@ int main(int argc, char **argv) {
   RUN_TEST(test_stepTargets_integrated_at_both_ends_is_ignored);
   RUN_TEST(test_stepTargets_without_a_travel_time_or_step_size_is_ignored);
   RUN_TEST(test_displayPosition);
+  RUN_TEST(test_favorite_tilt_keeps_the_requested_tilt);
+  RUN_TEST(test_favorite_tilt_defaults_to_the_favorite_tilt);
+  RUN_TEST(test_favorite_tilt_without_a_favorite_is_unset);
+  RUN_TEST(test_favorite_tilt_of_a_shade_without_tilt_is_unset);
   RUN_TEST(test_flipCommand_swaps_directions);
   RUN_TEST(test_flipCommand_keeps_the_rest);
   RUN_TEST(test_txhold_idle_shade_is_held);

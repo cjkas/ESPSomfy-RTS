@@ -115,16 +115,3 @@ Sending a command reads the next rolling code, queues the frame, then commits th
 
 - Same root cause as [Concurrent mutation during chunked `/controller` response](#concurrent-mutation-during-chunked-controller-response): the web server task changes the shade model that `loop()` owns.
 - `/linkRemote` sets a linked remote's rolling code on the web server task, while `loop()` updates the same code when it receives a frame from that remote. The last write wins, so a received frame can undo the code just set.
-
-## `/setMyPosition` without a tilt uses the lift favorite
-
-**Status:** open
-**Location:** the `/setMyPosition` handlers in [src/Web.cpp](../src/Web.cpp). This was already in the code before the radio task work.
-
-### Summary
-
-When a request for a shade with tilt leaves out `tilt`, the handler fills it in with `shade->myPos`, the lift favorite, where `shade->myTiltPos` looks intended. The favorite tilt is then set to the favorite lift position. The web UI always sends `tilt`, so only API callers that leave it out see this.
-
-### Fix
-
-Use `shade->myTiltPos` in both handlers, after checking that no API client depends on the current behaviour.

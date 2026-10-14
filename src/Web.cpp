@@ -1733,8 +1733,7 @@ void Web::begin() {
       }
       SomfyShade* shade = somfy.getShadeById(shadeId);
       if(shade) {
-        if(tilt < 0) tilt = shade->myPos;
-        if(shade->tiltType == tilt_types::none) tilt = -1;
+        tilt = requestedFavoriteTilt(tilt, shade->tiltType, shade->myTiltPos, shade->flipPosition);
         if(pos >= 0 && pos <= 100)
           if(!queueSetMyPosition(request, shade, shade->transformPosition(pos), shade->transformPosition(tilt))) return;
         AsyncJsonResp resp;
@@ -1760,8 +1759,7 @@ void Web::begin() {
     else { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No shade object supplied.\"}")); return; }
     SomfyShade* shade = somfy.getShadeById(shadeId);
     if(shade) {
-      if(tilt < 0) tilt = shade->myPos;
-      if(shade->tiltType == tilt_types::none) tilt = -1;
+      tilt = requestedFavoriteTilt(tilt, shade->tiltType, shade->myTiltPos, shade->flipPosition);
       if(pos >= 0 && pos <= 100)
         if(!queueSetMyPosition(request, shade, shade->transformPosition(pos), shade->transformPosition(tilt))) return;
       AsyncJsonResp resp;

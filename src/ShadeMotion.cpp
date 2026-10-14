@@ -29,6 +29,11 @@ int8_t displayPosition(float pos, bool flip) {
   if(pos < 0) return -1;
   return static_cast<int8_t>(flip && pos >= 0.00f ? floor(100.0f - pos) : floor(pos));
 }
+int8_t requestedFavoriteTilt(int8_t requestTilt, tilt_types tilt, float myTiltPos, bool flip) {
+  if(tilt == tilt_types::none) return -1;
+  if(requestTilt >= 0) return requestTilt;
+  return displayPosition(myTiltPos, flip);
+}
 float limitTarget(int8_t dir) { return dir > 0 ? 100.0f : 0.0f; }
 bool stepPosition(float pos, int8_t dir, uint32_t travelMs, uint16_t stepSize, uint8_t frameStepSize, float &out) {
   if(travelMs == 0 || stepSize == 0) return false;
