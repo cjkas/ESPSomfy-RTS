@@ -8,17 +8,17 @@ static const int8_t UP = -1;
 static const bool IDLE = false;
 static const bool MOVING = true;
 
-static somfy_tx_event_t evt(tx_event_t type, uint32_t seq, uint32_t at = 0) {
+static somfy_tx_event_t evt(tx_event_t type, uint32_t ticket, uint32_t at = 0) {
   somfy_tx_event_t e;
   e.type = type;
-  e.seq = seq;
+  e.ticket = ticket;
   e.at = at;
   return e;
 }
-// A shade whose idle motor was set moving by radio job seq.
-static ShadeTxState heldBy(uint32_t seq) {
+// A shade whose idle motor was set moving by radio job ticket.
+static ShadeTxState heldBy(uint32_t ticket) {
   ShadeTxState tx;
-  tx.hold.mark(seq, false, 0);
+  tx.hold.mark(ticket, false, 0);
   return tx;
 }
 
@@ -63,7 +63,7 @@ static void test_favorite_started_waits_for_the_end() {
   tx.setMySent(9, 40.0f, 10.0f);
   ShadeTxActions act = tx.onEvent(evt(tx_event_t::started, 9), IDLE);
   TEST_ASSERT_FALSE(act.any());
-  TEST_ASSERT_EQUAL_UINT32(9, tx.mySeq);
+  TEST_ASSERT_EQUAL_UINT32(9, tx.myTicket);
 }
 static void test_favorite_finished_is_committed() {
   ShadeTxState tx;
@@ -72,7 +72,7 @@ static void test_favorite_finished_is_committed() {
   ShadeTxActions act = tx.onEvent(evt(tx_event_t::finished, 9), IDLE);
   TEST_ASSERT_TRUE(act.commitMy);
   TEST_ASSERT_FALSE(act.restoreMy);
-  TEST_ASSERT_EQUAL_UINT32(0, tx.mySeq);
+  TEST_ASSERT_EQUAL_UINT32(0, tx.myTicket);
 }
 static void test_favorite_aborted_restores_the_previous_one() {
   // The motor only stores the favorite when it gets the whole long press.
@@ -84,7 +84,7 @@ static void test_favorite_aborted_restores_the_previous_one() {
   TEST_ASSERT_FALSE(act.commitMy);
   ASSERT_POS(40.0f, act.myOldPos);
   ASSERT_POS(10.0f, act.myOldTiltPos);
-  TEST_ASSERT_EQUAL_UINT32(0, tx.mySeq);
+  TEST_ASSERT_EQUAL_UINT32(0, tx.myTicket);
 }
 static void test_favorite_dropped_restores_the_previous_one() {
   ShadeTxState tx;
@@ -107,7 +107,7 @@ static void test_stop_dropped_runs_on_to_the_limit() {
   TEST_ASSERT_FALSE(act.limitTilt);
   // From when the motor should have stopped, not when the drop was reported.
   TEST_ASSERT_EQUAL_UINT32(5000, act.limitSince);
-  TEST_ASSERT_EQUAL_UINT32(0, tx.stopSeq);
+  TEST_ASSERT_EQUAL_UINT32(0, tx.stopTicket);
 }
 static void test_tilt_stop_dropped_runs_the_tilt_on() {
   ShadeTxState tx;
@@ -124,13 +124,13 @@ static void test_stop_dropped_after_moving_again_does_nothing() {
   tx.stopSent(12, 5000, DOWN, false);
   ShadeTxActions act = tx.onEvent(evt(tx_event_t::dropped, 12), MOVING);
   TEST_ASSERT_FALSE(act.any());
-  TEST_ASSERT_EQUAL_UINT32(0, tx.stopSeq);
+  TEST_ASSERT_EQUAL_UINT32(0, tx.stopTicket);
 }
 static void test_stop_on_air_does_nothing() {
   ShadeTxState tx;
   tx.stopSent(12, 5000, DOWN, false);
   TEST_ASSERT_FALSE(tx.onEvent(evt(tx_event_t::started, 12), IDLE).any());
-  TEST_ASSERT_EQUAL_UINT32(0, tx.stopSeq);
+  TEST_ASSERT_EQUAL_UINT32(0, tx.stopTicket);
   // Nothing is waiting on it any more.
   TEST_ASSERT_FALSE(tx.onEvent(evt(tx_event_t::dropped, 12), IDLE).any());
 }
@@ -153,9 +153,9 @@ static void test_one_event_for_the_held_job_and_the_favorite() {
   TEST_ASSERT_TRUE(act.cancelMovement);
   TEST_ASSERT_TRUE(act.restoreMy);
   TEST_ASSERT_FALSE(tx.hold.held());
-  TEST_ASSERT_EQUAL_UINT32(0, tx.mySeq);
+  TEST_ASSERT_EQUAL_UINT32(0, tx.myTicket);
 }
-static void test_seq_zero_is_ignored() {
+static void test_ticket_zero_is_ignored() {
   ShadeTxState tx;
   tx.setMySent(0, 40.0f, 10.0f);
   tx.stopSent(0, 5000, DOWN, false);
@@ -168,9 +168,9 @@ static void test_other_jobs_are_ignored() {
   tx.stopSent(12, 5000, DOWN, false);
   TEST_ASSERT_FALSE(tx.onEvent(evt(tx_event_t::dropped, 8), IDLE).any());
   TEST_ASSERT_FALSE(tx.onEvent(evt(tx_event_t::finished, 13), IDLE).any());
-  TEST_ASSERT_EQUAL_UINT32(7, tx.hold.seq);
-  TEST_ASSERT_EQUAL_UINT32(9, tx.mySeq);
-  TEST_ASSERT_EQUAL_UINT32(12, tx.stopSeq);
+  TEST_ASSERT_EQUAL_UINT32(7, tx.hold.ticket);
+  TEST_ASSERT_EQUAL_UINT32(9, tx.myTicket);
+  TEST_ASSERT_EQUAL_UINT32(12, tx.stopTicket);
 }
 
 /*********************************************************************
@@ -233,7 +233,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_stop_on_air_does_nothing);
   RUN_TEST(test_stop_aborted_does_not_run_on);
   RUN_TEST(test_one_event_for_the_held_job_and_the_favorite);
-  RUN_TEST(test_seq_zero_is_ignored);
+  RUN_TEST(test_ticket_zero_is_ignored);
   RUN_TEST(test_other_jobs_are_ignored);
   RUN_TEST(test_limitTarget);
   RUN_TEST(test_check_nothing_held);

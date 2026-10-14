@@ -24,6 +24,14 @@ class ElapsedTimer {
     ElapsedTimer() : _start(micros()) {}
     void restart() { _start = micros(); }
     uint32_t us() const { return micros() - _start; }
+    // The time since the last lap (or start) and starts the next one, for
+    // timing a series of steps.
+    uint32_t lap() {
+      const uint32_t now = micros();
+      const uint32_t us = now - _start;
+      _start = now;
+      return us;
+    }
 };
 
 // Whether logElapsed() would print a timing this long.  Check it before

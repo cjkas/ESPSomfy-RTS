@@ -2,7 +2,7 @@
 #define ROLLING_CODE_H
 #include <stdint.h>
 
-// Working out a remote's next rolling code (src/Somfy.cpp).  Kept free of NVS
+// Working out a remote's next rolling code (src/SomfyRemote.cpp).  Kept free of NVS
 // so it can be unit tested on the PC (pio test -e native).
 
 // The code the next frame uses.  It is only read here and consumed once the

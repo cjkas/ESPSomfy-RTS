@@ -79,6 +79,38 @@ static void test_moves_steadily() {
 }
 
 /*********************************************************************
+ * stepPosition
+ ********************************************************************/
+static void test_step_down_and_up() {
+  // A step of 100ms x 2 is 200ms of a 10s travel, 2%.
+  float out = -1;
+  TEST_ASSERT_TRUE(stepPosition(40, DOWN, 10000, 100, 2, out));
+  ASSERT_POS(42.0f, out);
+  TEST_ASSERT_TRUE(stepPosition(40, UP, 10000, 100, 2, out));
+  ASSERT_POS(38.0f, out);
+}
+static void test_step_stops_at_the_ends() {
+  float out = -1;
+  TEST_ASSERT_TRUE(stepPosition(99.5f, DOWN, 1000, 100, 1, out));
+  ASSERT_POS(100.0f, out);
+  TEST_ASSERT_TRUE(stepPosition(0.5f, UP, 1000, 100, 1, out));
+  ASSERT_POS(0.0f, out);
+}
+static void test_step_is_ignored_without_a_travel_time_or_step_size() {
+  // A shade with no time configured for the direction it steps in.
+  float out = -1;
+  TEST_ASSERT_FALSE(stepPosition(40, UP, 0, 100, 1, out));
+  TEST_ASSERT_FALSE(stepPosition(40, DOWN, 0, 100, 1, out));
+  TEST_ASSERT_FALSE(stepPosition(40, DOWN, 10000, 0, 1, out));
+  ASSERT_POS(-1.0f, out);
+}
+static void test_step_of_no_frame_steps_stays_put() {
+  float out = -1;
+  TEST_ASSERT_TRUE(stepPosition(40, DOWN, 10000, 100, 0, out));
+  ASSERT_POS(40.0f, out);
+}
+
+/*********************************************************************
  * displayPosition
  ********************************************************************/
 static void test_displayPosition() {
@@ -117,7 +149,7 @@ static void test_txhold_idle_shade_is_held() {
   TxHold hold;
   hold.mark(7, false, 1000);
   TEST_ASSERT_TRUE(hold.held());
-  TEST_ASSERT_EQUAL_UINT32(7, hold.seq);
+  TEST_ASSERT_EQUAL_UINT32(7, hold.ticket);
   TEST_ASSERT_EQUAL_UINT32(1000, hold.since);
 }
 static void test_txhold_moving_shade_is_not_held() {
@@ -125,7 +157,7 @@ static void test_txhold_moving_shade_is_not_held() {
   hold.mark(7, true, 1000);
   TEST_ASSERT_FALSE(hold.held());
 }
-static void test_txhold_ignores_seq_zero() {
+static void test_txhold_ignores_ticket_zero() {
   TxHold hold;
   hold.mark(0, false, 1000);
   TEST_ASSERT_FALSE(hold.held());
@@ -139,7 +171,7 @@ static void test_txhold_first_job_wins() {
   TxHold hold;
   hold.mark(11, false, 1000);
   hold.mark(10, false, 1005);
-  TEST_ASSERT_EQUAL_UINT32(11, hold.seq);
+  TEST_ASSERT_EQUAL_UINT32(11, hold.ticket);
   TEST_ASSERT_EQUAL_UINT32(1000, hold.since);
   TEST_ASSERT_FALSE(hold.release(10));
   TEST_ASSERT_TRUE(hold.held());
@@ -160,7 +192,7 @@ static void test_txhold_new_hold_after_release() {
   hold.mark(5, false, 0);
   hold.release(5);
   hold.mark(6, false, 200);
-  TEST_ASSERT_EQUAL_UINT32(6, hold.seq);
+  TEST_ASSERT_EQUAL_UINT32(6, hold.ticket);
   TEST_ASSERT_EQUAL_UINT32(200, hold.since);
 }
 static void test_txhold_times_out() {
@@ -178,6 +210,81 @@ static void test_txhold_times_out_across_millis_wrap() {
   TEST_ASSERT_TRUE(hold.timedOut(0x00007000u, 30000));   // 32768ms later
 }
 
+/*********************************************************************
+ * stepTargets
+ ********************************************************************/
+// One step of 100ms: 0.5% of the 20s up travel, 1% of the 10s down travel and
+// 2% of the 5s tilt travel.
+static StepTargets stepOf(tilt_types tilt, int8_t dir, float pos, float tiltPos, uint8_t frameSteps = 1,
+    uint32_t upTime = 20000, uint32_t downTime = 10000, uint32_t tiltTime = 5000, uint16_t stepSize = 100) {
+  return stepTargets(tilt, dir, pos, tiltPos, upTime, downTime, tiltTime, stepSize, frameSteps);
+}
+#define ASSERT_ACTION(expected, actual) TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(expected), static_cast<uint8_t>(actual))
+
+static void test_stepTargets_lift_shade_steps_its_lift() {
+  StepTargets t = stepOf(tilt_types::none, DOWN, 40, 0);
+  ASSERT_ACTION(StepAction::move, t.action);
+  TEST_ASSERT_TRUE(t.setLift);
+  ASSERT_POS(41, t.lift);
+  TEST_ASSERT_FALSE(t.setTilt);
+  // Up uses the up travel time.
+  t = stepOf(tilt_types::none, UP, 40, 0);
+  ASSERT_POS(39.5f, t.lift);
+}
+static void test_stepTargets_frame_steps_multiply_the_step() {
+  ASSERT_POS(43, stepOf(tilt_types::none, DOWN, 40, 0, 3).lift);
+}
+static void test_stepTargets_tilt_motors_step_the_lift() {
+  // A separate tilt motor or euromode shade tilts with a long press, not a step.
+  ASSERT_POS(41, stepOf(tilt_types::tiltmotor, DOWN, 40, 50).lift);
+  TEST_ASSERT_FALSE(stepOf(tilt_types::euromode, DOWN, 40, 50).setTilt);
+}
+static void test_stepTargets_lift_shade_at_the_end_has_nothing_to_do() {
+  ASSERT_ACTION(StepAction::none, stepOf(tilt_types::none, DOWN, 100, 0).action);
+  ASSERT_ACTION(StepAction::none, stepOf(tilt_types::none, UP, 0, 0).action);
+}
+static void test_stepTargets_tilt_only_shade_steps_its_tilt() {
+  StepTargets t = stepOf(tilt_types::tiltonly, DOWN, 100, 40);
+  ASSERT_ACTION(StepAction::move, t.action);
+  TEST_ASSERT_FALSE(t.setLift);
+  TEST_ASSERT_TRUE(t.setTilt);
+  ASSERT_POS(42, t.tilt);
+  // At the end the tilt stays there.
+  t = stepOf(tilt_types::tiltonly, UP, 100, 0);
+  ASSERT_ACTION(StepAction::move, t.action);
+  ASSERT_POS(0, t.tilt);
+}
+static void test_stepTargets_integrated_tilts_first() {
+  StepTargets t = stepOf(tilt_types::integrated, DOWN, 20, 40);
+  ASSERT_ACTION(StepAction::move, t.action);
+  // The lift holds where it is while the slats turn.
+  TEST_ASSERT_TRUE(t.setLift);
+  ASSERT_POS(20, t.lift);
+  TEST_ASSERT_TRUE(t.setTilt);
+  ASSERT_POS(42, t.tilt);
+}
+static void test_stepTargets_integrated_lifts_once_tilted() {
+  StepTargets t = stepOf(tilt_types::integrated, DOWN, 20, 100);
+  ASSERT_ACTION(StepAction::move, t.action);
+  ASSERT_POS(21, t.lift);
+  ASSERT_POS(100, t.tilt);
+  t = stepOf(tilt_types::integrated, UP, 50, 0);
+  ASSERT_POS(49.5f, t.lift);
+  ASSERT_POS(0, t.tilt);
+}
+static void test_stepTargets_integrated_at_both_ends_is_ignored() {
+  ASSERT_ACTION(StepAction::ignore, stepOf(tilt_types::integrated, DOWN, 100, 100).action);
+  ASSERT_ACTION(StepAction::ignore, stepOf(tilt_types::integrated, UP, 0, 0).action);
+}
+static void test_stepTargets_without_a_travel_time_or_step_size_is_ignored() {
+  ASSERT_ACTION(StepAction::ignore, stepOf(tilt_types::none, DOWN, 40, 0, 1, 20000, 0).action);
+  ASSERT_ACTION(StepAction::ignore, stepOf(tilt_types::none, UP, 40, 0, 1, 0).action);
+  ASSERT_ACTION(StepAction::ignore, stepOf(tilt_types::tiltonly, DOWN, 100, 40, 1, 20000, 10000, 0).action);
+  ASSERT_ACTION(StepAction::ignore, stepOf(tilt_types::integrated, DOWN, 20, 40, 1, 20000, 10000, 0).action);
+  // Even a shade with nothing to do ignores a step it can't size.
+  ASSERT_ACTION(StepAction::ignore, stepOf(tilt_types::none, DOWN, 100, 0, 1, 20000, 10000, 5000, 0).action);
+}
+
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
@@ -191,12 +298,25 @@ int main(int argc, char **argv) {
   RUN_TEST(test_up_and_down_use_their_own_times);
   RUN_TEST(test_zero_travel_time_is_instant);
   RUN_TEST(test_moves_steadily);
+  RUN_TEST(test_step_down_and_up);
+  RUN_TEST(test_step_stops_at_the_ends);
+  RUN_TEST(test_step_is_ignored_without_a_travel_time_or_step_size);
+  RUN_TEST(test_step_of_no_frame_steps_stays_put);
+  RUN_TEST(test_stepTargets_lift_shade_steps_its_lift);
+  RUN_TEST(test_stepTargets_frame_steps_multiply_the_step);
+  RUN_TEST(test_stepTargets_tilt_motors_step_the_lift);
+  RUN_TEST(test_stepTargets_lift_shade_at_the_end_has_nothing_to_do);
+  RUN_TEST(test_stepTargets_tilt_only_shade_steps_its_tilt);
+  RUN_TEST(test_stepTargets_integrated_tilts_first);
+  RUN_TEST(test_stepTargets_integrated_lifts_once_tilted);
+  RUN_TEST(test_stepTargets_integrated_at_both_ends_is_ignored);
+  RUN_TEST(test_stepTargets_without_a_travel_time_or_step_size_is_ignored);
   RUN_TEST(test_displayPosition);
   RUN_TEST(test_flipCommand_swaps_directions);
   RUN_TEST(test_flipCommand_keeps_the_rest);
   RUN_TEST(test_txhold_idle_shade_is_held);
   RUN_TEST(test_txhold_moving_shade_is_not_held);
-  RUN_TEST(test_txhold_ignores_seq_zero);
+  RUN_TEST(test_txhold_ignores_ticket_zero);
   RUN_TEST(test_txhold_first_job_wins);
   RUN_TEST(test_txhold_release_only_matches_the_held_job);
   RUN_TEST(test_txhold_new_hold_after_release);

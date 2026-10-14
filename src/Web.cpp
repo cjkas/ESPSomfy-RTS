@@ -69,16 +69,13 @@ static bool queueSetMyPosition(AsyncWebServerRequest *request, SomfyShade *shade
   cmd.tiltPosition = tilt;
   return queueRadioCommand(request, cmd);
 }
+// The main loop clears paired and saves it once the Prog is queued.  The
+// shade belongs to the main loop so it isn't changed here.
 static bool queueUnpairShade(AsyncWebServerRequest *request, SomfyShade *shade) {
   web_command_t cmd = {};
   cmd.type = web_cmd_t::unpair_shade;
   cmd.shadeId = shade->getShadeId();
-  cmd.wasPaired = shade->paired;
-  if(!queueRadioCommand(request, cmd)) return false;
-  // Reflect the change in the response.  The main loop saves it once the Prog
-  // is queued or puts it back if it can't be.
-  shade->paired = false;
-  return true;
+  return queueRadioCommand(request, cmd);
 }
 // The radio and MQTT are shut down once an upload starts and only a reboot
 // brings them back.  The completion handler schedules it but never runs if the
@@ -160,8 +157,8 @@ void Web::processQueue() {
       case web_cmd_t::tilt_command: {
         SomfyShade *shade = somfy.getShadeById(cmd.shadeId);
         if(shade) {
-          if(cmd.target <= 100) shade->moveToTiltTarget(shade->transformPosition(cmd.target));
-          else shade->sendTiltCommand(cmd.command);
+          if(cmd.target <= 100) sent = shade->moveToTiltTarget(shade->transformPosition(cmd.target));
+          else sent = shade->sendTiltCommand(cmd.command);
         }
         break;
       }
@@ -209,7 +206,7 @@ void Web::processQueue() {
       }
       case web_cmd_t::set_my_position: {
         SomfyShade *shade = somfy.getShadeById(cmd.shadeId);
-        if(shade) shade->setMyPosition(cmd.position, cmd.tiltPosition);
+        if(shade) sent = shade->setMyPosition(cmd.position, cmd.tiltPosition);
         break;
       }
       case web_cmd_t::unpair_shade: {
@@ -219,11 +216,6 @@ void Web::processQueue() {
           if(sent) {
             shade->paired = false;
             shade->save();
-          }
-          else {
-            // The motor is still paired so undo what the response showed.
-            shade->paired = cmd.wasPaired;
-            shade->emitState();
           }
         }
         break;
@@ -318,14 +310,17 @@ static void serializeShadeRef(SomfyShade *shade, JsonFormatter &json) {
   json.addElem("hasLight", shade->hasLight());
   json.addElem("repeats", shade->repeats);
 }
-static void serializeShade(SomfyShade *shade, JsonFormatter &json) {
+// paired is passed in for a response that reports the change the main loop
+// is about to make.  The unpair is held until it goes on air (holdWebCommand),
+// so the answer comes true.
+static void serializeShade(SomfyShade *shade, JsonFormatter &json, bool paired) {
   json.addElem("shadeId", shade->getShadeId());
   json.addElem("roomId", shade->roomId);
   json.addElem("name", shade->name);
   json.addElem("remoteAddress", (uint32_t)shade->getRemoteAddress());
   json.addElem("upTime", (uint32_t)shade->upTime);
   json.addElem("downTime", (uint32_t)shade->downTime);
-  json.addElem("paired", shade->paired);
+  json.addElem("paired", paired);
   json.addElem("lastRollingCode", (uint32_t)shade->lastRollingCode);
   json.addElem("position", shade->transformPosition(shade->currentPos));
   json.addElem("tiltType", static_cast<uint8_t>(shade->tiltType));
@@ -366,6 +361,7 @@ static void serializeShade(SomfyShade *shade, JsonFormatter &json) {
   }
   json.endArray();
 }
+static void serializeShade(SomfyShade *shade, JsonFormatter &json) { serializeShade(shade, json, shade->paired); }
 static void serializeGroupRef(SomfyGroup *group, JsonFormatter &json) {
   group->updateFlags();
   json.addElem("groupId", group->getGroupId());
@@ -707,8 +703,8 @@ void Web::handleDiscovery(AsyncWebServerRequest *request) {
     char connType[10] = "Unknown";
     if(net.connType == conn_types_t::ethernet) strcpy(connType, "Ethernet");
     else if(net.connType == conn_types_t::wifi) strcpy(connType, "Wifi");
-    // This handler takes about 200ms on the async_tcp task for no obvious
-    // reason, so time each part to find out where it goes.
+    // This handler runs on the async_tcp task, which also serves the sockets,
+    // so a slow one is logged with where its time went.
     ElapsedTimer total, step;
     uint32_t usHead, usMem, usRooms, usShades, usGroups, usSend;
     AsyncJsonResp resp;
@@ -724,7 +720,7 @@ void Web::handleDiscovery(AsyncWebServerRequest *request) {
     resp.addElem("chipModel", settings.chipModel);
     resp.addElem("connType", connType);
     resp.addElem("checkForUpdate", settings.checkForUpdate);
-    usHead = step.us(); step.restart();
+    usHead = step.lap();
     resp.beginObject("memory");
     resp.addElem("max", ESP.getMaxAllocHeap());
     resp.addElem("free", ESP.getFreeHeap());
@@ -732,20 +728,20 @@ void Web::handleDiscovery(AsyncWebServerRequest *request) {
     resp.addElem("total", ESP.getHeapSize());
     resp.addElem("uptime", (uint64_t)millis());
     resp.endObject();
-    usMem = step.us(); step.restart();
+    usMem = step.lap();
     resp.beginArray("rooms");
     serializeRooms(resp);
     resp.endArray();
-    usRooms = step.us(); step.restart();
+    usRooms = step.lap();
     resp.beginArray("shades");
     serializeShades(resp);
     resp.endArray();
-    usShades = step.us(); step.restart();
+    usShades = step.lap();
     resp.beginArray("groups");
     serializeGroups(resp);
     resp.endArray();
     resp.endObject();
-    usGroups = step.us(); step.restart();
+    usGroups = step.lap();
     resp.endResponse();
     usSend = step.us();
     net.needsBroadcast = true;
@@ -1016,9 +1012,9 @@ void Web::handleRepeatCommand(AsyncWebServerRequest *request, JsonVariant &json)
     if(!queueRadioCommand(request, cmd)) return;
     AsyncJsonResp resp;
     resp.beginResponse(request, g_async_content, sizeof(g_async_content));
-    resp.beginArray();
+    resp.beginObject();
     serializeShadeRef(shade, resp);
-    resp.endArray();
+    resp.endObject();
     resp.endResponse();
   }
   else if(groupId != 255) {
@@ -1283,6 +1279,14 @@ void Web::handleNotFound(AsyncWebServerRequest *request) {
   request->send(404, _encoding_text, g_async_content);
 }
 
+// Logs how long part of a request took, when it is worth logging.
+static void logRequestTime(const char *server, AsyncWebServerRequest *request, const IPAddress &ip, const char *part, uint32_t us) {
+  if(!worthLogging(us)) return;
+  char what[112];
+  snprintf(what, sizeof(what), "%s %s %s from %u.%u.%u.%u %s", server, request->methodToString(), request->url().c_str(),
+    ip[0], ip[1], ip[2], ip[3], part);
+  logElapsed(TAG, what, us);
+}
 // Logs how long a request takes to handle and, once the connection closes, how
 // long the whole exchange took.  The total includes chunked bodies like
 // /controller that are built while they are sent, after the handler returns.
@@ -1294,22 +1298,10 @@ static void timeRequest(AsyncWebServerRequest *request, ArMiddlewareNext next, c
   // Uploads set their own disconnect handler while the body arrives, before
   // this runs, and replacing it would stop the reboot after an update.
   if(!request->multipart()) {
-    request->onDisconnect([request, timer, server, ip]() {
-      const uint32_t us = timer.us();
-      if(!worthLogging(us)) return;
-      char what[112];
-      snprintf(what, sizeof(what), "%s %s %s from %u.%u.%u.%u total", server, request->methodToString(), request->url().c_str(),
-        ip[0], ip[1], ip[2], ip[3]);
-      logElapsed(TAG, what, us);
-    });
+    request->onDisconnect([request, timer, server, ip]() { logRequestTime(server, request, ip, "total", timer.us()); });
   }
   next();
-  const uint32_t us = timer.us();
-  if(!worthLogging(us)) return;
-  char what[112];
-  snprintf(what, sizeof(what), "%s %s %s from %u.%u.%u.%u handler", server, request->methodToString(), request->url().c_str(),
-    ip[0], ip[1], ip[2], ip[3]);
-  logElapsed(TAG, what, us);
+  logRequestTime(server, request, ip, "handler", timer.us());
 }
 
 void Web::begin() {
@@ -1900,7 +1892,7 @@ void Web::begin() {
         AsyncJsonResp resp;
         resp.beginResponse(request, g_async_content, sizeof(g_async_content));
         resp.beginObject();
-        serializeShade(shade, resp);
+        serializeShade(shade, resp, false);
         resp.endObject();
         resp.endResponse();
       }
@@ -1919,7 +1911,7 @@ void Web::begin() {
       AsyncJsonResp resp;
       resp.beginResponse(request, g_async_content, sizeof(g_async_content));
       resp.beginObject();
-      serializeShade(shade, resp);
+      serializeShade(shade, resp, false);
       resp.endObject();
       resp.endResponse();
     }

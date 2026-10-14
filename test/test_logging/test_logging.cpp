@@ -40,6 +40,26 @@ static void test_worthLogging_from_the_threshold() {
   TEST_ASSERT_TRUE(worthLogging(UINT32_MAX));
 }
 
+/*********************************************************************
+ * ElapsedTimer
+ ********************************************************************/
+static void test_elapsedTimer_lap_times_each_step() {
+  stubMicros = 1000;
+  ElapsedTimer timer;
+  stubMicros = 1250;
+  TEST_ASSERT_EQUAL_UINT32(250, timer.lap());
+  stubMicros = 1300;
+  TEST_ASSERT_EQUAL_UINT32(50, timer.lap());
+  TEST_ASSERT_EQUAL_UINT32(0, timer.us());
+}
+static void test_elapsedTimer_lap_across_micros_wrap() {
+  stubMicros = 0xFFFFFF00UL;
+  ElapsedTimer timer;
+  stubMicros = 0x100;
+  TEST_ASSERT_EQUAL_UINT32(0x200, timer.lap());
+  stubMicros = 0;
+}
+
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
@@ -51,5 +71,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_logLock_no_wait_allowed);
   RUN_TEST(test_worthLogging_fast_timings_are_skipped);
   RUN_TEST(test_worthLogging_from_the_threshold);
+  RUN_TEST(test_elapsedTimer_lap_times_each_step);
+  RUN_TEST(test_elapsedTimer_lap_across_micros_wrap);
   return UNITY_END();
 }

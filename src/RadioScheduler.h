@@ -17,15 +17,17 @@
 // Not thread safe.  The caller serializes every call and passes the time in.
 class RadioScheduler {
   public:
-    // Queues a job.  Its ticket comes back and is also set in job.seq, 0 when
-    // the queue is full or suspended.  A priority job (a stop) may use the
+    // Queues a job.  Its ticket comes back and is also set in job.ticket, 0 when
+    // the queue is full or suspended, or when outcomes aren't collected with
+    // popEvent() fast enough to leave room for its own.  A priority job (a stop) may use the
     // reserved slots and goes ahead of every job queued at the back, unless a
     // job of its remote is already waiting: overtaking that would put the
-    // rolling codes out of order.  A delayed job doesn't go on air before
-    // delayMs from now and holds up the jobs queued behind it.
+    // rolling codes out of order.  A delayed job doesn't go on air until
+    // delayMs after it was queued and after the job ahead of it ended, and holds
+    // up the jobs queued behind it.
     uint32_t submit(somfy_tx_job_t &job, bool priority, uint16_t delayMs, uint32_t now);
-    // Whether a job would be taken right now.
-    bool hasRoom(bool priority) const;
+    // Whether a normal (not priority) job would be taken right now.
+    bool hasRoom() const;
     // For the radio task: takes the job to send next.  False when there is
     // none due, waitMs then says how long until there is (RADIO_WAIT_FOREVER
     // when nothing waits).  A job taken goes on air through start() and
@@ -52,16 +54,22 @@ class RadioScheduler {
   private:
     somfy_tx_job_t jobs[TX_JOB_QUEUE_SIZE];
     uint8_t count = 0;
-    uint32_t lastSeq = 0;
+    uint32_t lastTicket = 0;
     uint8_t suspendMask = 0;
     // The job taken by next() and not yet ended (0 for none), kept for its
     // events.
     uint32_t taken = 0;
     somfy_tx_job_t takenJob;
     bool takenFlushed = false;
+    // When a job last went off air, for the delay of the job after it.
+    uint32_t lastEnded = 0;
+    bool endedOnce = false;
     somfy_tx_event_t events[TX_JOB_QUEUE_SIZE * 3];
     uint8_t eventHead = 0;
     uint8_t eventCount = 0;
+    // Whether the outcomes of every job not yet ended, and of one more, still
+    // fit in events.  A job is refused otherwise so no outcome is ever lost.
+    bool outcomesFit() const;
     // Whether a job of the remote is still waiting.
     bool waitingFor(uint32_t remoteAddress) const;
     void remove(uint8_t i);

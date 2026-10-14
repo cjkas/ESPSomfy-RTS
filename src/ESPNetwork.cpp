@@ -533,9 +533,9 @@ uint32_t ESPNetwork::getChipId() {
   return chipId;
 }
 bool ESPNetwork::getStrongestAP(const char *ssid, uint8_t *bssid, int32_t *channel) {
-  // The new AP must be at least ROAM_MIN_GAIN_DB stronger.
   const bool connected = this->connected();
-  int32_t strength = connected ? WiFi.RSSI() + ROAM_MIN_GAIN_DB : -127;
+  const int32_t currentRssi = connected ? WiFi.RSSI() : 0;
+  int32_t strength = -127;
   int32_t chan = -1;
   memset(bssid, 0x00, 6);
   esp_task_wdt_delete(NULL);
@@ -552,7 +552,7 @@ bool ESPNetwork::getStrongestAP(const char *ssid, uint8_t *bssid, int32_t *chann
         ESP_LOGI(TAG, "AP %02X:%02X:%02X:%02X:%02X:%02X ch %ld %ld dBm%s", b[0], b[1], b[2], b[3], b[4], b[5],
           (long)WiFi.channel(i), (long)WiFi.RSSI(i), (cur && memcmp(b, cur, 6) == 0) ? " (connected)" : "");
       }
-      if(WiFi.RSSI(i) > strength) { 
+      if(worthRoaming(connected, currentRssi, WiFi.RSSI(i), ROAM_MIN_GAIN_DB) && WiFi.RSSI(i) > strength) {
         strength = WiFi.RSSI(i); 
         memcpy(bssid, WiFi.BSSID(i), 6); 
         *channel = chan = WiFi.channel(i);
@@ -671,22 +671,17 @@ void ESPNetwork::emitHeap(uint8_t num) {
   uint32_t freeHeap = ESP.getFreeHeap();
   uint32_t maxHeap = ESP.getMaxAllocHeap();
   uint32_t minHeap = ESP.getMinFreeHeap();
-  const bool bBroadcast = num == 255 && millis() - _lastHeapEmit >= HEAP_EMIT_MS;
-  const bool bRoomEmit = sockEmit.activeClients(0) > 0;
-  if(num != 255 || bBroadcast || bRoomEmit) {
-    JsonSockEvent *json = sockEmit.beginEmit("memStatus");
-    json->beginObject();
-    json->addElem("max", maxHeap);
-    json->addElem("free", freeHeap);
-    json->addElem("min", minHeap);
-    json->addElem("total", ESP.getHeapSize());
-    json->addElem("uptime", (uint64_t)millis());
-    json->endObject();
-    if(bBroadcast) {
-      sockEmit.endEmit(num);
-      _lastHeapEmit = millis();
-    }
-    else if(num != 255) sockEmit.endEmit(num);
-    else sockEmit.endEmitRoom(0);
-  }
+  const heap_emit_t target = heapEmitTarget(num, millis() - _lastHeapEmit, HEAP_EMIT_MS, sockEmit.activeClients(0) > 0);
+  if(target == heap_emit_t::none) return;
+  JsonSockEvent *json = sockEmit.beginEmit("memStatus");
+  json->beginObject();
+  json->addElem("max", maxHeap);
+  json->addElem("free", freeHeap);
+  json->addElem("min", minHeap);
+  json->addElem("total", ESP.getHeapSize());
+  json->addElem("uptime", (uint64_t)millis());
+  json->endObject();
+  if(target == heap_emit_t::room) sockEmit.endEmitRoom(0);
+  else sockEmit.endEmit(num);
+  if(target == heap_emit_t::broadcast) _lastHeapEmit = millis();
 }

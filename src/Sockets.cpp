@@ -21,29 +21,32 @@ AsyncWebServer wsServer(8080);
 AsyncWebSocket ws("/");
 
 #define MAX_WS_CLIENTS 5
-static uint32_t clientMap[MAX_WS_CLIENTS] = {0,0,0,0,0};
-// When each slot connected and last saw a ping, so the logs show how long a
-// client stayed and how far apart its pings arrived.
-static uint32_t connectedAt[MAX_WS_CLIENTS] = {0,0,0,0,0};
-static uint32_t lastPing[MAX_WS_CLIENTS] = {0,0,0,0,0};
+struct ws_slot_t {
+  uint32_t asyncId;      // 0 when the slot is free.
+  // When the client connected and last pinged, so the logs show how long it
+  // stayed and how far apart its pings arrived.
+  uint32_t connectedAt;
+  uint32_t lastPing;
+};
+static ws_slot_t slots[MAX_WS_CLIENTS] = {};
 static uint8_t mapClientId(uint32_t asyncId) {
   for(uint8_t i = 0; i < MAX_WS_CLIENTS; i++)
-    if(clientMap[i] == asyncId) return i;
+    if(slots[i].asyncId == asyncId) return i;
   return 255;
 }
 static uint32_t getAsyncId(uint8_t slot) {
-  if(slot < MAX_WS_CLIENTS) return clientMap[slot];
+  if(slot < MAX_WS_CLIENTS) return slots[slot].asyncId;
   return 0;
 }
 static uint8_t addClient(uint32_t asyncId) {
   for(uint8_t i = 0; i < MAX_WS_CLIENTS; i++) {
-    if(clientMap[i] == 0) { clientMap[i] = asyncId; return i; }
+    if(slots[i].asyncId == 0) { slots[i].asyncId = asyncId; return i; }
   }
   return 255;
 }
 static void removeClient(uint32_t asyncId) {
   for(uint8_t i = 0; i < MAX_WS_CLIENTS; i++)
-    if(clientMap[i] == asyncId) clientMap[i] = 0;
+    if(slots[i].asyncId == asyncId) slots[i].asyncId = 0;
 }
 
 #define MAX_SOCK_RESPONSE 2048
@@ -137,19 +140,16 @@ void SocketEmitter::initClients() {
         esp_task_wdt_reset();
         ElapsedTimer total, step;
         settings.emitSockets(slot);
-        logElapsed(TAG, "Socket init settings", step.us());
+        logElapsed(TAG, "Socket init settings", step.lap());
         if(!ws.hasClient(asyncId)) { this->newClients[i] = 255; continue; }
-        step.restart();
         somfy.emitState(slot);
-        logElapsed(TAG, "Socket init somfy state", step.us());
+        logElapsed(TAG, "Socket init somfy state", step.lap());
         if(!ws.hasClient(asyncId)) { this->newClients[i] = 255; continue; }
-        step.restart();
         git.emitUpdateCheck(slot);
-        logElapsed(TAG, "Socket init update check", step.us());
+        logElapsed(TAG, "Socket init update check", step.lap());
         if(!ws.hasClient(asyncId)) { this->newClients[i] = 255; continue; }
-        step.restart();
         net.emitSockets(slot);
-        logElapsed(TAG, "Socket init network", step.us());
+        logElapsed(TAG, "Socket init network", step.lap());
         logElapsed(TAG, "Socket init total", total.us());
         esp_task_wdt_reset();
       }
@@ -171,11 +171,11 @@ void SocketEmitter::end() {
   wsServer.end();
   for(uint8_t i = 0; i < SOCK_MAX_ROOMS; i++)
     this->rooms[i].clear();
-  memset(clientMap, 0, sizeof(clientMap));
+  memset(slots, 0, sizeof(slots));
 }
 void SocketEmitter::disconnect() {
   ws.closeAll();
-  memset(clientMap, 0, sizeof(clientMap));
+  memset(slots, 0, sizeof(slots));
 }
 void SocketEmitter::wsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
   uint32_t asyncId = client->id();
@@ -190,8 +190,8 @@ void SocketEmitter::wsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client
         }
         IPAddress ip = client->remoteIP();
         ESP_LOGI(TAG, "Socket [%lu] Connected from %d.%d.%d.%d (slot %u)", asyncId, ip[0], ip[1], ip[2], ip[3], slot);
-        connectedAt[slot] = millis();
-        lastPing[slot] = 0;
+        slots[slot].connectedAt = millis();
+        slots[slot].lastPing = 0;
         client->text("Connected");
         client->setCloseClientOnQueueFull(false);
         sockEmit.delayInit(slot);
@@ -202,7 +202,7 @@ void SocketEmitter::wsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client
         uint8_t slot = mapClientId(asyncId);
         if(slot != 255) {
           ESP_LOGI(TAG, "Socket [%lu] Disconnected (slot %u) after %lums, last ping %lums ago", asyncId, slot,
-            (unsigned long)(millis() - connectedAt[slot]), lastPing[slot] ? (unsigned long)(millis() - lastPing[slot]) : 0UL);
+            (unsigned long)(millis() - slots[slot].connectedAt), slots[slot].lastPing ? (unsigned long)(millis() - slots[slot].lastPing) : 0UL);
           for(uint8_t i = 0; i < SOCK_MAX_ROOMS; i++)
             sockEmit.rooms[i].leave(slot);
         }
@@ -242,8 +242,8 @@ void SocketEmitter::wsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client
         uint8_t slot = mapClientId(asyncId);
         if(slot != 255) {
           uint32_t now = millis();
-          if(lastPing[slot]) ESP_LOGD(TAG, "Socket [%lu] ping, %lums since the last", asyncId, (unsigned long)(now - lastPing[slot]));
-          lastPing[slot] = now;
+          if(slots[slot].lastPing) ESP_LOGD(TAG, "Socket [%lu] ping, %lums since the last", asyncId, (unsigned long)(now - slots[slot].lastPing));
+          slots[slot].lastPing = now;
         }
       }
       break;

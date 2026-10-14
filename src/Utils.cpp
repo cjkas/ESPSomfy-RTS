@@ -144,3 +144,11 @@ void RssiBroadcast::sent(bool broadcast, int rssi, int channel, uint32_t now) {
   this->channel = channel;
   this->at = now;
 }
+bool worthRoaming(bool connected, int currentRssi, int apRssi, int minGain) {
+  return !connected || apRssi >= currentRssi + minGain;
+}
+heap_emit_t heapEmitTarget(uint8_t num, uint32_t sinceLastMs, uint32_t intervalMs, bool roomHasClients) {
+  if(num != 255) return heap_emit_t::client;
+  if(sinceLastMs >= intervalMs) return heap_emit_t::broadcast;
+  return roomHasClients ? heap_emit_t::room : heap_emit_t::none;
+}

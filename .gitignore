@@ -7,7 +7,7 @@ debug_custom.json
 debug.cfg
 
 # Hardware / SVD Files
-esp32.vsd
+esp32.svd
 esp32s3.svd
 
 # Build, Logs and Output Folders

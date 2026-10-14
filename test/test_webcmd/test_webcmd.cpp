@@ -28,12 +28,18 @@ static void test_radio_command_waits_for_room() {
     TEST_ASSERT_FALSE(holdWebCommand(t, false, true));
   }
 }
-static void test_nothing_is_held_while_suspended() {
+static void test_commands_are_not_held_while_suspended() {
   // Nothing goes on air during a frequency scan or OTA anyway.
   for(web_cmd_t t : RADIO_COMMANDS) {
+    if(t == web_cmd_t::unpair_shade) continue;
     TEST_ASSERT_FALSE(holdWebCommand(t, true, false));
     TEST_ASSERT_FALSE(holdWebCommand(t, true, true));
   }
+}
+static void test_unpair_waits_out_a_suspend() {
+  // The client was already told the shade is unpaired.
+  TEST_ASSERT_TRUE(holdWebCommand(web_cmd_t::unpair_shade, true, false));
+  TEST_ASSERT_TRUE(holdWebCommand(web_cmd_t::unpair_shade, true, true));
 }
 
 int main(int argc, char **argv) {
@@ -43,6 +49,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_only_set_positions_stays_off_the_radio);
   RUN_TEST(test_set_positions_is_never_held);
   RUN_TEST(test_radio_command_waits_for_room);
-  RUN_TEST(test_nothing_is_held_while_suspended);
+  RUN_TEST(test_commands_are_not_held_while_suspended);
+  RUN_TEST(test_unpair_waits_out_a_suspend);
   return UNITY_END();
 }

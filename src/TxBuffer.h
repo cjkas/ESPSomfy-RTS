@@ -57,12 +57,13 @@ struct somfy_tx_job_t {
   somfy_frame_t frame;
   uint8_t repeats = 0;      // Number of repeat frames after the first frame.
   uint8_t firstRepeat = 1;  // 80-bit repeat counter used for the first repeat frame.
-  bool raw = false;         // Repeater frame.  Waits for the receiver to be idle.
+  bool repeater = false;    // Repeater frame.  Waits for the receiver to be idle.
   // Set by RadioScheduler::submit().
   bool priority = false;    // May use the reserved slots.
   bool front = false;       // Queued ahead of the back.  Only for priority jobs.
-  uint32_t seq = 0;         // Ticket the job's events are matched up by.
-  uint32_t notBefore = 0;   // millis() before which the job must not go on air (0 = none).
+  uint32_t ticket = 0;      // Matches the job's events up with it.
+  uint32_t queuedAt = 0;    // millis() when it was submitted.
+  uint16_t delayMs = 0;     // How long it waits after it was queued and after the job ahead of it ended.
 };
 enum class tx_event_t : uint8_t {
   started,  // The job is going on air.
@@ -75,7 +76,7 @@ struct somfy_tx_event_t {
   tx_event_t type = tx_event_t::started;
   somfy_commands cmd = somfy_commands::My;
   uint32_t remoteAddress = 0;
-  uint32_t seq = 0;
+  uint32_t ticket = 0;
   uint32_t at = 0;          // millis() when the job started or was dropped.
 };
 // Encodes the first frame of a transmission into the job.  Encoding here keeps

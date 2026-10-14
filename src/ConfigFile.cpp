@@ -8,7 +8,6 @@
 
 static const char *TAG = "ConfigFile";
 
-extern Preferences pref;
 
 #define SHADE_HDR_VER 24
 #define SHADE_HDR_SIZE 76
@@ -739,6 +738,7 @@ bool ShadeConfigFile::readSettingsRecord() {
   return true;
 }
 bool ShadeConfigFile::readGroupRecord(SomfyGroup *group) {
+  Preferences pref;
   pref.begin("ShadeCodes");
   uint32_t startPos = this->file.position();
   group->setGroupId(this->readUInt8(255));
@@ -802,6 +802,7 @@ bool ShadeConfigFile::readRoomRecord(SomfyRoom *room) {
 }
 
 bool ShadeConfigFile::readShadeRecord(SomfyShade *shade) {
+  Preferences pref;
   pref.begin("ShadeCodes");
   uint32_t startPos = this->file.position();
   shade->setShadeId(this->readUInt8(255));
