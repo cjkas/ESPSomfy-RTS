@@ -3,7 +3,7 @@
 ## Concurrent mutation during chunked `/controller` response
 
 **Status:** open
-**Introduced:** 2026-04-19, alongside the chunked-response conversion of `/controller` (see [`ControllerChunker` in src/Web.cpp](../src/Web.cpp) and the original crash report about `cbuf::resize` aborting `async_tcp`).
+**Introduced:** 2026-04-19, alongside the chunked-response conversion of `/controller` (see [`ControllerChunker` in src/entryPoints/Web.cpp](../src/entryPoints/Web.cpp) and the original crash report about `cbuf::resize` aborting `async_tcp`).
 
 ### Summary
 
@@ -42,7 +42,7 @@ The new `ControllerChunker` reads state as the response drains. On a slow link o
 ## Oversized `/controller` items are left out
 
 **Status:** open
-**Location:** `ControllerChunker::overflowed` in [src/Web.cpp](../src/Web.cpp).
+**Location:** `ControllerChunker::overflowed` in [src/entryPoints/Web.cpp](../src/entryPoints/Web.cpp).
 
 ### Summary
 
@@ -67,7 +67,7 @@ A shade with every linked remote populated is about 1.5 KB today, so nothing ove
 ## Large websocket events are dropped
 
 **Status:** open
-**Location:** [`JsonSockEvent` in src/WResp.cpp](../src/WResp.cpp), buffer `g_response[MAX_SOCK_RESPONSE]` (2048 bytes) in [src/Sockets.cpp](../src/Sockets.cpp).
+**Location:** [`JsonSockEvent` in src/WResp.cpp](../src/WResp.cpp), buffer `g_response[MAX_SOCK_RESPONSE]` (2048 bytes) in [src/outputs/Sockets.cpp](../src/outputs/Sockets.cpp).
 
 ### Summary
 

@@ -2,6 +2,7 @@
 
 **Status:** done. Phases 0 and 1 in `bbfb23e`..`505108c`, phase 2 in `0eb0e63`..`a176017` (2026-10-13).
 **Written:** 2026-10-13, against commit `4544eb6` on `fix/live-bugs`. Line numbers in the analysis below refer to that commit. The code now lives in the files listed under [Phase 1](#phase-1-split-the-file-by-concern).
+Since then `SomfyMqtt.cpp` and `SomfyEvents.cpp` have moved to `src/outputs/`.
 
 ## Why
 

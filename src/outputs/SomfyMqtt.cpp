@@ -2,7 +2,7 @@
 #include "ConfigSettings.h"
 #include "Somfy.h"
 #include "Sockets.h"
-#include "MQTT.h"
+#include "entryPoints/MQTT.h"
 
 extern SomfyShadeController somfy;
 extern SocketEmitter sockEmit;

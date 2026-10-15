@@ -10,7 +10,7 @@
 #include "Utils.h"
 #include "ConfigSettings.h"
 #include "Somfy.h"
-#include "Sockets.h"
+#include "outputs/Sockets.h"
 
 static const char *TAG = "Somfy";
 

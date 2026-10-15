@@ -51,3 +51,29 @@ The per-shade switch that lets the sun move a shade. While it is on, lasting sun
 
 **Extend / retract**
 Where the weather sends a shade: extend to its favorite, or fully when it has none; retract fully. A tilt-only shade extends and retracts its tilt, every other shade its lift.
+
+## Entry points and outputs
+
+**Entry point**
+Where a request from outside reaches the firmware: an HTTP route, an MQTT command topic or a frame received from a remote.
+_Avoid_: controller (it already names the owner of the shade list and the `/controller` read)
+
+**WebUiRoutes**
+The HTTP routes on port 80 that the config web UI calls, plus the UI's own files.
+_Avoid_: WebUiController, Web
+
+**ApiRoutes**
+The HTTP routes on port 8081 that integrations such as Home Assistant call.
+_Avoid_: WebApiController
+
+**MqttCommands**
+The MQTT topics ending in `/set` that command a shade or group.
+_Avoid_: MQTTController
+
+**MqttPublisher**
+What sends the state of rooms, shades and groups, and the Home Assistant discovery config, to the MQTT broker.
+_Avoid_: MQTTController
+
+**SocketEmitter**
+What pushes state events to WebSocket clients on port 8080. A client can only join or leave a room; it sends no commands.
+_Avoid_: WebSocketController
