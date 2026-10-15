@@ -51,12 +51,12 @@ static QueueHandle_t webCmdQueue = nullptr;
 
 static void sendQueueFull(AsyncWebServerRequest *request);
 static void sendRadioUnavailable(AsyncWebServerRequest *request);
-// Hands a command that transmits to the main loop.  When it can't be the
-// request is answered with the reason and false is returned.
-static bool queueRadioCommand(AsyncWebServerRequest *request, const web_command_t &cmd) {
+// Hands a command to the main loop, which owns the shades.  When it can't be
+// the request is answered with the reason and false is returned.
+static bool queueLoopCommand(AsyncWebServerRequest *request, const web_command_t &cmd) {
   // Nothing can go on air during a frequency scan so tell the client now rather
   // than dropping the command once it reaches the radio.
-  if(somfy.transceiver.txSuspended()) { sendRadioUnavailable(request); return false; }
+  if(webCommandUsesRadio(cmd.type) && somfy.transceiver.txSuspended()) { sendRadioUnavailable(request); return false; }
   if(!webServer.queueCommand(cmd)) { sendQueueFull(request); return false; }
   return true;
 }
@@ -67,7 +67,7 @@ static bool queueSetMyPosition(AsyncWebServerRequest *request, SomfyShade *shade
   cmd.shadeId = shade->getShadeId();
   cmd.position = pos;
   cmd.tiltPosition = tilt;
-  return queueRadioCommand(request, cmd);
+  return queueLoopCommand(request, cmd);
 }
 // The main loop clears paired and saves it once the Prog is queued.  The
 // shade belongs to the main loop so it isn't changed here.
@@ -75,7 +75,32 @@ static bool queueUnpairShade(AsyncWebServerRequest *request, SomfyShade *shade) 
   web_command_t cmd = {};
   cmd.type = web_cmd_t::unpair_shade;
   cmd.shadeId = shade->getShadeId();
-  return queueRadioCommand(request, cmd);
+  return queueLoopCommand(request, cmd);
+}
+// Sending a command reads and commits the rolling code on the main loop, so
+// a new code is set there too.
+static bool queueSetRollingCode(AsyncWebServerRequest *request, SomfyShade *shade, uint16_t rollingCode) {
+  web_command_t cmd = {};
+  cmd.type = web_cmd_t::set_rolling_code;
+  cmd.shadeId = shade->getShadeId();
+  cmd.rollingCode = rollingCode;
+  return queueLoopCommand(request, cmd);
+}
+// A restore's options travel through the command queue as RESTORE_* bits.
+static uint8_t restoreParts(const restore_options_t &opts) {
+  return (opts.settings ? RESTORE_SETTINGS : 0) | (opts.shades ? RESTORE_SHADES : 0) |
+    (opts.network ? RESTORE_NETWORK : 0) | (opts.transceiver ? RESTORE_TRANSCEIVER : 0) |
+    (opts.repeaters ? RESTORE_REPEATERS : 0) | (opts.mqtt ? RESTORE_MQTT : 0);
+}
+static restore_options_t restoreOptions(uint8_t parts) {
+  restore_options_t opts;
+  opts.settings = parts & RESTORE_SETTINGS;
+  opts.shades = parts & RESTORE_SHADES;
+  opts.network = parts & RESTORE_NETWORK;
+  opts.transceiver = parts & RESTORE_TRANSCEIVER;
+  opts.repeaters = parts & RESTORE_REPEATERS;
+  opts.mqtt = parts & RESTORE_MQTT;
+  return opts;
 }
 // The radio and MQTT are shut down once an upload starts and only a reboot
 // brings them back.  The completion handler schedules it but never runs if the
@@ -220,6 +245,22 @@ void Web::processQueue() {
         }
         break;
       }
+      case web_cmd_t::set_rolling_code: {
+        SomfyShade *shade = somfy.getShadeById(cmd.shadeId);
+        if(shade) shade->setRollingCode(cmd.rollingCode);
+        break;
+      }
+      case web_cmd_t::restore_shades: {
+        restore_options_t opts = restoreOptions(cmd.restoreParts);
+        ShadeConfigFile::restore(&somfy, "/shades.tmp", opts);
+        ESP_LOGI(TAG, "Rebooting ESP for restored settings...");
+        rebootDelay.reboot = true;
+        rebootDelay.rebootTime = millis() + 1000;
+        break;
+      }
+      case web_cmd_t::load_shades:
+        somfy.loadShadesFile("/shades.tmp");
+        break;
     }
     if(!sent) ESP_LOGW(TAG, "Radio didn't take web command %u", static_cast<uint8_t>(cmd.type));
   }
@@ -310,10 +351,10 @@ static void serializeShadeRef(SomfyShade *shade, JsonFormatter &json) {
   json.addElem("hasLight", shade->hasLight());
   json.addElem("repeats", shade->repeats);
 }
-// paired is passed in for a response that reports the change the main loop
-// is about to make.  The unpair is held until it goes on air (holdWebCommand),
-// so the answer comes true.
-static void serializeShade(SomfyShade *shade, JsonFormatter &json, bool paired) {
+// paired and lastRollingCode are passed in for a response that reports the
+// change the main loop is about to make.  An unpair is held until it goes on
+// air (holdWebCommand), so the answer comes true.
+static void serializeShade(SomfyShade *shade, JsonFormatter &json, bool paired, uint16_t lastRollingCode) {
   json.addElem("shadeId", shade->getShadeId());
   json.addElem("roomId", shade->roomId);
   json.addElem("name", shade->name);
@@ -321,7 +362,7 @@ static void serializeShade(SomfyShade *shade, JsonFormatter &json, bool paired) 
   json.addElem("upTime", (uint32_t)shade->upTime);
   json.addElem("downTime", (uint32_t)shade->downTime);
   json.addElem("paired", paired);
-  json.addElem("lastRollingCode", (uint32_t)shade->lastRollingCode);
+  json.addElem("lastRollingCode", (uint32_t)lastRollingCode);
   json.addElem("position", shade->transformPosition(shade->currentPos));
   json.addElem("tiltType", static_cast<uint8_t>(shade->tiltType));
   json.addElem("tiltPosition", shade->transformPosition(shade->currentTiltPos));
@@ -361,7 +402,7 @@ static void serializeShade(SomfyShade *shade, JsonFormatter &json, bool paired) 
   }
   json.endArray();
 }
-static void serializeShade(SomfyShade *shade, JsonFormatter &json) { serializeShade(shade, json, shade->paired); }
+static void serializeShade(SomfyShade *shade, JsonFormatter &json) { serializeShade(shade, json, shade->paired, shade->lastRollingCode); }
 static void serializeGroupRef(SomfyGroup *group, JsonFormatter &json) {
   group->updateFlags();
   json.addElem("groupId", group->getGroupId());
@@ -890,7 +931,7 @@ void Web::handleShadeCommand(AsyncWebServerRequest *request, JsonVariant &json) 
     cmd.command = command;
     cmd.repeat = repeat;
     cmd.stepSize = stepSize;
-    if(!queueRadioCommand(request, cmd)) return;
+    if(!queueLoopCommand(request, cmd)) return;
     AsyncJsonResp resp;
     resp.beginResponse(request, g_async_content, sizeof(g_async_content));
     resp.beginObject();
@@ -931,7 +972,7 @@ void Web::handleGroupCommand(AsyncWebServerRequest *request, JsonVariant &json) 
     cmd.command = command;
     cmd.repeat = repeat;
     cmd.stepSize = stepSize;
-    if(!queueRadioCommand(request, cmd)) return;
+    if(!queueLoopCommand(request, cmd)) return;
     AsyncJsonResp resp;
     resp.beginResponse(request, g_async_content, sizeof(g_async_content));
     resp.beginObject();
@@ -968,7 +1009,7 @@ void Web::handleTiltCommand(AsyncWebServerRequest *request, JsonVariant &json) {
     cmd.shadeId = shadeId;
     cmd.target = target;
     cmd.command = command;
-    if(!queueRadioCommand(request, cmd)) return;
+    if(!queueLoopCommand(request, cmd)) return;
     AsyncJsonResp resp;
     resp.beginResponse(request, g_async_content, sizeof(g_async_content));
     resp.beginObject();
@@ -1009,7 +1050,7 @@ void Web::handleRepeatCommand(AsyncWebServerRequest *request, JsonVariant &json)
     cmd.command = command;
     cmd.repeat = repeat;
     cmd.stepSize = stepSize;
-    if(!queueRadioCommand(request, cmd)) return;
+    if(!queueLoopCommand(request, cmd)) return;
     AsyncJsonResp resp;
     resp.beginResponse(request, g_async_content, sizeof(g_async_content));
     resp.beginObject();
@@ -1027,7 +1068,7 @@ void Web::handleRepeatCommand(AsyncWebServerRequest *request, JsonVariant &json)
     cmd.command = command;
     cmd.repeat = repeat;
     cmd.stepSize = stepSize;
-    if(!queueRadioCommand(request, cmd)) return;
+    if(!queueLoopCommand(request, cmd)) return;
     AsyncJsonResp resp;
     resp.beginResponse(request, g_async_content, sizeof(g_async_content));
     resp.beginObject();
@@ -1166,7 +1207,7 @@ void Web::handleSetSensor(AsyncWebServerRequest *request, JsonVariant &json) {
       cmd.sunny = sunny;
       cmd.windy = windy;
       cmd.repeat = repeat;
-      if(!queueRadioCommand(request, cmd)) return;
+      if(!queueLoopCommand(request, cmd)) return;
       // The main loop applies the command after we answer so this is the state
       // before it.  Clients get the result from the shadeState socket event.
       AsyncJsonResp resp;
@@ -1187,7 +1228,7 @@ void Web::handleSetSensor(AsyncWebServerRequest *request, JsonVariant &json) {
       cmd.sunny = sunny;
       cmd.windy = windy;
       cmd.repeat = repeat;
-      if(!queueRadioCommand(request, cmd)) return;
+      if(!queueLoopCommand(request, cmd)) return;
       // As above, this is the state before the command and groupState follows.
       AsyncJsonResp resp;
       resp.beginResponse(request, g_async_content, sizeof(g_async_content));
@@ -1449,7 +1490,6 @@ void Web::begin() {
   asyncServer.on("/restore", HTTP_POST,
     [](AsyncWebServerRequest *request) {
       if(webServer.uploadSuccess) {
-        request->send(200, _encoding_json, "{\"status\":\"Success\",\"desc\":\"Restoring Shade settings\"}");
         restore_options_t opts;
         if(asyncHasParam(request, "data")) {
           String dataStr = asyncParam(request, "data");
@@ -1469,10 +1509,13 @@ void Web::begin() {
           ESP_LOGD(TAG, "No restore options sent.  Using defaults...");
           opts.shades = true;
         }
-        ShadeConfigFile::restore(&somfy, "/shades.tmp", opts);
-        ESP_LOGI(TAG, "Rebooting ESP for restored settings...");
-        rebootDelay.reboot = true;
-        rebootDelay.rebootTime = millis() + 1000;
+        // The main loop restores, since it owns the shades and their rolling
+        // codes, and then reboots.
+        web_command_t cmd = {};
+        cmd.type = web_cmd_t::restore_shades;
+        cmd.restoreParts = restoreParts(opts);
+        if(!queueLoopCommand(request, cmd)) return;
+        request->send(200, _encoding_json, "{\"status\":\"Success\",\"desc\":\"Restoring Shade settings\"}");
       }
     },
     [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
@@ -1733,8 +1776,7 @@ void Web::begin() {
       }
       SomfyShade* shade = somfy.getShadeById(shadeId);
       if(shade) {
-        if(tilt < 0) tilt = shade->myPos;
-        if(shade->tiltType == tilt_types::none) tilt = -1;
+        tilt = requestedFavoriteTilt(tilt, shade->tiltType, shade->myTiltPos, shade->flipPosition);
         if(pos >= 0 && pos <= 100)
           if(!queueSetMyPosition(request, shade, shade->transformPosition(pos), shade->transformPosition(tilt))) return;
         AsyncJsonResp resp;
@@ -1760,8 +1802,7 @@ void Web::begin() {
     else { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No shade object supplied.\"}")); return; }
     SomfyShade* shade = somfy.getShadeById(shadeId);
     if(shade) {
-      if(tilt < 0) tilt = shade->myPos;
-      if(shade->tiltType == tilt_types::none) tilt = -1;
+      tilt = requestedFavoriteTilt(tilt, shade->tiltType, shade->myTiltPos, shade->flipPosition);
       if(pos >= 0 && pos <= 100)
         if(!queueSetMyPosition(request, shade, shade->transformPosition(pos), shade->transformPosition(tilt))) return;
       AsyncJsonResp resp;
@@ -1792,11 +1833,11 @@ void Web::begin() {
         request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade not found to set rolling code\"}"));
       }
       else {
-        shade->setRollingCode(rollingCode);
+        if(!queueSetRollingCode(request, shade, rollingCode)) return;
         AsyncJsonResp resp;
         resp.beginResponse(request, g_async_content, sizeof(g_async_content));
         resp.beginObject();
-        serializeShade(shade, resp);
+        serializeShade(shade, resp, shade->paired, rollingCode);
         resp.endObject();
         resp.endResponse();
       }
@@ -1814,11 +1855,11 @@ void Web::begin() {
       request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade not found to set rolling code\"}"));
     }
     else {
-      shade->setRollingCode(rollingCode);
+      if(!queueSetRollingCode(request, shade, rollingCode)) return;
       AsyncJsonResp resp;
       resp.beginResponse(request, g_async_content, sizeof(g_async_content));
       resp.beginObject();
-      serializeShade(shade, resp);
+      serializeShade(shade, resp, shade->paired, rollingCode);
       resp.endObject();
       resp.endResponse();
     }
@@ -1892,7 +1933,7 @@ void Web::begin() {
         AsyncJsonResp resp;
         resp.beginResponse(request, g_async_content, sizeof(g_async_content));
         resp.beginObject();
-        serializeShade(shade, resp, false);
+        serializeShade(shade, resp, false, shade->lastRollingCode);
         resp.endObject();
         resp.endResponse();
       }
@@ -1911,7 +1952,7 @@ void Web::begin() {
       AsyncJsonResp resp;
       resp.beginResponse(request, g_async_content, sizeof(g_async_content));
       resp.beginObject();
-      serializeShade(shade, resp, false);
+      serializeShade(shade, resp, false, shade->lastRollingCode);
       resp.endObject();
       resp.endResponse();
     }
@@ -2284,7 +2325,10 @@ void Web::begin() {
         fup.close();
       }
       if(final) {
-        somfy.loadShadesFile("/shades.tmp");
+        // The main loop loads it, since it owns the shades.
+        web_command_t cmd = {};
+        cmd.type = web_cmd_t::load_shades;
+        webServer.queueCommand(cmd);
       }
     });
 

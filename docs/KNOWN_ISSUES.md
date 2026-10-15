@@ -32,12 +32,11 @@ The new `ControllerChunker` reads state as the response drains. On a slow link o
 - Same exposure exists in any other endpoint converted to chunked responses next (`/discovery`, `/shades`). Resolve this issue before expanding the pattern.
 - Other handlers on the web server task still change the shade model that `loop()` owns:
   - `/addRoom`, `/saveRoom`, `/deleteRoom`, `/addShade`, `/saveShade`, `/deleteShade`, `/addGroup`, `/saveGroup` and `/deleteGroup` add, change and remove rooms, shades and groups.
-  - `/linkRemote` and `/unlinkRemote` change a shade's linked remotes, and `/linkRemote` also sets a linked remote's rolling code.
+  - `/linkRemote` and `/unlinkRemote` change a shade's linked remotes. `/linkRemote` also sets a linked remote's rolling code, which `loop()` updates whenever it receives a frame from that remote: the last write wins, so a received frame can undo the code just set.
   - `/linkToGroup` and `/unlinkFromGroup` change a group's linked shades.
   - `/setPaired` sets `paired`.
-  - `/setRollingCode` and a shades restore change rolling codes (see [Rolling codes written from two tasks](#rolling-codes-written-from-two-tasks)).
 
-  Shade commands, set-My and unpair already go through the web command queue to `loop()`.
+  Shade commands, set-My, unpair, `/setRollingCode`, a shades restore and `/updateShadeConfig` already go through the web command queue to `loop()`.
 - `/controller` leaves out a room, shade, group or linked shade that doesn't fit in its chunk buffer, see [Oversized `/controller` items are left out](#oversized-controller-items-are-left-out).
 
 ## Oversized `/controller` items are left out
@@ -91,40 +90,3 @@ Unlike the `/controller` HTTP crash, this path does **not** abort — there is n
 
 - Not the same code path as the `/controller` crash. Solve independently.
 - Worth grepping for `JsonSockEvent` usages that iterate collections (see references in `SomfyEvents.cpp`, `Transceiver.cpp`, `ESPNetwork.cpp`, `GitOTA.cpp`) to identify the most at-risk events.
-
-## Rolling codes written from two tasks
-
-**Status:** open
-**Location:** `SomfyRemote::sendCommandAfter` and `setRollingCode` in [src/SomfyRemote.cpp](../src/SomfyRemote.cpp), the `/setRollingCode` handlers in [src/Web.cpp](../src/Web.cpp), and `ShadeConfigFile::readShadeRecord`/`readGroupRecord` in [src/ConfigFile.cpp](../src/ConfigFile.cpp).
-
-### Summary
-
-Sending a command reads the next rolling code, queues the frame, then commits the code (`peekNextRollingCode` → `submitTx` → `commitRollingCode`), all on `loop()`. `/setRollingCode` and a shades restore change the same remote's `lastRollingCode` and its `ShadeCodes` NVS key from the async web server task, with no lock against that sequence. Each NVS write is safe on its own, since every function opens its own handle (see [ADR-0001](adr/0001-local-nvs-handles-no-wrapper.md)), but the read-then-commit sequence is not.
-
-### Concrete failure modes
-
-1. `/setRollingCode` lands between the peek and the commit of a command. The command's commit overwrites the code just set, so the set has no effect.
-2. A restore reads `ShadeCodes` while a command commits a newer code. The restored shade can come back with the older code, and the motor rejects its frames until the code passes the newer one.
-
-### Fix options (pick one later)
-
-- **(a) Run these handlers on `loop()`.** Queue `/setRollingCode` and restore through the web command queue like shade commands, so `loop()` is the only task that touches a remote's rolling code. Part of making `loop()` the only owner of the shade model.
-- **(b) A rolling-code lock.** Hold a mutex across peek → queue → commit, and in `setRollingCode` and restore. Narrower, but it adds a lock to the command path.
-
-### Related
-
-- Same root cause as [Concurrent mutation during chunked `/controller` response](#concurrent-mutation-during-chunked-controller-response): the web server task changes the shade model that `loop()` owns.
-- `/linkRemote` sets a linked remote's rolling code on the web server task, while `loop()` updates the same code when it receives a frame from that remote. The last write wins, so a received frame can undo the code just set.
-
-## `/setMyPosition` without a tilt uses the lift favorite
-
-**Status:** open
-**Location:** the `/setMyPosition` handlers in [src/Web.cpp](../src/Web.cpp). This was already in the code before the radio task work.
-
-### Summary
-
-When a request for a shade with tilt leaves out `tilt`, the handler fills it in with `shade->myPos`, the lift favorite, where `shade->myTiltPos` looks intended. The favorite tilt is then set to the favorite lift position. The web UI always sends `tilt`, so only API callers that leave it out see this.
-
-### Fix
-
-Use `shade->myTiltPos` in both handlers, after checking that no API client depends on the current behaviour.

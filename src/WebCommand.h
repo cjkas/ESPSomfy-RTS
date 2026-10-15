@@ -22,7 +22,18 @@ enum class web_cmd_t : uint8_t {
     group_sensor,       // group sensor command
     set_my_position,    // shade setMyPosition (position/tiltPosition)
     unpair_shade,       // shade unpair (Prog) and clear paired flag
+    set_rolling_code,   // set a shade's rolling code
+    restore_shades,     // restore from /shades.tmp, then reboot
+    load_shades,        // replace the shades with /shades.tmp
 };
+
+// What a restore_shades command restores, as bits of restoreParts.
+#define RESTORE_SETTINGS    0x01
+#define RESTORE_SHADES      0x02
+#define RESTORE_NETWORK     0x04
+#define RESTORE_TRANSCEIVER 0x08
+#define RESTORE_REPEATERS   0x10
+#define RESTORE_MQTT        0x20
 
 struct web_command_t {
     web_cmd_t type;
@@ -36,10 +47,22 @@ struct web_command_t {
     int8_t tiltPosition;    // for setPositions/tilt
     int8_t sunny;           // for sensor
     int8_t windy;           // for sensor
+    uint16_t rollingCode;   // for set_rolling_code
+    uint8_t restoreParts;   // for restore_shades: RESTORE_* bits
 };
 
-// Only setting positions never goes on air.
-inline bool webCommandUsesRadio(web_cmd_t type) { return type != web_cmd_t::set_positions; }
+// Whether the command sends anything on air.
+inline bool webCommandUsesRadio(web_cmd_t type) {
+  switch(type) {
+    case web_cmd_t::set_positions:
+    case web_cmd_t::set_rolling_code:
+    case web_cmd_t::restore_shades:
+    case web_cmd_t::load_shades:
+      return false;
+    default:
+      return true;
+  }
+}
 // Whether the command at the head of the queue waits for the radio.  The
 // client was already told it was accepted so it stays queued until the radio
 // has room rather than have the radio drop it.  While TX is suspended nothing

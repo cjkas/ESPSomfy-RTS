@@ -14,6 +14,10 @@ float travelPosition(float startPos, int8_t dir, uint32_t elapsedMs, int32_t tra
 // A position as reported to clients: -1 when unset, otherwise the whole
 // percentage, counted from the other end when flipped.
 int8_t displayPosition(float pos, bool flip);
+// The tilt a request to set the favorite asks for, as a display position: the
+// requested tilt, or the favorite tilt when the request leaves it out.  -1 for
+// a shade without tilt or with no favorite tilt.
+int8_t requestedFavoriteTilt(int8_t requestTilt, tilt_types tilt, float myTiltPos, bool flip);
 // Where a shade (or its tilt) moving in dir ends up when nothing stops it.
 float limitTarget(int8_t dir);
 // Where a step command moves a shade (or its tilt) from pos, in out.  dir > 0
