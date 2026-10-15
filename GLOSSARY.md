@@ -36,6 +36,14 @@ Turns the times between edges of a received transmission into a frame's bits: it
 
 ## Shades
 
+**Shade**
+Any motor the firmware drives: a roller, blind, awning, shutter, drapery, garage door, gate or dry contact.
+_Avoid_: blind (one type of shade), cover (Home Assistant's word)
+
+**Shade model**
+Everything the user has set up: rooms, shades, groups and repeaters, with their state.
+_Avoid_: installation, config
+
 **Favorite**
 The position a motor stores and goes to on My. A shade may have none.
 _Avoid_: My position
@@ -77,3 +85,28 @@ _Avoid_: MQTTController
 **SocketEmitter**
 What pushes state events to WebSocket clients on port 8080. A client can only join or leave a room; it sends no commands.
 _Avoid_: WebSocketController
+
+## Domain modules
+
+**Domain module**
+A module that holds the rules of one part of the domain, such as what a shade request does. Entry points call it; it never calls an output itself.
+_Avoid_: service, business service
+
+**Shade request**
+A request from outside to command a shade or group, set or clear its favorite, unpair it, or correct its position or rolling code. It names the shade or group and gives positions as the client sees them.
+_Avoid_: web command
+
+**ShadeRequests**
+The domain module that carries out shade requests, whichever entry point they came from.
+
+**ModelEditor**
+The domain module that adds, changes, deletes, links and orders the rooms, shades, groups and repeaters of the shade model.
+_Avoid_: ShadeConfig, InstallationEditor
+
+**ModelSnapshot**
+A copy of the shade model taken for one read, so the reply describes a single moment.
+_Avoid_: InstallationSnapshot
+
+**LoopQueue**
+The single queue through which shade requests, model edits and snapshot requests reach `loop()` from other tasks, in the order they arrived.
+_Avoid_: web command queue
