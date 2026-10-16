@@ -8,9 +8,9 @@
 #include "ConfigSettings.h"
 #include "GitOTA.h"
 #include "Utils.h"
-#include "Sockets.h"
+#include "outputs/Sockets.h"
 #include "Somfy.h"
-#include "Web.h"
+#include "entryPoints/Web.h"
 #include "WResp.h"
 #include "ESPNetwork.h"
 

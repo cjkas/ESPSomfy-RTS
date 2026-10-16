@@ -3,7 +3,7 @@
 ## Concurrent mutation during chunked `/controller` response
 
 **Status:** open
-**Introduced:** 2026-04-19, alongside the chunked-response conversion of `/controller` (see [`ControllerChunker` in src/Web.cpp](../src/Web.cpp) and the original crash report about `cbuf::resize` aborting `async_tcp`).
+**Introduced:** 2026-04-19, alongside the chunked-response conversion of `/controller` (see [`ControllerChunker` in src/entryPoints/Web.cpp](../src/entryPoints/Web.cpp) and the original crash report about `cbuf::resize` aborting `async_tcp`).
 
 ### Summary
 
@@ -42,7 +42,7 @@ The new `ControllerChunker` reads state as the response drains. On a slow link o
 ## Oversized `/controller` items are left out
 
 **Status:** open
-**Location:** `ControllerChunker::overflowed` in [src/Web.cpp](../src/Web.cpp).
+**Location:** `ControllerChunker::overflowed` in [src/entryPoints/Web.cpp](../src/entryPoints/Web.cpp).
 
 ### Summary
 
@@ -67,7 +67,7 @@ A shade with every linked remote populated is about 1.5 KB today, so nothing ove
 ## Large websocket events are dropped
 
 **Status:** open
-**Location:** [`JsonSockEvent` in src/WResp.cpp](../src/WResp.cpp), buffer `g_response[MAX_SOCK_RESPONSE]` (2048 bytes) in [src/Sockets.cpp](../src/Sockets.cpp).
+**Location:** [`JsonSockEvent` in src/WResp.cpp](../src/WResp.cpp), buffer `g_response[MAX_SOCK_RESPONSE]` (2048 bytes) in [src/outputs/Sockets.cpp](../src/outputs/Sockets.cpp).
 
 ### Summary
 
@@ -90,3 +90,35 @@ Unlike the `/controller` HTTP crash, this path does **not** abort — there is n
 
 - Not the same code path as the `/controller` crash. Solve independently.
 - Worth grepping for `JsonSockEvent` usages that iterate collections (see references in `SomfyEvents.cpp`, `Transceiver.cpp`, `ESPNetwork.cpp`, `GitOTA.cpp`) to identify the most at-risk events.
+- [Group reads emit events from the web server task](#group-reads-emit-events-from-the-web-server-task): a second task writing the same buffer.
+
+## Group reads emit events from the web server task
+
+**Status:** open
+**Location:** `serializeGroupRef` in [src/entryPoints/Web.cpp](../src/entryPoints/Web.cpp) calls `SomfyGroup::updateFlags()` in [src/SomfyGroup.cpp](../src/SomfyGroup.cpp).
+
+### Summary
+
+Serializing a group for an HTTP reply first calls `group->updateFlags()`. When the group's flags no longer match its shades', that writes `group->flags`, sends a `groupState` socket event and publishes the group's MQTT topics, all on the async_tcp task, while `loop()` sends events and publishes too.
+
+Every socket event is formatted into the one static buffer `g_response` in [src/outputs/Sockets.cpp](../src/outputs/Sockets.cpp) through the one `JsonSockEvent` in `sockEmit`. Two tasks emitting at once write over each other's event. The MQTT client (PubSubClient) isn't safe to use from two tasks either.
+
+Reached from every route that serializes a group: `/controller`, `/discovery`, `/groups`, `/group`, `/groupCommand`, `/addGroup`, `/saveGroup`, `/linkToGroup`, `/unlinkFromGroup` and others.
+
+### Concrete failure modes
+
+1. A `groupState` from a `/groups` request and a `shadeState` from `loop()` are formatted at the same time: clients receive garbled JSON, or an event with another event's fields.
+2. The group's MQTT publish interleaves with one from `loop()` in the client's buffer, and the broker gets a broken packet or the connection drops.
+3. `group->flags` is written on async_tcp while `loop()` updates the same group through `updateGroupFlags()`.
+
+It needs a group whose flags are out of date at the moment a client reads it, for example right after a sensor frame changed a linked shade's sun or wind flags, so it is rare.
+
+### Fix options
+
+- **(a) Drop `updateFlags()` from the serializers.** `loop()` already keeps group flags current through `updateGroupFlags()`. This is part of step 2 of [LOOP_QUEUE_PLAN.md](LOOP_QUEUE_PLAN.md): reads come from a ModelSnapshot that `loop()` fills, and serializers only read.
+- **(b) Only emit from `loop()`.** Covered by ADR-0002 once nothing outside `loop()` changes the shade model.
+
+### Related
+
+- [ADR-0002](adr/0002-loop-task-is-the-only-writer-of-the-shade-model.md): the loop task is the only writer of the shade model.
+- [Large websocket events are dropped](#large-websocket-events-are-dropped): the same `g_response` buffer.

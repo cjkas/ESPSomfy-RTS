@@ -13,11 +13,11 @@ static inline void safe_wdt_reset() {
 }
 #include "ConfigSettings.h"
 #include "ESPNetwork.h"
-#include "Web.h"
-#include "Sockets.h"
+#include "entryPoints/Web.h"
+#include "outputs/Sockets.h"
 #include "Utils.h"
 #include "SSDP.h"
-#include "MQTT.h"
+#include "entryPoints/MQTT.h"
 
 static const char *TAG = "Network";
 

@@ -3,7 +3,7 @@
 #include <stdint.h>
 #include "SomfyFrame.h"
 
-// Commands the web servers hand to the main loop (src/Web.cpp).  Kept free of
+// Commands the web servers hand to the main loop (src/entryPoints/Web.cpp).  Kept free of
 // the web server and FreeRTOS so it can be unit tested on the PC
 // (pio test -e native).
 
