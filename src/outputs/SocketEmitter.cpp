@@ -2,7 +2,7 @@
 #include <ArduinoJson.h>
 #include <esp_task_wdt.h>
 #include "esp_log.h"
-#include "Sockets.h"
+#include "SocketEmitter.h"
 #include "ConfigSettings.h"
 #include "Somfy.h"
 #include "ESPNetwork.h"

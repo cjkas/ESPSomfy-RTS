@@ -8,7 +8,7 @@
 #include "ConfigSettings.h"
 #include "GitOTA.h"
 #include "Utils.h"
-#include "outputs/Sockets.h"
+#include "outputs/SocketEmitter.h"
 #include "Somfy.h"
 #include "entryPoints/Web.h"
 #include "WResp.h"

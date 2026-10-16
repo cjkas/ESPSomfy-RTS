@@ -5,10 +5,10 @@
 #include "ConfigSettings.h"
 #include "ESPNetwork.h"
 #include "entryPoints/Web.h"
-#include "outputs/Sockets.h"
+#include "outputs/SocketEmitter.h"
 #include "Utils.h"
 #include "Somfy.h"
-#include "entryPoints/MQTT.h"
+#include "MqttConnection.h"
 #include "LoopQueue.h"
 #include "ShadeRequests.h"
 #include "SomfyShadeOps.h"
@@ -35,7 +35,7 @@ SocketEmitter sockEmit;
 ESPNetwork net;
 rebootDelay_t rebootDelay;
 SomfyShadeController somfy;
-MQTTClass mqtt;
+MqttConnection mqtt;
 GitUpdater git;
 SomfyShadeOps shadeOps;
 ShadeRequests shadeRequests(shadeOps);

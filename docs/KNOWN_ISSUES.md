@@ -49,7 +49,7 @@ A shade with every linked remote populated is about 1.5 KB today, so nothing ove
 ## Large websocket events are dropped
 
 **Status:** open
-**Location:** [`JsonSockEvent` in src/WResp.cpp](../src/WResp.cpp), buffer `g_response[MAX_SOCK_RESPONSE]` (2048 bytes) in [src/outputs/Sockets.cpp](../src/outputs/Sockets.cpp).
+**Location:** [`JsonSockEvent` in src/WResp.cpp](../src/WResp.cpp), buffer `g_response[MAX_SOCK_RESPONSE]` (2048 bytes) in [src/outputs/SocketEmitter.cpp](../src/outputs/SocketEmitter.cpp).
 
 ### Summary
 
@@ -83,7 +83,7 @@ Unlike the `/controller` HTTP crash, this path does **not** abort — there is n
 
 Serializing a group for an HTTP reply first calls `group->updateFlags()`. When the group's flags no longer match its shades', that writes `group->flags`, sends a `groupState` socket event and publishes the group's MQTT topics, all on the async_tcp task, while `loop()` sends events and publishes too.
 
-Every socket event is formatted into the one static buffer `g_response` in [src/outputs/Sockets.cpp](../src/outputs/Sockets.cpp) through the one `JsonSockEvent` in `sockEmit`. Two tasks emitting at once write over each other's event. The MQTT client (PubSubClient) isn't safe to use from two tasks either.
+Every socket event is formatted into the one static buffer `g_response` in [src/outputs/SocketEmitter.cpp](../src/outputs/SocketEmitter.cpp) through the one `JsonSockEvent` in `sockEmit`. Two tasks emitting at once write over each other's event. The MQTT client (PubSubClient) isn't safe to use from two tasks either.
 
 Reached from every route that serializes a group: `/controller`, `/discovery`, `/groups`, `/group`, `/groupCommand`, `/addGroup`, `/saveGroup`, `/linkToGroup`, `/unlinkFromGroup` and others.
 
