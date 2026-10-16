@@ -9,17 +9,17 @@ void SomfyShade::setGPIOs() {
     uint8_t p_on = (this->gpioFlags & (uint8_t)gpio_flags_t::LowLevelTrigger) == 0x00 ? HIGH : LOW;
     uint8_t p_off = (this->gpioFlags & (uint8_t)gpio_flags_t::LowLevelTrigger) == 0x00 ? LOW : HIGH;
     
-    int8_t dir = this->direction;
+    int8_t dir = this->state().direction;
     if(dir == 0 && this->tiltType == tilt_types::integrated)
-      dir = this->tiltDirection;
+      dir = this->state().tiltDirection;
     else if(this->tiltType == tilt_types::tiltonly)
-      dir = this->tiltDirection;
+      dir = this->state().tiltDirection;
     if(this->shadeType == shade_types::drycontact) {
-      digitalWrite(this->gpioDown, this->currentPos == 100 ? p_on : p_off);
-      this->gpioDir = this->currentPos == 100 ? 1 : -1;
+      digitalWrite(this->gpioDown, this->state().currentPos == 100 ? p_on : p_off);
+      this->gpioDir = this->state().currentPos == 100 ? 1 : -1;
     }
     else if(this->shadeType == shade_types::drycontact2) {
-      if(this->currentPos == 100) {
+      if(this->state().currentPos == 100) {
         digitalWrite(this->gpioDown, p_off);
         digitalWrite(this->gpioUp, p_on);
       }
@@ -27,7 +27,7 @@ void SomfyShade::setGPIOs() {
         digitalWrite(this->gpioUp, p_off);
         digitalWrite(this->gpioDown, p_on);
       }
-      this->gpioDir = this->currentPos == 100 ? 1 : -1;
+      this->gpioDir = this->state().currentPos == 100 ? 1 : -1;
     }
     else {
       switch(dir) {
