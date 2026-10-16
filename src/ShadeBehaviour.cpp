@@ -360,7 +360,8 @@ void ShadeBehaviour::onWaitingFrame(uint32_t now) {
     return;
   }
   if(this->lastFrame.processed) return;
-  if(this->lastFrame.await > 0 && (now > this->lastFrame.await)) {
+  // Wrap-safe: await is now + 500 when the press began.
+  if(this->lastFrame.await > 0 && static_cast<int32_t>(now - this->lastFrame.await) > 0) {
     somfy_commands cmd = this->transformCommand(this->lastFrame.cmd);
     switch(cmd) {
       case somfy_commands::StepUp:

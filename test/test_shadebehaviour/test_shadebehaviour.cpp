@@ -324,6 +324,17 @@ static void test_remote_my_when_idle_goes_to_the_favorite_after_half_a_second() 
   r.wait(200);
   ASSERT_POS(60, r.st().target);
 }
+static void test_remote_my_waits_half_a_second_across_the_millis_wrap() {
+  Rig r;
+  r.b.restore(0, 0, 60, -1);
+  r.now = 0xFFFFFFFF - 200;
+  r.press(somfy_commands::My);
+  // The deadline is past the wrap; it still waits for it.
+  r.wait(300);
+  ASSERT_POS(0, r.st().target);
+  r.wait(300);
+  ASSERT_POS(60, r.st().target);
+}
 static void test_remote_my_held_sets_the_favorite() {
   Rig r;
   r.b.restore(30, 0, 60, -1);
@@ -629,6 +640,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_flipped_shade_sends_the_other_way);
   RUN_TEST(test_remote_down_and_my_stop);
   RUN_TEST(test_remote_my_when_idle_goes_to_the_favorite_after_half_a_second);
+  RUN_TEST(test_remote_my_waits_half_a_second_across_the_millis_wrap);
   RUN_TEST(test_remote_my_held_sets_the_favorite);
   RUN_TEST(test_remote_held_up_on_a_tilt_motor_tilts);
   RUN_TEST(test_remote_step_uses_the_frames_step_size);
