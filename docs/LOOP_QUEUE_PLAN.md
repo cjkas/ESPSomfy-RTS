@@ -1,6 +1,6 @@
 # Plan: domain modules behind the LoopQueue
 
-**Status:** steps 0–2 built (PRs #39, #40 and #41); steps 3–5 planned.
+**Status:** steps 0–3 built (PRs #39, #40, #41 and #42); steps 4 and 5 planned.
 **Written:** 2026-10-15, against commit `e624a41` on `refactor/entry-points-outputs`. Terms are defined in [GLOSSARY.md](../GLOSSARY.md); the threading rule is [ADR-0002](adr/0002-loop-task-is-the-only-writer-of-the-shade-model.md).
 
 ## Why
@@ -144,6 +144,20 @@ Flash: `esp32devdbg` 1,546,405 → 1,547,381 bytes, `esp32dev` 1,396,957 → 1,3
 
 Flash: `esp32devdbg` 1,547,381 → 1,547,821 bytes, `esp32dev` 1,398,337 → 1,400,401 bytes.
 
+### Step 3: what changed in behaviour
+- **Every edit of the shade model runs on `loop()`.** The 19 edit routes reply `{"status":"accepted","requestId":N}` and queue a copy of the request. `loop()` applies it and broadcasts `requestResult {requestId, ok, id, code, desc}`. The errors that used to come in the HTTP reply ("Shade Id not found.", "Data Error." with its code, and so on) come in `requestResult` instead.
+- **One edit at a time.** A second edit gets 503 "Busy, try the change again", and the web UI retries it. A body over 4 KB gets 413.
+- **The web UI waits for the result** and then reads the item back (`/shade`, `/group`, `/room`, `/repeaters`), so the code that used the old reply body is unchanged. If no result comes within 5 s, it offers to reload the page. Reads that get 503 "Busy" are retried too.
+- **Added, removed and saved items reach every client.** Saving sends `shadeState`, `groupState` or `roomState`. The web UI now acts on `shadeAdded`, `shadeRemoved`, `groupAdded` and `groupRemoved` from other clients.
+- **A shade that fails validation is no longer added.** `/addShade` used to keep the new shade with defaults when its pins clashed.
+- **Sort orders and linked repeaters are saved.** Linking a remote, a repeater or a group member reports when the list is full.
+- **`/getNextRoom`, `/getNextShade`, `/getNextGroup`, `/groupOptions` and the new `/repeaters`** are snapshot reads.
+- **ModelEditor's rules** (`ModelEditor.h/.cpp`) replace the six `getNext*Id`/`getMax*Order` copies, the remote-address search, the repeater and group-member list code, and the pin-conflict check. The pin check now uses the protocol being saved and checks every pin against Ethernet.
+
+`SomfyEditor.h` declares the edit handed to `loop()`. The code that applies it lives in `SomfyJson.cpp`, next to `fromJSON`, so ArduinoJson stays in one file. 27 new native tests, 319 in all.
+
+Flash: `esp32devdbg` 1,547,821 → 1,536,337 bytes, `esp32dev` 1,400,401 → 1,393,221 bytes. The 19 handler bodies became one path.
+
 ### Step 0 on a device
 NVS stays at `0x9000`, so the rolling codes survive. The file system partition shrinks from `0xE0000` to `0xD0000`, and the existing LittleFS won't mount, because `LittleFS.begin()` doesn't format. So:
 1. Take a backup through `/backup`.
@@ -159,12 +173,17 @@ NVS stays at `0x9000`, so the rolling codes survive. The file system partition s
 
 ## Found during the review, not part of this plan
 
-These are open, and each can be fixed on its own:
+Still open, and each can be fixed on its own:
 - MQTT `position`/`target` published as a constant 50 ([SomfyShade.cpp:305](../src/SomfyShade.cpp#L305), [SomfyMqtt.cpp:36-38](../src/outputs/SomfyMqtt.cpp#L36-L38)). It's a one-line fix that needn't wait for step 4.
 - A restore without shades skips the shade and group records but not the room records, so it reads the rest of the file from the wrong place ([ConfigFile.cpp:578-580](../src/ConfigFile.cpp#L578-L580)).
-- The Ethernet pin conflict is only checked for the up pin ([SomfyJson.cpp:63-65](../src/SomfyJson.cpp#L63-L65)).
-- `linkRepeater` never sets `isDirty`, so a newly linked repeater isn't saved ([ShadeController.cpp:323](../src/ShadeController.cpp#L323)).
-- `/linkRemote` and `/unlinkRemote` send a 500 and then a second response ([Web.cpp:2055](../src/entryPoints/Web.cpp#L2055), [2083](../src/entryPoints/Web.cpp#L2083)).
 - `settingPos` is never cleared when the lift arrives, while `settingTiltPos` is. A later arrival may send an extra stop. Not confirmed on a device.
-- The web UI's `procRoomRemoved` keeps the removed room and drops the others (`data-src/index.js:2184`).
 - The Home Assistant integration sends no `apikey` header on shade, group and tilt commands.
+- New ids stop two short of the maximum: 30 shades, 14 groups and 14 rooms instead of 32, 16 and 16 (`getNext*Id` stopped at `MAX - 1`). ModelEditor keeps those limits for now.
+- `SomfyGroup::fromJSON` reads `linkedShades` into a local array and drops it, so a group's members only change through `/linkToGroup` and `/unlinkFromGroup`.
+
+Fixed by step 3:
+- The Ethernet pin conflict was only checked for the up pin, and the check used the shade's current protocol instead of the one being saved.
+- `linkRepeater` never set `isDirty`, so a newly linked repeater wasn't saved. The sort orders weren't saved either.
+- `/linkRemote` and `/unlinkRemote` sent a 500 and then a second response.
+- The web UI's `procRoomRemoved` kept the removed room and dropped the others, and `deleteShade` never closed its prompt (`prompt.remove;`).
+- The web UI called `/repeaters`, which didn't exist.

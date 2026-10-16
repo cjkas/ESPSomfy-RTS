@@ -13,6 +13,7 @@
 #include "LoopQueue.h"
 #include "ModelSnapshot.h"
 #include "SomfySnapshot.h"
+#include "SomfyEditor.h"
 #include "Web.h"
 #include "MQTT.h"
 #include "GitOTA.h"
@@ -208,11 +209,6 @@ static bool asyncHasParam(AsyncWebServerRequest *request, const char *name) {
 // replies) copy one item into the ModelSnapshot types and write it the way the
 // read routes do.  The read routes themselves write from a ModelSnapshot that
 // loop() fills (sendSnapshot).
-static void serializeRoom(SomfyRoom *room, JsonFormatter &json) {
-  room_snapshot_t s;
-  snapshotRoom(*room, s);
-  writeRoom(json, s);
-}
 static void serializeShadeRef(SomfyShade *shade, JsonFormatter &json) {
   shade_snapshot_t s;
   snapshotShade(*shade, s);
@@ -239,11 +235,6 @@ static void serializeGroup(SomfyGroup *group, JsonFormatter &json) {
   snapshotGroup(*group, s);
   shade_snapshot_t linked;
   writeGroup(json, s, liveShade, &linked);
-}
-static void serializeRepeaters(JsonFormatter &json) {
-  for(uint8_t i = 0; i < SOMFY_MAX_REPEATERS; i++) {
-    if(somfy.repeaters[i] != 0) json.addElem((uint32_t)somfy.repeaters[i]);
-  }
 }
 static void serializeTransceiverConfig(JsonFormatter &json) {
   auto &cfg = somfy.transceiver.config;
@@ -383,6 +374,58 @@ static void sendSnapshot(AsyncWebServerRequest *request, snapshot_doc_t doc, uin
       return read->writer.generate(buffer, maxLen);
     });
   request->send(response);
+}
+
+// Hands an edit of the shade model to loop() (docs/adr/0002-loop-task-is-the-only-writer-of-the-shade-model.md).
+// The reply only says it was accepted; the result reaches every client as a
+// requestResult event carrying the same requestId once loop() has applied it.
+static void queueModelEdit(AsyncWebServerRequest *request, model_edit_type_t type, JsonVariantConst body) {
+  if(!beginModelEdit()) {
+    request->send(503, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Busy, try the change again\"}"));
+    return;
+  }
+  model_edit_t *edit = new (std::nothrow) model_edit_t();
+  if(!edit) {
+    cancelModelEdit(nullptr);
+    sendQueueFull(request);
+    return;
+  }
+  edit->type = type;
+  edit->requestId = nextEditRequestId();
+  edit->doc.set(body);
+  const uint32_t requestId = edit->requestId;
+  loop_item_t item;
+  item.type = loop_item_type_t::model_edit;
+  item.edit = edit;
+  if(edit->doc.overflowed() || !loopQueue.submit(item)) {
+    cancelModelEdit(edit);
+    sendQueueFull(request);
+    return;
+  }
+  char reply[64];
+  snprintf(reply, sizeof(reply), "{\"status\":\"accepted\",\"requestId\":%lu}", (unsigned long)requestId);
+  request->send(200, _encoding_json, reply);
+}
+// The JSON (PUT/POST) form of an edit route.  Bodies over 4 KB are refused with
+// 413 before they reach the heap.
+static AsyncCallbackJsonWebHandler *editHandler(const char *uri, model_edit_type_t type) {
+  auto *handler = new AsyncCallbackJsonWebHandler(uri, [type](AsyncWebServerRequest *request, JsonVariant &json) {
+    if(json.isNull()) { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No object supplied.\"}")); return; }
+    queueModelEdit(request, type, json);
+  });
+  handler->setMaxContentLength(4096);
+  return handler;
+}
+// The GET form of an edit route: its query parameters become the request.
+static void queueModelEditFromParams(AsyncWebServerRequest *request, model_edit_type_t type, std::initializer_list<const char *> names) {
+  JsonDocument body;
+  for(const char *name : names) {
+    if(!asyncHasParam(request, name)) continue;
+    const String value = asyncParam(request, name);
+    if(strcmp(name, "paired") == 0) body[name] = toBoolean(value.c_str(), false);
+    else body[name] = strtoul(value.c_str(), nullptr, 10);
+  }
+  queueModelEdit(request, type, body.as<JsonVariantConst>());
 }
 
 // -- Async handler implementations --
@@ -1057,220 +1100,29 @@ void Web::begin() {
   asyncServer.on("/shade", WebRequestMethodComposite(HTTP_GET) | HTTP_POST, [](AsyncWebServerRequest *request) { webServer.handleShade(request); });
   asyncServer.on("/group", WebRequestMethodComposite(HTTP_GET) | HTTP_POST, [](AsyncWebServerRequest *request) { webServer.handleGroup(request); });
 
-  asyncServer.on("/getNextRoom", HTTP_GET, [](AsyncWebServerRequest *request) {
-    AsyncJsonResp resp;
-    resp.beginResponse(request, g_async_content, sizeof(g_async_content));
-    resp.beginObject();
-    resp.addElem("roomId", somfy.getNextRoomId());
-    resp.endObject();
-    resp.endResponse();
-  });
-
-  asyncServer.on("/getNextShade", HTTP_GET, [](AsyncWebServerRequest *request) {
-    uint8_t shadeId = somfy.getNextShadeId();
-    AsyncJsonResp resp;
-    resp.beginResponse(request, g_async_content, sizeof(g_async_content));
-    resp.beginObject();
-    resp.addElem("shadeId", shadeId);
-    resp.addElem("remoteAddress", (uint32_t)somfy.getNextRemoteAddress(shadeId));
-    resp.addElem("bitLength", somfy.transceiver.config.type);
-    resp.addElem("stepSize", (uint8_t)100);
-    resp.addElem("proto", static_cast<uint8_t>(somfy.transceiver.config.proto));
-    resp.endObject();
-    resp.endResponse();
-  });
-
-  asyncServer.on("/getNextGroup", HTTP_GET, [](AsyncWebServerRequest *request) {
-    uint8_t groupId = somfy.getNextGroupId();
-    AsyncJsonResp resp;
-    resp.beginResponse(request, g_async_content, sizeof(g_async_content));
-    resp.beginObject();
-    resp.addElem("groupId", groupId);
-    resp.addElem("remoteAddress", (uint32_t)somfy.getNextRemoteAddress(groupId));
-    resp.addElem("bitLength", somfy.transceiver.config.type);
-    resp.addElem("proto", static_cast<uint8_t>(somfy.transceiver.config.proto));
-    resp.endObject();
-    resp.endResponse();
-  });
-
-  asyncServer.addHandler(new AsyncCallbackJsonWebHandler("/addRoom",
-    [](AsyncWebServerRequest *request, JsonVariant &json) {
-      if(json.isNull()) { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No room object supplied.\"}")); return; }
-      ESP_LOGD(TAG, "Adding a room");
-      JsonObject obj = json.as<JsonObject>();
-      if(somfy.roomCount() > SOMFY_MAX_ROOMS) {
-        request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Maximum number of rooms exceeded.\"}"));
-        return;
-      }
-      SomfyRoom *room = somfy.addRoom(obj);
-      if(room) {
-        AsyncJsonResp resp;
-        resp.beginResponse(request, g_async_content, sizeof(g_async_content));
-        resp.beginObject();
-        serializeRoom(room, resp);
-        resp.endObject();
-        resp.endResponse();
-      }
-      else {
-        request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Error adding room.\"}"));
-      }
-    }));
-
-  asyncServer.addHandler(new AsyncCallbackJsonWebHandler("/addShade",
-    [](AsyncWebServerRequest *request, JsonVariant &json) {
-      if(json.isNull()) { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No shade object supplied.\"}")); return; }
-      ESP_LOGD(TAG, "Adding a shade");
-      JsonObject obj = json.as<JsonObject>();
-      if(somfy.shadeCount() > SOMFY_MAX_SHADES) {
-        request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Maximum number of shades exceeded.\"}"));
-        return;
-      }
-      SomfyShade *shade = somfy.addShade(obj);
-      if(shade) {
-        AsyncJsonResp resp;
-        resp.beginResponse(request, g_async_content, sizeof(g_async_content));
-        resp.beginObject();
-        serializeShade(shade, resp);
-        resp.endObject();
-        resp.endResponse();
-      }
-      else {
-        request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Error adding shade.\"}"));
-      }
-    }));
-
-  asyncServer.addHandler(new AsyncCallbackJsonWebHandler("/addGroup",
-    [](AsyncWebServerRequest *request, JsonVariant &json) {
-      if(json.isNull()) { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No group object supplied.\"}")); return; }
-      ESP_LOGD(TAG, "Adding a group");
-      JsonObject obj = json.as<JsonObject>();
-      if(somfy.groupCount() > SOMFY_MAX_GROUPS) {
-        request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Maximum number of groups exceeded.\"}"));
-        return;
-      }
-      SomfyGroup *group = somfy.addGroup(obj);
-      if(group) {
-        AsyncJsonResp resp;
-        resp.beginResponse(request, g_async_content, sizeof(g_async_content));
-        resp.beginObject();
-        serializeGroup(group, resp);
-        resp.endObject();
-        resp.endResponse();
-      }
-      else {
-        request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Error adding group.\"}"));
-      }
-    }));
-
+  // What a new room, shade or group would get, from a snapshot.
+  asyncServer.on("/getNextRoom", HTTP_GET, [](AsyncWebServerRequest *request) { sendSnapshot(request, snapshot_doc_t::nextRoom); });
+  asyncServer.on("/getNextShade", HTTP_GET, [](AsyncWebServerRequest *request) { sendSnapshot(request, snapshot_doc_t::nextShade); });
+  asyncServer.on("/getNextGroup", HTTP_GET, [](AsyncWebServerRequest *request) { sendSnapshot(request, snapshot_doc_t::nextGroup); });
   asyncServer.on("/groupOptions", HTTP_GET, [](AsyncWebServerRequest *request) {
-    if(asyncHasParam(request, "groupId")) {
-      int groupId = atoi(asyncParam(request, "groupId").c_str());
-      SomfyGroup* group = somfy.getGroupById(groupId);
-      if(group) {
-        AsyncJsonResp resp;
-        resp.beginResponse(request, g_async_content, sizeof(g_async_content));
-        resp.beginObject();
-        serializeGroup(group, resp);
-        resp.beginArray("availShades");
-        for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
-          SomfyShade *shade = &somfy.shades[i];
-          if(shade->getShadeId() != 255) {
-            bool isLinked = false;
-            for(uint8_t j = 0; j < SOMFY_MAX_GROUPED_SHADES; j++) {
-              if(group->linkedShades[j] == shade->getShadeId()) {
-                isLinked = true;
-                break;
-              }
-            }
-            if(!isLinked) {
-              resp.beginObject();
-              serializeShadeRef(shade, resp);
-              resp.endObject();
-            }
-          }
-        }
-        resp.endArray();
-        resp.endObject();
-        resp.endResponse();
-      }
-      else request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Group Id not found.\"}"));
-    }
-    else {
+    if(!asyncHasParam(request, "groupId")) {
       request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"You must supply a valid group id.\"}"));
+      return;
     }
+    const int groupId = atoi(asyncParam(request, "groupId").c_str());
+    // As for /group, existence is checked on the live model.
+    if(somfy.getGroupById(groupId)) sendSnapshot(request, snapshot_doc_t::groupOptions, groupId);
+    else request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Group Id not found.\"}"));
   });
+  // Adding and saving rooms, shades and groups.  Edits of the shade model:
+  // loop() applies them and sends requestResult.
+  asyncServer.addHandler(editHandler("/addRoom", model_edit_type_t::add_room));
+  asyncServer.addHandler(editHandler("/addShade", model_edit_type_t::add_shade));
+  asyncServer.addHandler(editHandler("/addGroup", model_edit_type_t::add_group));
+  asyncServer.addHandler(editHandler("/saveRoom", model_edit_type_t::save_room));
+  asyncServer.addHandler(editHandler("/saveShade", model_edit_type_t::save_shade));
+  asyncServer.addHandler(editHandler("/saveGroup", model_edit_type_t::save_group));
 
-  asyncServer.addHandler(new AsyncCallbackJsonWebHandler("/saveRoom",
-    [](AsyncWebServerRequest *request, JsonVariant &json) {
-      if(json.isNull()) { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No room object supplied.\"}")); return; }
-      ESP_LOGD(TAG, "Updating a room");
-      JsonObject obj = json.as<JsonObject>();
-      if(!obj["roomId"].isNull()) {
-        SomfyRoom* room = somfy.getRoomById(obj["roomId"]);
-        if(room) {
-          room->fromJSON(obj);
-          room->save();
-          AsyncJsonResp resp;
-          resp.beginResponse(request, g_async_content, sizeof(g_async_content));
-          resp.beginObject();
-          serializeRoom(room, resp);
-          resp.endObject();
-          resp.endResponse();
-        }
-        else request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Room Id not found.\"}"));
-      }
-      else request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No room id was supplied.\"}"));
-    }));
-
-  asyncServer.addHandler(new AsyncCallbackJsonWebHandler("/saveShade",
-    [](AsyncWebServerRequest *request, JsonVariant &json) {
-      if(json.isNull()) { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No shade object supplied.\"}")); return; }
-      ESP_LOGD(TAG, "Updating a shade");
-      JsonObject obj = json.as<JsonObject>();
-      if(!obj["shadeId"].isNull()) {
-        SomfyShade* shade = somfy.getShadeById(obj["shadeId"]);
-        if(shade) {
-          int8_t err = shade->fromJSON(obj);
-          if(err == 0) {
-            shade->save();
-            AsyncJsonResp resp;
-            resp.beginResponse(request, g_async_content, sizeof(g_async_content));
-            resp.beginObject();
-            serializeShade(shade, resp);
-            resp.endObject();
-            resp.endResponse();
-          }
-          else {
-            snprintf(g_async_content, sizeof(g_async_content), "{\"status\":\"DATA\",\"desc\":\"Data Error.\", \"code\":%d}", err);
-            request->send(500, _encoding_json, g_async_content);
-          }
-        }
-        else request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade Id not found.\"}"));
-      }
-      else request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No shade id was supplied.\"}"));
-    }));
-
-  asyncServer.addHandler(new AsyncCallbackJsonWebHandler("/saveGroup",
-    [](AsyncWebServerRequest *request, JsonVariant &json) {
-      if(json.isNull()) { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No group object supplied.\"}")); return; }
-      ESP_LOGD(TAG, "Updating a group");
-      JsonObject obj = json.as<JsonObject>();
-      if(!obj["groupId"].isNull()) {
-        SomfyGroup* group = somfy.getGroupById(obj["groupId"]);
-        if(group) {
-          group->fromJSON(obj);
-          group->save();
-          AsyncJsonResp resp;
-          resp.beginResponse(request, g_async_content, sizeof(g_async_content));
-          resp.beginObject();
-          serializeGroup(group, resp);
-          resp.endObject();
-          resp.endResponse();
-        }
-        else request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Group Id not found.\"}"));
-      }
-      else request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No group id was supplied.\"}"));
-    }));
 
   // setMyPosition - supports both GET with query params and POST/PUT with JSON body
   asyncServer.addHandler(new AsyncCallbackJsonWebHandler("/setMyPosition",
@@ -1374,54 +1226,9 @@ void Web::begin() {
     }
   });
 
-  // setPaired - supports both query params and JSON body
-  asyncServer.addHandler(new AsyncCallbackJsonWebHandler("/setPaired",
-    [](AsyncWebServerRequest *request, JsonVariant &json) {
-      uint8_t shadeId = 255;
-      bool paired = false;
-      if(!json.isNull()) {
-        JsonObject obj = json.as<JsonObject>();
-        if(!obj["shadeId"].isNull()) shadeId = obj["shadeId"];
-        if(!obj["paired"].isNull()) paired = obj["paired"];
-      }
-      SomfyShade* shade = nullptr;
-      if(shadeId != 255) shade = somfy.getShadeById(shadeId);
-      if(!shade) {
-        request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade not found to pair\"}"));
-      }
-      else {
-        shade->paired = paired;
-        shade->save();
-        AsyncJsonResp resp;
-        resp.beginResponse(request, g_async_content, sizeof(g_async_content));
-        resp.beginObject();
-        serializeShade(shade, resp);
-        resp.endObject();
-        resp.endResponse();
-      }
-    }));
+  asyncServer.addHandler(editHandler("/setPaired", model_edit_type_t::set_paired));
   asyncServer.on("/setPaired", HTTP_GET, [](AsyncWebServerRequest *request) {
-    uint8_t shadeId = 255;
-    bool paired = false;
-    if(asyncHasParam(request, "shadeId"))
-      shadeId = atoi(asyncParam(request, "shadeId").c_str());
-    if(asyncHasParam(request, "paired"))
-      paired = toBoolean(asyncParam(request, "paired").c_str(), false);
-    SomfyShade* shade = nullptr;
-    if(shadeId != 255) shade = somfy.getShadeById(shadeId);
-    if(!shade) {
-      request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade not found to pair\"}"));
-    }
-    else {
-      shade->paired = paired;
-      shade->save();
-      AsyncJsonResp resp;
-      resp.beginResponse(request, g_async_content, sizeof(g_async_content));
-      resp.beginObject();
-      serializeShade(shade, resp);
-      resp.endObject();
-      resp.endResponse();
-    }
+    queueModelEditFromParams(request, model_edit_type_t::set_paired, { "shadeId", "paired" });
   });
 
   // unpairShade
@@ -1467,310 +1274,35 @@ void Web::begin() {
     }
   });
 
-  // linkRepeater
-  asyncServer.addHandler(new AsyncCallbackJsonWebHandler("/linkRepeater",
-    [](AsyncWebServerRequest *request, JsonVariant &json) {
-      uint32_t address = 0;
-      if(!json.isNull()) {
-        ESP_LOGD(TAG, "Linking a repeater");
-        JsonObject obj = json.as<JsonObject>();
-        if(!obj["address"].isNull()) address = obj["address"];
-        else if(!obj["remoteAddress"].isNull()) address = obj["remoteAddress"];
-      }
-      if(address == 0) {
-        request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No repeater address was supplied.\"}"));
-      }
-      else {
-        somfy.linkRepeater(address);
-        AsyncJsonResp resp;
-        resp.beginResponse(request, g_async_content, sizeof(g_async_content));
-        resp.beginArray();
-        serializeRepeaters(resp);
-        resp.endArray();
-        resp.endResponse();
-      }
-    }));
+  // Linking repeaters, remotes and group members, and deleting.  Edits of the
+  // shade model: loop() applies them and sends requestResult.
+  asyncServer.addHandler(editHandler("/linkRepeater", model_edit_type_t::link_repeater));
   asyncServer.on("/linkRepeater", HTTP_GET, [](AsyncWebServerRequest *request) {
-    uint32_t address = 0;
-    if(asyncHasParam(request, "address"))
-      address = atoi(asyncParam(request, "address").c_str());
-    if(address == 0) {
-      request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No repeater address was supplied.\"}"));
-    }
-    else {
-      somfy.linkRepeater(address);
-      AsyncJsonResp resp;
-      resp.beginResponse(request, g_async_content, sizeof(g_async_content));
-      resp.beginArray();
-      serializeRepeaters(resp);
-      resp.endArray();
-      resp.endResponse();
-    }
+    queueModelEditFromParams(request, model_edit_type_t::link_repeater, { "address" });
   });
-
-  // unlinkRepeater
-  asyncServer.addHandler(new AsyncCallbackJsonWebHandler("/unlinkRepeater",
-    [](AsyncWebServerRequest *request, JsonVariant &json) {
-      uint32_t address = 0;
-      if(!json.isNull()) {
-        ESP_LOGD(TAG, "Unlinking a repeater");
-        JsonObject obj = json.as<JsonObject>();
-        if(!obj["address"].isNull()) address = obj["address"];
-        else if(!obj["remoteAddress"].isNull()) address = obj["remoteAddress"];
-      }
-      if(address == 0) {
-        request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No repeater address was supplied.\"}"));
-      }
-      else {
-        somfy.unlinkRepeater(address);
-        AsyncJsonResp resp;
-        resp.beginResponse(request, g_async_content, sizeof(g_async_content));
-        resp.beginArray();
-        serializeRepeaters(resp);
-        resp.endArray();
-        resp.endResponse();
-      }
-    }));
+  asyncServer.addHandler(editHandler("/unlinkRepeater", model_edit_type_t::unlink_repeater));
   asyncServer.on("/unlinkRepeater", HTTP_GET, [](AsyncWebServerRequest *request) {
-    uint32_t address = 0;
-    if(asyncHasParam(request, "address"))
-      address = atoi(asyncParam(request, "address").c_str());
-    if(address == 0) {
-      request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No repeater address was supplied.\"}"));
-    }
-    else {
-      somfy.unlinkRepeater(address);
-      AsyncJsonResp resp;
-      resp.beginResponse(request, g_async_content, sizeof(g_async_content));
-      resp.beginArray();
-      serializeRepeaters(resp);
-      resp.endArray();
-      resp.endResponse();
-    }
+    queueModelEditFromParams(request, model_edit_type_t::unlink_repeater, { "address" });
   });
-
-  // unlinkRemote
-  asyncServer.addHandler(new AsyncCallbackJsonWebHandler("/unlinkRemote",
-    [](AsyncWebServerRequest *request, JsonVariant &json) {
-      if(json.isNull()) { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No remote object supplied.\"}")); return; }
-      JsonObject obj = json.as<JsonObject>();
-      if(!obj["shadeId"].isNull()) {
-        SomfyShade* shade = somfy.getShadeById(obj["shadeId"]);
-        if(shade) {
-          if(!obj["remoteAddress"].isNull()) {
-            shade->unlinkRemote(obj["remoteAddress"]);
-          }
-          else {
-            request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Remote address not provided.\"}"));
-          }
-          AsyncJsonResp resp;
-          resp.beginResponse(request, g_async_content, sizeof(g_async_content));
-          resp.beginObject();
-          serializeShade(shade, resp);
-          resp.endObject();
-          resp.endResponse();
-        }
-        else request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade Id not found.\"}"));
-      }
-      else request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No shade id was supplied.\"}"));
-    }));
-
-  // linkRemote
-  asyncServer.addHandler(new AsyncCallbackJsonWebHandler("/linkRemote",
-    [](AsyncWebServerRequest *request, JsonVariant &json) {
-      if(json.isNull()) { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No remote object supplied.\"}")); return; }
-      ESP_LOGD(TAG, "Linking a remote");
-      JsonObject obj = json.as<JsonObject>();
-      if(!obj["shadeId"].isNull()) {
-        SomfyShade* shade = somfy.getShadeById(obj["shadeId"]);
-        if(shade) {
-          if(!obj["remoteAddress"].isNull()) {
-            if(!obj["rollingCode"].isNull()) shade->linkRemote(obj["remoteAddress"], obj["rollingCode"]);
-            else shade->linkRemote(obj["remoteAddress"]);
-          }
-          else {
-            request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Remote address not provided.\"}"));
-          }
-          AsyncJsonResp resp;
-          resp.beginResponse(request, g_async_content, sizeof(g_async_content));
-          resp.beginObject();
-          serializeShade(shade, resp);
-          resp.endObject();
-          resp.endResponse();
-        }
-        else request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade Id not found.\"}"));
-      }
-      else request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No shade id was supplied.\"}"));
-    }));
-
-  // linkToGroup
-  asyncServer.addHandler(new AsyncCallbackJsonWebHandler("/linkToGroup",
-    [](AsyncWebServerRequest *request, JsonVariant &json) {
-      if(json.isNull()) { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No linking object supplied.\"}")); return; }
-      ESP_LOGD(TAG, "Linking a shade to a group");
-      JsonObject obj = json.as<JsonObject>();
-      uint8_t shadeId = !obj["shadeId"].isNull() ? obj["shadeId"] : 0;
-      uint8_t groupId = !obj["groupId"].isNull() ? obj["groupId"] : 0;
-      if(groupId == 0) {
-        request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Group id not provided.\"}"));
-        return;
-      }
-      if(shadeId == 0) {
-        request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade id not provided.\"}"));
-        return;
-      }
-      SomfyGroup *group = somfy.getGroupById(groupId);
-      if(!group) {
-        request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Group id not found.\"}"));
-        return;
-      }
-      SomfyShade *shade = somfy.getShadeById(shadeId);
-      if(!shade) {
-        request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade id not found.\"}"));
-        return;
-      }
-      group->linkShade(shadeId);
-      AsyncJsonResp resp;
-      resp.beginResponse(request, g_async_content, sizeof(g_async_content));
-      resp.beginObject();
-      serializeGroup(group, resp);
-      resp.endObject();
-      resp.endResponse();
-    }));
-
-  // unlinkFromGroup
-  asyncServer.addHandler(new AsyncCallbackJsonWebHandler("/unlinkFromGroup",
-    [](AsyncWebServerRequest *request, JsonVariant &json) {
-      if(json.isNull()) { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No unlinking object supplied.\"}")); return; }
-      ESP_LOGD(TAG, "Unlinking a shade from a group");
-      JsonObject obj = json.as<JsonObject>();
-      uint8_t shadeId = !obj["shadeId"].isNull() ? obj["shadeId"] : 0;
-      uint8_t groupId = !obj["groupId"].isNull() ? obj["groupId"] : 0;
-      if(groupId == 0) {
-        request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Group id not provided.\"}"));
-        return;
-      }
-      if(shadeId == 0) {
-        request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade id not provided.\"}"));
-        return;
-      }
-      SomfyGroup *group = somfy.getGroupById(groupId);
-      if(!group) {
-        request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Group id not found.\"}"));
-        return;
-      }
-      SomfyShade *shade = somfy.getShadeById(shadeId);
-      if(!shade) {
-        request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade id not found.\"}"));
-        return;
-      }
-      group->unlinkShade(shadeId);
-      AsyncJsonResp resp;
-      resp.beginResponse(request, g_async_content, sizeof(g_async_content));
-      resp.beginObject();
-      serializeGroup(group, resp);
-      resp.endObject();
-      resp.endResponse();
-    }));
-
-  // deleteRoom - supports GET with query params and POST/PUT with JSON body
-  asyncServer.addHandler(new AsyncCallbackJsonWebHandler("/deleteRoom",
-    [](AsyncWebServerRequest *request, JsonVariant &json) {
-      uint8_t roomId = 0;
-      if(!json.isNull()) {
-        ESP_LOGD(TAG, "Deleting a Room");
-        JsonObject obj = json.as<JsonObject>();
-        if(!obj["roomId"].isNull()) roomId = obj["roomId"];
-        else { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No room id was supplied.\"}")); return; }
-      }
-      SomfyRoom* room = somfy.getRoomById(roomId);
-      if(!room) request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Room with the specified id not found.\"}"));
-      else {
-        somfy.deleteRoom(roomId);
-        request->send(200, _encoding_json, F("{\"status\":\"SUCCESS\",\"desc\":\"Room deleted.\"}"));
-      }
-    }));
+  asyncServer.addHandler(editHandler("/linkRemote", model_edit_type_t::link_remote));
+  asyncServer.addHandler(editHandler("/unlinkRemote", model_edit_type_t::unlink_remote));
+  asyncServer.addHandler(editHandler("/linkToGroup", model_edit_type_t::link_to_group));
+  asyncServer.addHandler(editHandler("/unlinkFromGroup", model_edit_type_t::unlink_from_group));
+  asyncServer.addHandler(editHandler("/deleteRoom", model_edit_type_t::delete_room));
   asyncServer.on("/deleteRoom", HTTP_GET, [](AsyncWebServerRequest *request) {
-    uint8_t roomId = 0;
-    if(asyncHasParam(request, "roomId")) {
-      roomId = atoi(asyncParam(request, "roomId").c_str());
-    }
-    else { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No room object supplied.\"}")); return; }
-    SomfyRoom* room = somfy.getRoomById(roomId);
-    if(!room) request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Room with the specified id not found.\"}"));
-    else {
-      somfy.deleteRoom(roomId);
-      request->send(200, _encoding_json, F("{\"status\":\"SUCCESS\",\"desc\":\"Room deleted.\"}"));
-    }
+    queueModelEditFromParams(request, model_edit_type_t::delete_room, { "roomId" });
   });
-
-  // deleteShade - supports GET with query params and POST/PUT with JSON body
-  asyncServer.addHandler(new AsyncCallbackJsonWebHandler("/deleteShade",
-    [](AsyncWebServerRequest *request, JsonVariant &json) {
-      uint8_t shadeId = 255;
-      if(!json.isNull()) {
-        ESP_LOGD(TAG, "Deleting a shade");
-        JsonObject obj = json.as<JsonObject>();
-        if(!obj["shadeId"].isNull()) shadeId = obj["shadeId"];
-        else { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No shade id was supplied.\"}")); return; }
-      }
-      SomfyShade* shade = somfy.getShadeById(shadeId);
-      if(!shade) request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade with the specified id not found.\"}"));
-      else if(shade->isInGroup()) {
-        request->send(400, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"This shade is a member of a group and cannot be deleted.\"}"));
-      }
-      else {
-        somfy.deleteShade(shadeId);
-        request->send(200, _encoding_json, F("{\"status\":\"SUCCESS\",\"desc\":\"Shade deleted.\"}"));
-      }
-    }));
+  asyncServer.addHandler(editHandler("/deleteShade", model_edit_type_t::delete_shade));
   asyncServer.on("/deleteShade", HTTP_GET, [](AsyncWebServerRequest *request) {
-    uint8_t shadeId = 255;
-    if(asyncHasParam(request, "shadeId")) {
-      shadeId = atoi(asyncParam(request, "shadeId").c_str());
-    }
-    else { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No shade object supplied.\"}")); return; }
-    SomfyShade* shade = somfy.getShadeById(shadeId);
-    if(!shade) request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade with the specified id not found.\"}"));
-    else if(shade->isInGroup()) {
-      request->send(400, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"This shade is a member of a group and cannot be deleted.\"}"));
-    }
-    else {
-      somfy.deleteShade(shadeId);
-      request->send(200, _encoding_json, F("{\"status\":\"SUCCESS\",\"desc\":\"Shade deleted.\"}"));
-    }
+    queueModelEditFromParams(request, model_edit_type_t::delete_shade, { "shadeId" });
   });
-
-  // deleteGroup - supports GET with query params and POST/PUT with JSON body
-  asyncServer.addHandler(new AsyncCallbackJsonWebHandler("/deleteGroup",
-    [](AsyncWebServerRequest *request, JsonVariant &json) {
-      uint8_t groupId = 255;
-      if(!json.isNull()) {
-        ESP_LOGD(TAG, "Deleting a group");
-        JsonObject obj = json.as<JsonObject>();
-        if(!obj["groupId"].isNull()) groupId = obj["groupId"];
-        else { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No group id was supplied.\"}")); return; }
-      }
-      SomfyGroup *group = somfy.getGroupById(groupId);
-      if(!group) request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Group with the specified id not found.\"}"));
-      else {
-        somfy.deleteGroup(groupId);
-        request->send(200, _encoding_json, F("{\"status\":\"SUCCESS\",\"desc\":\"Group deleted.\"}"));
-      }
-    }));
+  asyncServer.addHandler(editHandler("/deleteGroup", model_edit_type_t::delete_group));
   asyncServer.on("/deleteGroup", HTTP_GET, [](AsyncWebServerRequest *request) {
-    uint8_t groupId = 255;
-    if(asyncHasParam(request, "groupId")) {
-      groupId = atoi(asyncParam(request, "groupId").c_str());
-    }
-    else { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No group object supplied.\"}")); return; }
-    SomfyGroup *group = somfy.getGroupById(groupId);
-    if(!group) request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Group with the specified id not found.\"}"));
-    else {
-      somfy.deleteGroup(groupId);
-      request->send(200, _encoding_json, F("{\"status\":\"SUCCESS\",\"desc\":\"Group deleted.\"}"));
-    }
+    queueModelEditFromParams(request, model_edit_type_t::delete_group, { "groupId" });
   });
+  // The repeaters, from a snapshot like the other reads.
+  asyncServer.on("/repeaters", HTTP_GET, [](AsyncWebServerRequest *request) { sendSnapshot(request, snapshot_doc_t::repeaters); });
+
 
   // updateFirmware - file upload
   asyncServer.on("/updateFirmware", HTTP_POST,
@@ -2195,62 +1727,10 @@ void Web::begin() {
     request->send(200, _encoding_json, g_async_content);
   });
 
-  // roomSortOrder
-  asyncServer.addHandler(new AsyncCallbackJsonWebHandler("/roomSortOrder",
-    [](AsyncWebServerRequest *request, JsonVariant &json) {
-      if(json.isNull()) {
-        request->send(500, "application/json", "{\"status\":\"ERROR\",\"desc\":\"JSON parse error\"}");
-        return;
-      }
-      JsonArray arr = json.as<JsonArray>();
-      uint8_t order = 0;
-      for(JsonVariant v : arr) {
-        uint8_t roomId = v.as<uint8_t>();
-        if(roomId != 0) {
-          SomfyRoom *room = somfy.getRoomById(roomId);
-          if(room) room->sortOrder = order++;
-        }
-      }
-      request->send(200, "application/json", "{\"status\":\"OK\",\"desc\":\"Successfully set room order\"}");
-    }));
-
-  // shadeSortOrder
-  asyncServer.addHandler(new AsyncCallbackJsonWebHandler("/shadeSortOrder",
-    [](AsyncWebServerRequest *request, JsonVariant &json) {
-      if(json.isNull()) {
-        request->send(500, "application/json", "{\"status\":\"ERROR\",\"desc\":\"JSON parse error\"}");
-        return;
-      }
-      JsonArray arr = json.as<JsonArray>();
-      uint8_t order = 0;
-      for(JsonVariant v : arr) {
-        uint8_t shadeId = v.as<uint8_t>();
-        if(shadeId != 255) {
-          SomfyShade *shade = somfy.getShadeById(shadeId);
-          if(shade) shade->sortOrder = order++;
-        }
-      }
-      request->send(200, "application/json", "{\"status\":\"OK\",\"desc\":\"Successfully set shade order\"}");
-    }));
-
-  // groupSortOrder
-  asyncServer.addHandler(new AsyncCallbackJsonWebHandler("/groupSortOrder",
-    [](AsyncWebServerRequest *request, JsonVariant &json) {
-      if(json.isNull()) {
-        request->send(500, "application/json", "{\"status\":\"ERROR\",\"desc\":\"JSON parse error\"}");
-        return;
-      }
-      JsonArray arr = json.as<JsonArray>();
-      uint8_t order = 0;
-      for(JsonVariant v : arr) {
-        uint8_t groupId = v.as<uint8_t>();
-        if(groupId != 255) {
-          SomfyGroup *group = somfy.getGroupById(groupId);
-          if(group) group->sortOrder = order++;
-        }
-      }
-      request->send(200, "application/json", "{\"status\":\"OK\",\"desc\":\"Successfully set group order\"}");
-    }));
+  // Sort orders: the ids in the order the client lists them.
+  asyncServer.addHandler(editHandler("/roomSortOrder", model_edit_type_t::room_order));
+  asyncServer.addHandler(editHandler("/shadeSortOrder", model_edit_type_t::shade_order));
+  asyncServer.addHandler(editHandler("/groupSortOrder", model_edit_type_t::group_order));
 
   asyncServer.on("/beginFrequencyScan", HTTP_GET, [](AsyncWebServerRequest *request) {
     somfy.transceiver.beginFrequencyScan();

@@ -1,5 +1,6 @@
 #include <esp_task_wdt.h>
 #include "Somfy.h"
+#include "SomfyEditor.h"
 #include "Sockets.h"
 #include "entryPoints/MQTT.h"
 
@@ -88,6 +89,18 @@ void SomfyGroup::emitState(uint8_t num, const char *evt) {
   json->endObject();
   sockEmit.endEmit(num);
   this->publish();
+}
+// To every client: the sender picks out its own by requestId.
+void emitRequestResult(uint32_t requestId, const edit_result_t &result) {
+  JsonSockEvent *json = sockEmit.beginEmit("requestResult");
+  json->beginObject();
+  json->addElem("requestId", requestId);
+  json->addElem("ok", result.ok);
+  json->addElem("id", result.id);
+  json->addElem("code", result.code);
+  json->addElem("desc", result.desc);
+  json->endObject();
+  sockEmit.endEmit();
 }
 void SomfyShadeController::emitState(uint8_t num) {
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {

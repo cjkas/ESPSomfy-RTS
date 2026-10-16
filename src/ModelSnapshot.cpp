@@ -3,6 +3,7 @@
 #include <string.h>
 #include "esp_log.h"
 #include "ModelSnapshot.h"
+#include "ModelEditor.h"
 
 static const char *TAG = "Snapshot";
 
@@ -119,6 +120,35 @@ void writeGroup(JsonFormatter &json, const group_snapshot_t &group, shade_lookup
 }
 
 /*********************************************************************
+ * What the next room, shade or group would get (ModelEditor's rules,
+ * as SomfyShadeController applies them when one is added)
+ ********************************************************************/
+uint8_t nextRoomId(const model_snapshot_t &snap) {
+  uint8_t ids[SOMFY_MAX_ROOMS];
+  for(uint8_t i = 0; i < snap.roomCount; i++) ids[i] = snap.rooms[i].roomId;
+  return firstFreeId(ids, snap.roomCount, SOMFY_MAX_ROOMS - 2);
+}
+uint8_t nextShadeId(const model_snapshot_t &snap) {
+  uint8_t ids[SOMFY_MAX_SHADES];
+  for(uint8_t i = 0; i < snap.shadeCount; i++) ids[i] = snap.shades[i].shadeId;
+  const uint8_t id = firstFreeId(ids, snap.shadeCount, SOMFY_MAX_SHADES - 2);
+  return id == 0 ? 255 : id;
+}
+uint8_t nextGroupId(const model_snapshot_t &snap) {
+  uint8_t ids[SOMFY_MAX_GROUPS];
+  for(uint8_t i = 0; i < snap.groupCount; i++) ids[i] = snap.groups[i].groupId;
+  const uint8_t id = firstFreeId(ids, snap.groupCount, SOMFY_MAX_GROUPS - 2);
+  return id == 0 ? 255 : id;
+}
+uint32_t nextRemoteAddress(const model_snapshot_t &snap, uint8_t id) {
+  uint32_t used[SOMFY_MAX_SHADES + SOMFY_MAX_GROUPS];
+  size_t count = 0;
+  for(uint8_t i = 0; i < snap.shadeCount; i++) used[count++] = snap.shades[i].remoteAddress;
+  for(uint8_t i = 0; i < snap.groupCount; i++) used[count++] = snap.groups[i].remoteAddress;
+  return freeRemoteAddress(snap.startingAddress + id, used, count);
+}
+
+/*********************************************************************
  * Documents
  ********************************************************************/
 enum : uint8_t {
@@ -136,6 +166,11 @@ enum : uint8_t {
   ST_TO_GROUPS,     // ],"groups":[
   ST_TO_REPEATERS,  // ],"repeaters":[
   ST_CLOSE_DOC,     // ]}
+  ST_NEXT_ROOM,
+  ST_NEXT_SHADE,
+  ST_NEXT_GROUP,
+  ST_GROUP_OPTIONS, // the group, then ],"availShades":[
+  ST_AVAIL_SHADES,  // the shades not in that group
   ST_END
 };
 static const uint8_t CONTROLLER_STEPS[] = { ST_HEADER, ST_ROOMS, ST_TO_SHADES, ST_SHADES, ST_TO_GROUPS, ST_GROUPS, ST_TO_REPEATERS, ST_REPEATERS, ST_CLOSE_DOC, ST_END };
@@ -146,6 +181,11 @@ static const uint8_t GROUPS_STEPS[] = { ST_OPEN_ARRAY, ST_GROUPS, ST_CLOSE_ARRAY
 static const uint8_t ROOM_STEPS[] = { ST_ROOM, ST_END };
 static const uint8_t SHADE_STEPS[] = { ST_SHADE, ST_END };
 static const uint8_t GROUP_STEPS[] = { ST_GROUP, ST_END };
+static const uint8_t REPEATERS_STEPS[] = { ST_OPEN_ARRAY, ST_REPEATERS, ST_CLOSE_ARRAY, ST_END };
+static const uint8_t NEXT_ROOM_STEPS[] = { ST_NEXT_ROOM, ST_END };
+static const uint8_t NEXT_SHADE_STEPS[] = { ST_NEXT_SHADE, ST_END };
+static const uint8_t NEXT_GROUP_STEPS[] = { ST_NEXT_GROUP, ST_END };
+static const uint8_t GROUP_OPTIONS_STEPS[] = { ST_GROUP_OPTIONS, ST_AVAIL_SHADES, ST_CLOSE_DOC, ST_END };
 
 static const uint8_t *stepsFor(snapshot_doc_t doc) {
   switch(doc) {
@@ -157,6 +197,11 @@ static const uint8_t *stepsFor(snapshot_doc_t doc) {
     case snapshot_doc_t::room: return ROOM_STEPS;
     case snapshot_doc_t::shade: return SHADE_STEPS;
     case snapshot_doc_t::group: return GROUP_STEPS;
+    case snapshot_doc_t::repeaters: return REPEATERS_STEPS;
+    case snapshot_doc_t::nextRoom: return NEXT_ROOM_STEPS;
+    case snapshot_doc_t::nextShade: return NEXT_SHADE_STEPS;
+    case snapshot_doc_t::nextGroup: return NEXT_GROUP_STEPS;
+    case snapshot_doc_t::groupOptions: return GROUP_OPTIONS_STEPS;
   }
   return SHADES_STEPS;
 }
@@ -199,6 +244,11 @@ void SnapshotWriter::literal(const char *text) {
   this->unitLen = strlen(this->unit);
   this->nextStep();
 }
+// Writes text as the whole rest of the document.
+void SnapshotWriter::finish(const char *text) {
+  this->literal(text);
+  while(this->steps[this->step] != ST_END) this->step++;
+}
 void SnapshotWriter::resetFmt(size_t offset) {
   this->unit[offset] = '\0';
   this->fmt.setBuffer(this->unit + offset, this->unitSize - offset);
@@ -218,7 +268,7 @@ size_t SnapshotWriter::itemStart() {
 }
 // One piece of a group: its ref, then each linked shade, then the close.
 // inList is whether it is an item of a list rather than the whole document.
-void SnapshotWriter::groupUnit(const group_snapshot_t &group, bool inList) {
+void SnapshotWriter::groupUnit(const group_snapshot_t &group, bool inList, const char *close) {
   auto done = [this, inList]() {
     this->groupOpen = false;
     if(inList) this->idx++;
@@ -241,8 +291,8 @@ void SnapshotWriter::groupUnit(const group_snapshot_t &group, bool inList) {
   const shade_snapshot_t *shade = nullptr;
   while(this->lsIdx < group.linkedShadeCount && !(shade = this->snap.shade(group.linkedShades[this->lsIdx]))) this->lsIdx++;
   if(!shade) {
-    strcpy(this->unit, "]}");
-    this->unitLen = 2;
+    strcpy(this->unit, close);
+    this->unitLen = strlen(close);
     done();
     return;
   }
@@ -335,6 +385,52 @@ void SnapshotWriter::produceUnit() {
       this->groupUnit(*group, false);
       return;
     }
+    case ST_NEXT_ROOM:
+    case ST_NEXT_SHADE:
+    case ST_NEXT_GROUP:
+      this->resetFmt(0);
+      this->fmt.beginObject();
+      if(this->steps[this->step] == ST_NEXT_ROOM) this->fmt.addElem("roomId", nextRoomId(this->snap));
+      else if(this->steps[this->step] == ST_NEXT_SHADE) {
+        const uint8_t shadeId = nextShadeId(this->snap);
+        this->fmt.addElem("shadeId", shadeId);
+        this->fmt.addElem("remoteAddress", nextRemoteAddress(this->snap, shadeId));
+        this->fmt.addElem("bitLength", this->snap.radioBitLength);
+        this->fmt.addElem("stepSize", (uint8_t)100);
+        this->fmt.addElem("proto", this->snap.radioProto);
+      }
+      else {
+        const uint8_t groupId = nextGroupId(this->snap);
+        this->fmt.addElem("groupId", groupId);
+        this->fmt.addElem("remoteAddress", nextRemoteAddress(this->snap, groupId));
+        this->fmt.addElem("bitLength", this->snap.radioBitLength);
+        this->fmt.addElem("proto", this->snap.radioProto);
+      }
+      this->fmt.endObject();
+      this->unitLen = this->fmt.length();
+      this->nextStep();
+      return;
+    case ST_GROUP_OPTIONS: {
+      const group_snapshot_t *group = this->snap.group(this->id);
+      if(!group) { this->finish("{\"status\":\"ERROR\",\"desc\":\"Group Id not found.\"}"); return; }
+      this->groupUnit(*group, false, "],\"availShades\":[");
+      return;
+    }
+    case ST_AVAIL_SHADES: {
+      const group_snapshot_t *group = this->snap.group(this->id);
+      if(!group || this->idx >= this->snap.shadeCount) { this->nextStep(); return; }
+      const shade_snapshot_t &shade = this->snap.shades[this->idx++];
+      for(uint8_t i = 0; i < group->linkedShadeCount; i++)
+        if(group->linkedShades[i] == shade.shadeId) return;
+      const size_t pos = this->itemStart();
+      this->fmt.beginObject();
+      writeShadeRef(this->fmt, shade);
+      this->fmt.endObject();
+      if(this->overflowed("shade", shade.shadeId)) return;
+      this->unitLen = pos + this->fmt.length();
+      this->firstItem = false;
+      return;
+    }
     case ST_OPEN_ARRAY: this->literal("["); return;
     case ST_CLOSE_ARRAY: this->literal("]"); return;
     case ST_TO_SHADES: this->literal("],\"shades\":["); return;
@@ -379,6 +475,7 @@ void SnapshotSlots::fill(uint8_t slot, void (*fill)(model_snapshot_t &snap)) {
   }
   model_snapshot_t &snap = *this->snaps[slot];
   snap.startingAddress = 0;
+  snap.radioBitLength = snap.radioProto = 0;
   snap.roomCount = snap.shadeCount = snap.groupCount = snap.repeaterCount = 0;
   fill(snap);
   expected = FILLING;
