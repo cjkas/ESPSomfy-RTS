@@ -84,6 +84,8 @@ void snapshotGroup(SomfyGroup &group, group_snapshot_t &out) {
 }
 void fillSnapshot(model_snapshot_t &snap) {
   snap.startingAddress = somfy.startingAddress;
+  snap.radioBitLength = somfy.transceiver.config.type;
+  snap.radioProto = static_cast<uint8_t>(somfy.transceiver.config.proto);
   for(uint8_t i = 0; i < SOMFY_MAX_ROOMS; i++)
     if(somfy.rooms[i].roomId != 0) snapshotRoom(somfy.rooms[i], snap.rooms[snap.roomCount++]);
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++)

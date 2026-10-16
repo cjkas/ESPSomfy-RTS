@@ -5,6 +5,7 @@
 #include "Somfy.h"
 #include "ConfigFile.h"
 #include "GitOTA.h"
+#include "ModelEditor.h"
 
 static const char *TAG = "Somfy";
 
@@ -117,17 +118,6 @@ void SomfyRoom::clear() {
   this->roomId = 0;
   strcpy(this->name, "");
 }
-void SomfyShadeController::compressRepeaters() {
-  for(uint8_t i = 0, j = 0; i < SOMFY_MAX_REPEATERS; i++) {
-    if(this->repeaters[i] != 0) {
-      if(i != j) {
-        this->repeaters[j] = this->repeaters[i];
-        this->repeaters[i] = 0;
-      }
-      j++;
-    }
-  }
-}
 bool SomfyRoom::save() { somfy.commit(); return true; }
 void SomfyShadeController::processFrame(somfy_frame_t &frame, bool internal) {
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
@@ -158,89 +148,45 @@ void SomfyShadeController::processWaitingFrame() {
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++)
     if(this->shades[i].getShadeId() != 255) this->shades[i].processWaitingFrame();
 }
+// A deleted shade, group or room leaves a gap, so a new one takes the lowest
+// free id.  Ids stop two short of the maximum, as they always have.
 uint8_t SomfyShadeController::getNextShadeId() {
-  // There is no shortcut for this since the deletion of
-  // a shade in the middle makes all of this very difficult.
-  for(uint8_t i = 1; i < SOMFY_MAX_SHADES - 1; i++) {
-    bool id_exists = false;
-    for(uint8_t j = 0; j < SOMFY_MAX_SHADES; j++) {
-      SomfyShade *shade = &this->shades[j];
-      if(shade->getShadeId() == i) {
-        id_exists = true;
-        break;
-      }
-    }
-    if(!id_exists) {
-      ESP_LOGD(TAG, "Got next Shade Id:%d", i);
-      return i;
-    }
-  }
-  return 255;
+  uint8_t ids[SOMFY_MAX_SHADES];
+  for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) ids[i] = this->shades[i].getShadeId();
+  const uint8_t id = firstFreeId(ids, SOMFY_MAX_SHADES, SOMFY_MAX_SHADES - 2);
+  return id == 0 ? 255 : id;
 }
 int8_t SomfyShadeController::getMaxShadeOrder() {
-  int8_t order = -1;
-  for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
-    SomfyShade *shade = &this->shades[i];
-    if(shade->getShadeId() == 255) continue;
-    if(order < shade->sortOrder) order = shade->sortOrder;
-  }
-  return order;
+  int8_t orders[SOMFY_MAX_SHADES];
+  size_t count = 0;
+  for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++)
+    if(this->shades[i].getShadeId() != 255) orders[count++] = this->shades[i].sortOrder;
+  return nextSortOrder(orders, count) - 1;
 }
 int8_t SomfyShadeController::getMaxGroupOrder() {
-  int8_t order = -1;
-  for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++) {
-    SomfyGroup *group = &this->groups[i];
-    if(group->getGroupId() == 255) continue;
-    if(order < group->sortOrder) order = group->sortOrder;
-  }
-  return order;
+  int8_t orders[SOMFY_MAX_GROUPS];
+  size_t count = 0;
+  for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++)
+    if(this->groups[i].getGroupId() != 255) orders[count++] = this->groups[i].sortOrder;
+  return nextSortOrder(orders, count) - 1;
 }
 uint8_t SomfyShadeController::getNextGroupId() {
-  // There is no shortcut for this since the deletion of
-  // a group in the middle makes all of this very difficult.
-  for(uint8_t i = 1; i < SOMFY_MAX_GROUPS - 1; i++) {
-    bool id_exists = false;
-    for(uint8_t j = 0; j < SOMFY_MAX_GROUPS; j++) {
-      SomfyGroup *group = &this->groups[j];
-      if(group->getGroupId() == i) {
-        id_exists = true;
-        break;
-      }
-    }
-    if(!id_exists) {
-      ESP_LOGD(TAG, "Got next Group Id:%d", i);
-      return i;
-    }
-  }
-  return 255;
+  uint8_t ids[SOMFY_MAX_GROUPS];
+  for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++) ids[i] = this->groups[i].getGroupId();
+  const uint8_t id = firstFreeId(ids, SOMFY_MAX_GROUPS, SOMFY_MAX_GROUPS - 2);
+  return id == 0 ? 255 : id;
 }
 uint8_t SomfyShadeController::getNextRoomId() {
-  // There is no shortcut for this since the deletion of
-  // a room in the middle makes all of this very difficult.
-  for(uint8_t i = 1; i < SOMFY_MAX_ROOMS - 1; i++) {
-    bool id_exists = false;
-    for(uint8_t j = 0; j < SOMFY_MAX_ROOMS; j++) {
-      SomfyRoom *room = &this->rooms[j];
-      if(room->roomId == i) {
-        id_exists = true;
-        break;
-      }
-    }
-    if(!id_exists) {
-      ESP_LOGD(TAG, "Got next room Id:%d", i);
-      return i;
-    }
-  }
-  return 0;
+  uint8_t ids[SOMFY_MAX_ROOMS];
+  for(uint8_t i = 0; i < SOMFY_MAX_ROOMS; i++) ids[i] = this->rooms[i].roomId;
+  return firstFreeId(ids, SOMFY_MAX_ROOMS, SOMFY_MAX_ROOMS - 2);
 }
 int8_t SomfyShadeController::getMaxRoomOrder() {
-  int8_t order = -1;
-  for(uint8_t i = 0; i < SOMFY_MAX_ROOMS; i++) {
-    SomfyRoom *room = &this->rooms[i];
-    if(room->roomId == 0) continue;
-    if(order < room->sortOrder) order = room->sortOrder;
-  }
-  return order;
+  int8_t orders[SOMFY_MAX_ROOMS];
+  size_t count = 0;
+  for(uint8_t i = 0; i < SOMFY_MAX_ROOMS; i++)
+    if(this->rooms[i].roomId != 0) orders[count++] = this->rooms[i].sortOrder;
+  return nextSortOrder(orders, count) - 1;
 }
 uint8_t SomfyShadeController::repeaterCount() {
   uint8_t count = 0;
@@ -270,31 +216,6 @@ uint8_t SomfyShadeController::groupCount() {
   }
   return count;
 }
-uint32_t SomfyShadeController::getNextRemoteAddress(uint8_t id) {
-  uint32_t address = this->startingAddress + id;
-  uint8_t i = 0;
-  // The assumption here is that the max number of groups will
-  // always be less than or equal to the max number of shades.
-  while(i < SOMFY_MAX_SHADES) {
-    if((i < SOMFY_MAX_SHADES && this->shades[i].getShadeId() != 255 && this->shades[i].getRemoteAddress() == address) ||
-      (i < SOMFY_MAX_GROUPS && this->groups[i].getGroupId() != 255 && this->groups[i].getRemoteAddress() == address)) {
-      address++;
-      i = 0; // Start over we cannot share addresses.
-    }
-    else i++;
-  }
-  i = 0;
-  return address;
-}
-SomfyShade *SomfyShadeController::addShade(JsonObject &obj) {
-  SomfyShade *shade = this->addShade();
-  if(shade) {
-    shade->fromJSON(obj);
-    shade->save();
-    shade->emitState("shadeAdded");
-  }
-  return shade;
-}
 SomfyShade *SomfyShadeController::addShade() {
   Preferences pref;
   uint8_t shadeId = this->getNextShadeId();
@@ -313,37 +234,15 @@ SomfyShade *SomfyShadeController::addShade() {
   return shade;
 }
 bool SomfyShadeController::unlinkRepeater(uint32_t address) {
-  for(uint8_t i = 0; i < SOMFY_MAX_REPEATERS; i++) {
-    if(this->repeaters[i] == address) this->repeaters[i] = 0;
-  }
-  this->compressRepeaters();
+  removeFromList(this->repeaters, SOMFY_MAX_REPEATERS, address);
   this->isDirty = true;
-  return true;  
-}
-bool SomfyShadeController::linkRepeater(uint32_t address) {
-  bool bSet = false;
-  for(uint8_t i = 0; i < SOMFY_MAX_REPEATERS; i++) {
-    if(!bSet && this->repeaters[i] == address) bSet = true;
-    else if(bSet && this->repeaters[i] == address) this->repeaters[i] = 0;
-  }
-  if(!bSet) {
-    for(uint8_t i = 0; i < SOMFY_MAX_REPEATERS; i++) {
-      if(this->repeaters[i] == 0) {
-        this->repeaters[i] = address;
-        return true;
-      }
-    }
-  }
   return true;
 }
-SomfyRoom *SomfyShadeController::addRoom(JsonObject &obj) {
-  SomfyRoom *room = this->addRoom();
-  if(room) {
-    room->fromJSON(obj);
-    room->save();
-    room->emitState("roomAdded");
-  }
-  return room;
+// False when every repeater slot is taken.
+bool SomfyShadeController::linkRepeater(uint32_t address) {
+  if(!addToList(this->repeaters, SOMFY_MAX_REPEATERS, address)) return false;
+  this->isDirty = true;
+  return true;
 }
 SomfyRoom *SomfyShadeController::addRoom() {
   uint8_t roomId = this->getNextRoomId();
@@ -356,15 +255,6 @@ SomfyRoom *SomfyShadeController::addRoom() {
     this->isDirty = true;
   }
   return room;
-}
-SomfyGroup *SomfyShadeController::addGroup(JsonObject &obj) {
-  SomfyGroup *group = this->addGroup();
-  if(group) {
-    group->fromJSON(obj);
-    group->save();
-    group->emitState("groupAdded");
-  }
-  return group;
 }
 SomfyGroup *SomfyShadeController::addGroup() {
   uint8_t groupId = this->getNextGroupId();

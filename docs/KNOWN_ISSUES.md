@@ -2,9 +2,9 @@
 
 ## Concurrent mutation during chunked `/controller` response
 
-**Status:** fixed for the read routes; the web-task writers below are still open.
+**Status:** fixed: reads in step 2, edits in step 3; command replies still read the live model (below).
 **Introduced:** 2026-04-19, alongside the chunked-response conversion of `/controller` (the original crash report was about `cbuf::resize` aborting `async_tcp`).
-**Fixed:** 2026-10-16, step 2 of [LOOP_QUEUE_PLAN.md](LOOP_QUEUE_PLAN.md).
+**Fixed:** 2026-10-16, steps 2 and 3 of [LOOP_QUEUE_PLAN.md](LOOP_QUEUE_PLAN.md).
 
 ### What it was
 
@@ -12,16 +12,13 @@ The chunked `/controller` response read `somfy.rooms`, `somfy.shades`, `somfy.gr
 
 All eight read routes (`/controller`, `/discovery`, `/rooms`, `/shades`, `/groups`, `/room`, `/shade`, `/group`) now stream a ModelSnapshot that `loop()` fills, so each document describes one moment ([ADR-0002](adr/0002-loop-task-is-the-only-writer-of-the-shade-model.md)). That is fix option (c), taken per read in a heap slot of about 5.6 KB.
 
+### Edits (step 3)
+
+The handlers that changed the shade model on the web server task (adding, saving and deleting rooms, shades and groups; linking remotes, repeaters and group members; `/setPaired`; the sort orders) now hand the edit to `loop()` through the LoopQueue, and every client learns the result from a `requestResult` socket event. So `/linkRemote` can no longer race a received frame for a linked remote's rolling code: both now change it on `loop()`, in the order they happen.
+
 ### Still open
 
-- Command and edit replies (`/shadeCommand`, `/saveShade`, `/linkRemote`, ...) still copy the one item they report from the live shade model on async_tcp, so a reply can show a value from the middle of a change. `/room`, `/shade` and `/group` also check on the live model whether the item exists, because the status goes out before the snapshot is filled.
-- Other handlers on the web server task still change the shade model that `loop()` owns (step 3 of the plan):
-  - `/addRoom`, `/saveRoom`, `/deleteRoom`, `/addShade`, `/saveShade`, `/deleteShade`, `/addGroup`, `/saveGroup` and `/deleteGroup` add, change and remove rooms, shades and groups.
-  - `/linkRemote` and `/unlinkRemote` change a shade's linked remotes. `/linkRemote` also sets a linked remote's rolling code, which `loop()` updates whenever it receives a frame from that remote: the last write wins, so a received frame can undo the code just set.
-  - `/linkToGroup` and `/unlinkFromGroup` change a group's linked shades.
-  - `/setPaired` sets `paired`.
-
-  Shade requests (shade and group commands, set-My, unpair, `/setPositions`, `/setRollingCode`, and every MQTT command), a shades restore and `/updateShadeConfig` already go through the LoopQueue to `loop()`.
+- Command replies (`/shadeCommand`, `/tiltCommand`, `/unpairShade`, `/setRollingCode`, ...) still copy the one item they report from the live shade model on async_tcp, so a reply can show a value from the middle of a change. `/room`, `/shade`, `/group` and `/groupOptions` also check on the live model whether the item exists, because the status goes out before the snapshot is filled.
 - The read routes leave out an item that doesn't fit their 3 KB unit, see [Oversized read items are left out](#oversized-read-items-are-left-out).
 
 ## Oversized read items are left out

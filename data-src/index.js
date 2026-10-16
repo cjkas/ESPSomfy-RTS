@@ -245,7 +245,7 @@ var httpStatusText = {
     '504': 'Gateway Timeout',
     '505': 'HTTP Version Not Supported'
 };
-function getJSON(url, cb) {
+function getJSON(url, cb, attempt) {
     let xhr = new XMLHttpRequest();
     console.log({ get: url });
     xhr.open('GET', baseUrl.length > 0 ? `${baseUrl}${url}` : url, true);
@@ -253,6 +253,10 @@ function getJSON(url, cb) {
     xhr.responseType = 'json';
     xhr.onload = () => {
         let status = xhr.status;
+        if (isBusy(status, xhr.response) && (attempt || 0) < 10) {
+            setTimeout(() => getJSON(url, cb, (attempt || 0) + 1), 250);
+            return;
+        }
         if (status !== 200) {
             let err = xhr.response || {};
             err.htmlError = status;
@@ -274,12 +278,17 @@ function getJSON(url, cb) {
     };
     xhr.send();
 }
-function getJSONSync(url, cb) {
+function getJSONSync(url, cb, attempt) {
     let overlay = ui.waitMessage(document.getElementById('divContainer'));
     let xhr = new XMLHttpRequest();
     xhr.responseType = 'json';
     xhr.onload = () => {
         let status = xhr.status;
+        if (isBusy(status, xhr.response) && (attempt || 0) < 10) {
+            if (typeof overlay !== 'undefined') overlay.remove();
+            setTimeout(() => getJSONSync(url, cb, (attempt || 0) + 1), 250);
+            return;
+        }
         if (status !== 200) {
             let err = xhr.response || {};
             err.htmlError = status;
@@ -453,6 +462,79 @@ function putJSONSync(url, data, cb) {
         xhr.send(JSON.stringify(data));
     } catch (err) { ui.serviceError(document.getElementById('divContainer'), err); }
 }
+// Edits of rooms, shades, groups and repeaters run on the device's main loop
+// after the reply, so the reply only says the edit was accepted.  How it went
+// comes over the socket as requestResult with the same requestId.  On success
+// readUrl(id) is read back, so cb gets what the edit route itself used to
+// return; without readUrl cb gets the result.
+var pendingEdits = {};
+var earlyResults = {};
+function editJSON(url, data, readUrl, cb) {
+    let overlay = ui.waitMessage(document.getElementById('divContainer'));
+    let attempts = 0;
+    let finish = (result) => {
+        overlay.remove();
+        if (!result.ok) {
+            let err = { htmlError: 500, service: `PUT ${url}`, desc: result.desc, data: data };
+            if (result.code) err.code = result.code;
+            cb(err, null);
+        }
+        else if (typeof readUrl === 'function') getJSONSync(readUrl(result.id), cb);
+        else cb(null, result);
+    };
+    let send = () => {
+        putJSON(url, data, (err, reply) => {
+            // Another edit is still being applied.
+            if (err && err.htmlError === 503 && typeof err.desc === 'string' && err.desc.startsWith('Busy') && ++attempts < 10) {
+                setTimeout(send, 300);
+                return;
+            }
+            if (err) {
+                overlay.remove();
+                cb(err, null);
+                return;
+            }
+            let id = reply.requestId;
+            if (typeof earlyResults[id] !== 'undefined') {
+                let result = earlyResults[id];
+                delete earlyResults[id];
+                finish(result);
+                return;
+            }
+            let timer = setTimeout(() => {
+                delete pendingEdits[id];
+                overlay.remove();
+                let prompt = ui.promptMessage('The device did not confirm the change.', () => { location.reload(); });
+                prompt.querySelector('.sub-message').innerHTML = '<p>It may or may not have been made.  Press YES to reload the page and see.</p>';
+            }, 5000);
+            pendingEdits[id] = (result) => {
+                clearTimeout(timer);
+                finish(result);
+            };
+        });
+    };
+    send();
+}
+function procRequestResult(result) {
+    let fn = pendingEdits[result.requestId];
+    if (typeof fn === 'function') {
+        delete pendingEdits[result.requestId];
+        fn(result);
+    }
+    // The socket can beat the reply that carries the id.  Results of other
+    // clients' edits land here too, so only the latest few are kept.
+    else {
+        earlyResults[result.requestId] = result;
+        let ids = Object.keys(earlyResults);
+        if (ids.length > 10) delete earlyResults[ids[0]];
+    }
+}
+function editsPending() { return Object.keys(pendingEdits).length > 0; }
+// Reads are served from a copy of the shade model the device takes for each,
+// and it takes at most two at once: a third is told to try again.
+function isBusy(status, response) {
+    return status === 503 && response && typeof response.desc === 'string' && response.desc.startsWith('Busy');
+}
 var socket;
 var tConnect = null;
 var sockIsOpen = false;
@@ -515,15 +597,24 @@ async function initSockets() {
                         case 'shadeCommand':
                             console.log(msg);
                             break;
+                        case 'requestResult':
+                            procRequestResult(msg);
+                            break;
                         case 'roomRemoved':
                             somfy.procRoomRemoved(msg);
                             break;
                         case 'roomAdded':
                             somfy.procRoomAdded(msg);
                             break;
+                        // Another client changed the lists.  This one's own edits
+                        // refresh them when their result comes in.
                         case 'shadeRemoved':
-                            break;
                         case 'shadeAdded':
+                            if (!editsPending()) somfy.updateShadeList();
+                            break;
+                        case 'groupRemoved':
+                        case 'groupAdded':
+                            if (!editsPending()) somfy.updateGroupList();
                             break;
                         case 'ethernet':
                             wifi.procEthernet(msg);
@@ -2181,7 +2272,7 @@ class Somfy {
         if (room.roomId === 0) return;
         let r = _rooms.find(x => x.roomId === room.roomId);
         if (typeof r !== 'undefined' && r.roomId === room.roomId) {
-            _rooms = _rooms.filter(x => x.roomId === room.roomId);
+            _rooms = _rooms.filter(x => x.roomId !== room.roomId);
             _rooms.sort((a, b) => { return a.sortOrder - b.sortOrder });
             this.setRoomsList(_rooms);
             let rs = document.getElementById('divRoomSelector');
@@ -2259,7 +2350,7 @@ class Somfy {
                 order.push(parseInt(items[i].getAttribute('data-roomid'), 10));
                 // Reorder the shades on the main page.
             }
-            putJSONSync('/roomSortOrder', order, (err) => {
+            editJSON('/roomSortOrder', order, null, (err) => {
                 if (err) ui.serviceError(err);
                 else this.updateRoomsList();
             });
@@ -2455,7 +2546,7 @@ class Somfy {
                 order.push(parseInt(items[i].getAttribute('data-shadeid'), 10));
                 // Reorder the shades on the main page.
             }
-            putJSONSync('/shadeSortOrder', order, (err) => {
+            editJSON('/shadeSortOrder', order, null, (err) => {
                 for (let i = order.length - 1; i >= 0; i--) {
                     let el = shadeControls.querySelector(`.somfyShadeCtl[data-shadeid="${order[i]}"`);
                     if (el) {
@@ -2700,7 +2791,7 @@ class Somfy {
                 order.push(parseInt(items[i].getAttribute('data-groupid'), 10));
                 // Reorder the shades on the main page.
             }
-            putJSONSync('/groupSortOrder', order, (err) => {
+            editJSON('/groupSortOrder', order, null, (err) => {
                 for (let i = order.length - 1; i >= 0; i--) {
                     let el = groupControls.querySelector(`.somfyGroupCtl[data-groupid="${order[i]}"`);
                     if (el) {
@@ -2909,18 +3000,17 @@ class Somfy {
                 remoteAddress: frame.address,
                 rollingCode: frame.rcode
             };
-            let overlay = ui.waitMessage(document.getElementById('divLinking'));
-            putJSON('/linkRemote', obj, (err, shade) => {
+            editJSON('/linkRemote', obj, (id) => `/shade?shadeId=${id}`, (err, shade) => {
                 console.log(shade);
-                overlay.remove();
                 lnk.remove();
-                this.setLinkedRemotesList(shade);
+                if (err) ui.serviceError(err);
+                else this.setLinkedRemotesList(shade);
             });
         }
         else {
             lnk = document.getElementById('divLinkRepeater');
             if (lnk) {
-                putJSONSync(`/linkRepeater`, {address:frame.address}, (err, repeaters) => {
+                editJSON(`/linkRepeater`, {address:frame.address}, () => '/repeaters', (err, repeaters) => {
                     lnk.remove();
                     if (err) ui.serviceError(err);
                     else this.setRepeaterList(repeaters);
@@ -3251,7 +3341,7 @@ class Somfy {
         if (valid) {
             if (isNaN(roomId) || roomId === 0) {
                 // We are adding.
-                putJSONSync('/addRoom', obj, (err, room) => {
+                editJSON('/addRoom', obj, (id) => `/room?roomId=${id}`, (err, room) => {
                     if (err) {
                         ui.serviceError(err);
                         console.log(err);
@@ -3267,7 +3357,7 @@ class Somfy {
             }
             else {
                 obj.roomId = roomId;
-                putJSONSync('/saveRoom', obj, (err, room) => {
+                editJSON('/saveRoom', obj, (id) => `/room?roomId=${id}`, (err, room) => {
                     if (err) ui.serviceError(err);
                     else this.updateRoomsList();
                     console.log(room);
@@ -3324,7 +3414,7 @@ class Somfy {
         if (valid) {
             if (isNaN(shadeId) || shadeId >= 255) {
                 // We are adding.
-                putJSONSync('/addShade', obj, (err, shade) => {
+                editJSON('/addShade', obj, (id) => `/shade?shadeId=${id}`, (err, shade) => {
                     if (err) {
                         ui.serviceError(err);
                         console.log(err);
@@ -3343,9 +3433,12 @@ class Somfy {
             }
             else {
                 obj.shadeId = shadeId;
-                putJSONSync('/saveShade', obj, (err, shade) => {
-                    if (err) ui.serviceError(err);
-                    else this.updateShadeList();
+                editJSON('/saveShade', obj, (id) => `/shade?shadeId=${id}`, (err, shade) => {
+                    if (err) {
+                        ui.serviceError(err);
+                        return;
+                    }
+                    this.updateShadeList();
                     console.log(shade);
                     let ico = document.getElementById('icoShade');
                     let tilt = ico.parentElement.querySelector('i.icss-window-tilt');
@@ -3376,7 +3469,7 @@ class Somfy {
         if (valid) {
             if (isNaN(groupId) || groupId >= 255) {
                 // We are adding.
-                putJSONSync('/addGroup', obj, (err, group) => {
+                editJSON('/addGroup', obj, (id) => `/group?groupId=${id}`, (err, group) => {
                     if (err) ui.serviceError(err);
                     else {
                         console.log(group);
@@ -3391,7 +3484,7 @@ class Somfy {
             }
             else {
                 obj.groupId = groupId;
-                putJSONSync('/saveGroup', obj, (err, shade) => {
+                editJSON('/saveGroup', obj, (id) => `/group?groupId=${id}`, (err, shade) => {
                     if (err) ui.serviceError(err);
                     else this.updateGroupList();
                     console.log(shade);
@@ -3458,7 +3551,7 @@ class Somfy {
                 else {
                     let prompt = ui.promptMessage(`Are you sure you want to delete this room?`, () => {
                         ui.clearErrors();
-                        putJSONSync('/deleteRoom', { roomId: roomId }, (err, room) => {
+                        editJSON('/deleteRoom', { roomId: roomId }, null, (err, room) => {
                             prompt.remove();
                             if (err) ui.serviceError(err);
                             else
@@ -3483,9 +3576,10 @@ class Somfy {
                 else {
                     let prompt = ui.promptMessage(`Are you sure you want to delete this shade?`, () => {
                         ui.clearErrors();
-                        putJSONSync('/deleteShade', { shadeId: shadeId }, (err, shade) => {
+                        editJSON('/deleteShade', { shadeId: shadeId }, null, (err, shade) => {
+                            prompt.remove();
+                            if (err) ui.serviceError(err);
                             this.updateShadeList();
-                            prompt.remove;
                         });
                     });
                     prompt.querySelector('.sub-message').innerHTML = `<p>If this shade was previously paired with a motor, you should first unpair it from the motor and remove it from any groups.  Otherwise its address will remain in the motor memory.</p><p>Press YES to delete ${shade.name} or NO to cancel this operation.</p>`;
@@ -3508,7 +3602,7 @@ class Somfy {
                     }
                     else {
                         let prompt = ui.promptMessage(`Are you sure you want to delete this group?`, () => {
-                            putJSONSync('/deleteGroup', { groupId: groupId }, (err, g) => {
+                            editJSON('/deleteGroup', { groupId: groupId }, null, (err, g) => {
                                 if (err) ui.serviceError(err);
                                 this.updateGroupList();
                                 prompt.remove();
@@ -3631,7 +3725,7 @@ class Somfy {
         let obj = { shadeId: shadeId, paired: paired || false };
         let div = document.getElementById('divPairing');
         let overlay = typeof div === 'undefined' ? undefined : ui.waitMessage(div);
-        putJSONSync('/setPaired', obj, (err, shade) => {
+        editJSON('/setPaired', obj, (id) => `/shade?shadeId=${id}`, (err, shade) => {
             if (overlay) overlay.remove();
             if (err) {
                 console.log(err);
@@ -4004,9 +4098,10 @@ class Somfy {
             mouseDown = false;
             let obj = ui.fromElement(div);
             let prompt = ui.promptMessage('Confirm Motor Response', () => {
-                putJSONSync('/linkToGroup', { groupId: groupId, shadeId: obj.shadeId }, (err, group) => {
+                editJSON('/linkToGroup', { groupId: groupId, shadeId: obj.shadeId }, (id) => `/group?groupId=${id}`, (err, group) => {
                     console.log(group);
-                    somfy.setLinkedShadesList(group);
+                    if (err) ui.serviceError(err);
+                    else somfy.setLinkedShadesList(group);
                     this.updateGroupList();
                 });
                 prompt.remove();
@@ -4098,9 +4193,10 @@ class Somfy {
                 if (err) ui.serviceError(err);
                 else {
                     let prompt = ui.promptMessage('Confirm Motor Response', () => {
-                        putJSONSync('/unlinkFromGroup', { groupId: groupId, shadeId: shadeId }, (err, group) => {
+                        editJSON('/unlinkFromGroup', { groupId: groupId, shadeId: shadeId }, (id) => `/group?groupId=${id}`, (err, group) => {
                             console.log(group);
-                            somfy.setLinkedShadesList(group);
+                            if (err) ui.serviceError(err);
+                            else somfy.setLinkedShadesList(group);
                             this.updateGroupList();
                         });
                         prompt.remove();
@@ -4136,7 +4232,7 @@ class Somfy {
     }
     unlinkRepeater(address) {
         let prompt = ui.promptMessage('Are you sure you want to stop repeating frames from this address?', () => {
-            putJSONSync('/unlinkRepeater', { address: address }, (err, repeaters) => {
+            editJSON('/unlinkRepeater', { address: address }, () => '/repeaters', (err, repeaters) => {
                 if (err) ui.serviceError(err);
                 else this.setRepeaterList(repeaters);
                 prompt.remove();
@@ -4151,11 +4247,11 @@ class Somfy {
                 shadeId: shadeId,
                 remoteAddress: remoteAddress
             };
-            putJSONSync('/unlinkRemote', obj, (err, shade) => {
-
+            editJSON('/unlinkRemote', obj, (id) => `/shade?shadeId=${id}`, (err, shade) => {
                 console.log(shade);
                 prompt.remove();
-                this.setLinkedRemotesList(shade);
+                if (err) ui.serviceError(err);
+                else this.setLinkedRemotesList(shade);
             });
 
         });

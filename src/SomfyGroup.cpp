@@ -1,5 +1,6 @@
 #include "esp_log.h"
 #include "Somfy.h"
+#include "ModelEditor.h"
 
 static const char *TAG = "Somfy";
 
@@ -13,60 +14,12 @@ void SomfyGroup::clear() {
   this->name[0] = 0x00;
   memset(&this->linkedShades, 0x00, sizeof(this->linkedShades));
 }
-bool SomfyGroup::linkShade(uint8_t shadeId) {
-  // Check to see if the shade is already linked. If it is just return true
-  for(uint8_t i = 0; i < SOMFY_MAX_GROUPED_SHADES; i++) {
-    if(this->linkedShades[i] == shadeId) {
-      return true;
-    }
-  }
-  for(uint8_t i = 0; i < SOMFY_MAX_GROUPED_SHADES; i++) {
-    if(this->linkedShades[i] == 0) {
-      this->linkedShades[i] = shadeId;
-      somfy.commit();
-      return true;
-    }
-  }
-  return false;
-}
-bool SomfyGroup::unlinkShade(uint8_t shadeId) {
-  bool removed = false;
-  for(uint8_t i = 0; i < SOMFY_MAX_GROUPED_SHADES; i++) {
-    if(this->linkedShades[i] == shadeId) {
-      this->linkedShades[i] = 0;
-      removed = true;
-    }
-  }
-  // Compress the linked shade ids so we can stop looking on the first 0
-  if(removed) {
-    this->compressLinkedShadeIds();
-    somfy.commit();
-  }
-  return removed;
-}
-void SomfyGroup::compressLinkedShadeIds() {
-  // [1,0,4,3,0,0,0] i:0,j:0
-  // [1,0,4,3,0,0,0] i:1,j:1
-  // [1,4,0,3,0,0,0] i:2,j:1
-  // [1,4,3,0,0,0,0] i:3,j:2
-  // [1,4,3,0,0,0,0] i:4,j:2
-
-  // [1,2,0,0,3,0,0] i:0,j:0
-  // [1,2,0,0,3,0,0] i:1,j:1
-  // [1,2,0,0,3,0,0] i:2,j:2
-  // [1,2,0,0,3,0,0] i:3,j:2
-  // [1,2,3,0,0,0,0] i:4,j:2
-  // [1,2,3,0,0,0,0] i:5,j:3
-  for(uint8_t i = 0, j = 0; i < SOMFY_MAX_GROUPED_SHADES; i++) {
-    if(this->linkedShades[i] != 0) {
-      if(i != j) {
-        this->linkedShades[j] = this->linkedShades[i];
-        this->linkedShades[i] = 0;
-      }
-      j++;
-    }
-  }
-}
+// False when the group is full.  The caller saves the change.
+bool SomfyGroup::linkShade(uint8_t shadeId) { return addToList(this->linkedShades, SOMFY_MAX_GROUPED_SHADES, shadeId); }
+// False when the shade wasn't in the group.  The caller saves the change.
+bool SomfyGroup::unlinkShade(uint8_t shadeId) { return removeFromList(this->linkedShades, SOMFY_MAX_GROUPED_SHADES, shadeId); }
+// Linked shade ids are kept packed so a search can stop at the first 0.
+void SomfyGroup::compressLinkedShadeIds() { packList(this->linkedShades, SOMFY_MAX_GROUPED_SHADES); }
 bool SomfyGroup::hasShadeId(uint8_t shadeId) {
   for(uint8_t i = 0; i < SOMFY_MAX_GROUPED_SHADES; i++) {
     if(this->linkedShades[i] == 0) break;

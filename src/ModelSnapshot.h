@@ -83,6 +83,8 @@ struct group_snapshot_t {
 // Only the rooms, shades, groups and repeaters that exist, in model order.
 struct model_snapshot_t {
   uint32_t startingAddress;
+  uint8_t radioBitLength;     // what a new shade or group gets
+  uint8_t radioProto;
   uint8_t roomCount;
   uint8_t shadeCount;
   uint8_t groupCount;
@@ -115,7 +117,12 @@ enum class snapshot_doc_t : uint8_t {
   groups,      // /groups
   room,        // /room?roomId=
   shade,       // /shade?shadeId=
-  group        // /group?groupId=
+  group,       // /group?groupId=
+  repeaters,   // /repeaters
+  nextRoom,    // /getNextRoom: the id and defaults a new room would get
+  nextShade,   // /getNextShade
+  nextGroup,   // /getNextGroup
+  groupOptions // /groupOptions?groupId=: the group and the shades it could link
 };
 // Writes the fields of /controller or /discovery that aren't in the snapshot
 // (device, radio and firmware details) into the open top-level object.
@@ -154,8 +161,15 @@ class SnapshotWriter {
     void resetFmt(size_t offset);
     bool overflowed(const char *what, uint8_t itemId);
     size_t itemStart();
-    void groupUnit(const group_snapshot_t &group, bool comma);
+    void groupUnit(const group_snapshot_t &group, bool inList, const char *close = "]}");
+    void finish(const char *text);
 };
+// What the next room, shade or group added would get: its id (0 for a room and
+// 255 for a shade or group when there is no room for one) and remote address.
+uint8_t nextRoomId(const model_snapshot_t &snap);
+uint8_t nextShadeId(const model_snapshot_t &snap);
+uint8_t nextGroupId(const model_snapshot_t &snap);
+uint32_t nextRemoteAddress(const model_snapshot_t &snap, uint8_t id);
 
 // The snapshots reads are served from.  A read takes a slot on the web server
 // task and queues a fill; loop() fills it; the read streams it and lets it go.

@@ -5,6 +5,7 @@
 #include "ConfigFile.h"
 #include "Somfy.h"
 #include "SomfySnapshot.h"
+#include "SomfyEditor.h"
 #include "Utils.h"
 
 static const char *TAG = "LoopQueue";
@@ -65,6 +66,9 @@ void LoopQueue::drain() {
         break;
       case loop_item_type_t::snapshot_fill:
         snapshotSlots.fill(item.slot, fillSnapshot);
+        break;
+      case loop_item_type_t::model_edit:
+        runModelEdit(item.edit);
         break;
     }
   }
