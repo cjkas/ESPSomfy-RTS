@@ -35,6 +35,19 @@ enum class shade_types : byte {
   cgate1 = 0x0F,
   rgate1 = 0x10
 };
+// A garage door or gate worked with one button: each press moves, stops or
+// reverses it, so it can't be sent to a position.
+inline bool isToggleShade(shade_types type) {
+  switch(type) {
+    case shade_types::garage1:
+    case shade_types::lgate1:
+    case shade_types::cgate1:
+    case shade_types::rgate1:
+      return true;
+    default:
+      return false;
+  }
+}
 // The bits of a shade's or group's flags.
 enum class somfy_flags_t : byte {
     SunFlag = 0x01,

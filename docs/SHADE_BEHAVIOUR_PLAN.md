@@ -1,6 +1,6 @@
 # Plan: deepen the shade behaviour
 
-**Status:** design settled (rounds 1–3, see "Decisions"), apart from the reconcile order, which waits for PR B's pinning tests. PR A (`refactor/shade-settings`) is built; PR B is next.
+**Status:** design settled (see "Decisions"). PR A is #46. PR B (`refactor/shade-behaviour`) is built: the behaviour is in `ShadeBehaviour`, pinned by `test_shadebehaviour`. The reconcile order is the open question (below).
 **Written:** 2026-10-16, on top of `refactor/split-transports` (PR #44, the top of the LoopQueue stack #40–#44, which is not yet merged or run on a device). Line numbers refer to that branch.
 **Start here:** read [GLOSSARY.md](../GLOSSARY.md), [ADR-0002](adr/0002-loop-task-is-the-only-writer-of-the-shade-model.md) and [LOOP_QUEUE_PLAN.md](LOOP_QUEUE_PLAN.md) first. Their decisions are not reopened here.
 
@@ -84,7 +84,15 @@ The decisions are the user's. Each question comes with a recommended answer, and
 
 ### Still open
 
-- **Reconcile: what is decided first, and in what order.** Asked once PR B's pinning tests have listed every "today: …" disagreement. Known candidates: `settingPos` on arrival (may send extra stops), Up/Down/My on tilt-only shades, the self-echo (Q5), and merging group commands into the frame rule (Q8).
+- **Reconcile: what is decided first, and in what order.** The candidates, each pinned by a "today:" test in `test_shadebehaviour` unless marked:
+  - `settingPos` is never cleared on a lift arrival, so a later step also sends a stop (`test_today_a_step_after_move_to_target_sends_a_stop`).
+  - Up and My on tilt-only shades differ between the web, a remote and a group (`test_today_up_on_tilt_only_*`, `test_today_my_while_tilt_only_moves`).
+  - An integrated tilt sent to a lift target without a tilt turns its slats back with an Up after the stop (`test_today_integrated_tilt_turns_back_after_a_lift_target`).
+  - A remote step uses the step size this shade last *sent*, because `copy()` never copies `stepSize` (`test_remote_step_uses_the_step_size_last_sent`).
+  - A group's SunFlag or Flag doesn't make other groups work their flags out again (`test_group_sun_flag_needs_a_sensor`).
+  - The self-echo (Q5) and merging group commands into the frame rule (Q8).
+  - `lastFrame` doing two jobs (the Q6 revisit).
+  - The 500 ms long-press deadline is compared as `now > await`, which isn't wrap-safe (not tested).
 
 ## Constraints
 
@@ -135,3 +143,12 @@ The decisions are the user's. Each question comes with a recommended answer, and
   - A shade's byte is `getFlags()` (put together) and `setFlags()` (split), used by ConfigFile, JSON, MQTT, events and group flags.
   - Groups keep their own `flags` byte (the OR of their shades), and `SomfyRemote::getFlags()` is virtual for `sendSensorCommand`.
   - `test_shadesettings` checks that all 256 byte values come back unchanged.
+
+**During PR B (2026-10-16):**
+
+- **Q6 revisited: `lastFrame` is shared.** The module holds a reference to `SomfyRemote::lastFrame` instead of its own copy. A copy would have to mirror five writes exactly: each send overwrites it; the shade's own echo then counts as a repeat; `repeatFrame` adds the queued repeats; a sensor send overwrites it; and `copy()` never copies `stepSize` or `await`. The user chose sharing. Splitting the two jobs is a reconcile candidate.
+- **Q12 refined.** `MotorLink::send` returns `{sent, ticket}`; the frame as sent is in the shared `lastFrame`. `SomfyRemote::sendCommandAfter(…, hearsItself = true)` leaves the sender out of the echo and the radio hold; `ShadeBehaviour::transmit` does both for itself.
+- **Q7 and Q9 refined: one output seam that fires on the spot.** `ShadeEvents` carries `onChanged` (the change bits), `onCommand`, `onSaveWanted` and `onSensorFlags`. Nothing is collected and read back after each call, so the timing is today's. `onSensorFlags` fires exactly where `somfy.updateGroupFlags()` was called, not on every sensor-bit change.
+- **`onTxEvent` takes no `now`:** the event carries its own time.
+- **A known ordering change:** when a simMy shade's Favorite or My sends again from inside its own echo, a shade linked to it now hears the outer frame before the inner one. Before, it depended on the two shades' slots. Nothing else changes order.
+- **Flash:** `esp32dev` `firmware.bin` grows 1,397,776 → 1,399,776 B (+2,000 B, 88.6%), mostly the virtual calls through the two seams.

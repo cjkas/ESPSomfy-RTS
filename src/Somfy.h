@@ -9,6 +9,7 @@
 #include "RadioScheduler.h"
 #include "ShadeTypes.h"
 #include "ShadeSettings.h"
+#include "ShadeBehaviour.h"
 #include "ShadeMotion.h"
 #include "ShadeSensors.h"
 #include "ShadeChanges.h"
@@ -37,13 +38,6 @@ class SomfyRoom {
     void unpublish();
 };
 
-// What sending a command did.  ticket is the radio job carrying it, 0 when the
-// command went out over GPIO instead.
-struct send_result_t {
-  bool sent = false;
-  uint32_t ticket = 0;
-  explicit operator bool() const { return this->sent; }
-};
 class SomfyRemote : public RemoteSettings {
   // These sizes for the data have been
   // confirmed.  The address is actually 24bits
@@ -77,7 +71,9 @@ class SomfyRemote : public RemoteSettings {
     // command.  Nothing about the remote or shade state has changed in that case.
     virtual bool sendCommand(somfy_commands cmd);
     virtual bool sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize = 0);
-    send_result_t sendCommandAfter(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs, bool priority = false);
+    // hearsItself leaves this remote out of the echo, for a shade whose
+    // ShadeBehaviour hears its own frame.
+    send_result_t sendCommandAfter(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs, bool priority = false, bool hearsItself = false);
     bool sendSensorCommand(int8_t isWindy, int8_t isSunny, uint8_t repeat);
     bool repeatFrame(uint8_t repeat);
     virtual uint16_t p_lastRollingCode(uint16_t code);
@@ -89,47 +85,16 @@ class SomfyLinkedRemote : public SomfyRemote {
   public:
     SomfyLinkedRemote();    
 };
-class SomfyShade : public SomfyRemote, public ShadeSettings {
+// A shade: its identity, settings, remotes and outputs.  What it does with
+// frames and commands is its ShadeBehaviour; the shade sends for it
+// (MotorLink) and passes on what it reports (ShadeEvents).
+class SomfyShade : public SomfyRemote, public ShadeSettings, private MotorLink, private ShadeEvents {
   protected:
     uint8_t shadeId = 255;
-    uint64_t moveStart = 0;
-    uint64_t tiltStart = 0;
-    ShadeSensors sensors;
-    float startPos = 0.0f;
-    float startTiltPos = 0.0f;
-    bool settingMyPos = false;
-    bool settingPos = false;
-    bool settingTiltPos = false;
-    uint32_t awaitMy = 0;
-    // The flags bits that are state: sun flag, sunny, windy, demo mode and the
-    // unused lighted.  The setting bits are in ShadeSettings and light.
-    uint8_t stateFlags = 0;
-    // Radio jobs whose outcome decides what the motor really did.
-    ShadeTxState tx;
-    bool sendStop(int8_t dir, bool tilt);
-    bool sendSetMy(uint16_t delayMs, float oldPos, float oldTiltPos);
-    // Makes pos/tiltPos the favorite and tells the motor to store it.
-    bool storeMyPosition(float pos, float tiltPos);
-    // Repeats for a tilt command, more for a separate tilt motor.
-    uint8_t tiltRepeats() const;
-    void runToLimit(int8_t dir, bool tilt, uint32_t since);
-    // Sets the targets the sun or wind sends the shade to.
-    void applySensorMove(SensorMove move);
-    // Sets the targets for a step in dir.  False when the step is dropped.
-    bool applyStep(int8_t dir, uint8_t frameStepSize);
   public:
     uint8_t roomId = 0;
     int8_t sortOrder = 0;
     bool light = false;
-    float currentPos = 0.0f;
-    float currentTiltPos = 0.0f;
-    int8_t lastMovement = 0;
-    int8_t direction = 0; // 0 = stopped, 1=down, -1=up.
-    int8_t tiltDirection = 0; // 0=stopped, 1=clockwise, -1=counter clockwise
-    float target = 0.0f;
-    float tiltTarget = 0.0f;
-    float myPos = -1.0f;
-    float myTiltPos = -1.0f;
     SomfyLinkedRemote linkedRemotes[SOMFY_MAX_LINKED_REMOTES];
     bool paired = false;
     int8_t validateJSON(JsonObject &obj);
@@ -138,11 +103,12 @@ class SomfyShade : public SomfyRemote, public ShadeSettings {
     char name[21] = "";
     void setShadeId(uint8_t id) { shadeId = id; }
     uint8_t getShadeId() { return shadeId; }
+    // Where the shade is and where it is going.
+    const ShadeBehaviour::State &state() const { return this->behaviour.state(); }
     uint8_t getFlags() override;
     // Sets the setting and state bits from a saved or sent flags byte.
     void setFlags(uint8_t flags);
     bool save();
-    bool isIdle();
     bool isInGroup();
     void checkMovement();
     void processFrame(somfy_frame_t &frame, bool internal = false);
@@ -151,17 +117,19 @@ class SomfyShade : public SomfyRemote, public ShadeSettings {
     void processInternalCommand(somfy_commands cmd, uint8_t repeat = 1);
     void markTxPending(uint32_t ticket);
     void processTxEvent(const somfy_tx_event_t &evt);
-    void setTiltMovement(int8_t dir);
-    void setMovement(int8_t dir);
-    void setTarget(float target);
-    bool isAtTarget();
-    bool isToggle();
+    bool isToggle() { return isToggleShade(this->shadeType); }
     bool moveToTarget(float pos, float tilt = -1.0f);
     // These return false when the radio refused a command they sent.
     bool moveToTiltTarget(float target);
     bool sendTiltCommand(somfy_commands cmd);
     bool sendCommand(somfy_commands cmd);
     bool sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize = 0);
+    // Puts the shade at pos and tilt (-1 leaves one alone) without moving it.
+    void setPosition(float pos, float tilt);
+    // Where the config file says the shade was.
+    void restore(float pos, float tiltPos, float myPos, float myTiltPos) { this->behaviour.restore(pos, tiltPos, myPos, myTiltPos); }
+    // Forgets the tilt of a shade that has none.
+    void clearTilt() { this->behaviour.clearTilt(); }
     bool linkRemote(uint32_t remoteAddress, uint16_t rollingCode = 0);
     bool unlinkRemote(uint32_t remoteAddress);
     // Marks the shade as changed; the change fan-out sends shadeState once per
@@ -186,27 +154,11 @@ class SomfyShade : public SomfyRemote, public ShadeSettings {
     // Publishes the MQTT topics of the SHADE_CHANGED_* bits in changed.
     void publishTopics(uint16_t changed);
     void commit();
-    void commitShadePosition();
-    void commitTiltPosition();
-    void commitMyPosition();
     void clear();
     int8_t transformPosition(float fpos);
     void setGPIOs();
     void triggerGPIOs(somfy_frame_t &frame);
     bool usesPin(uint8_t pin);
-    // State Setters
-    int8_t p_direction(int8_t dir);
-    int8_t p_tiltDirection(int8_t dir);
-    float p_target(float target);
-    float p_tiltTarget(float target);
-    float p_myPos(float pos);
-    float p_myTiltPos(float pos);
-    bool p_flag(somfy_flags_t flag, bool val);
-    bool p_sunFlag(bool val);
-    bool p_sunny(bool val);
-    bool p_windy(bool val);
-    float p_currentPos(float pos);
-    float p_currentTiltPos(float pos);
     uint16_t p_lastRollingCode(uint16_t code);
     bool publish(const char *topic, const char *val, bool retain = false);
     bool publish(const char *topic, uint8_t val, bool retain = false);
@@ -216,6 +168,15 @@ class SomfyShade : public SomfyRemote, public ShadeSettings {
     bool publish(const char *topic, bool val, bool retain = false);
     void publishDisco();
     void unpublishDisco();
+  private:
+    // MotorLink: the radio or GPIO path every remote sends through.
+    send_result_t send(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs, bool priority) override;
+    // ShadeEvents
+    void onChanged(uint16_t bits) override { this->changed |= bits; }
+    void onCommand(somfy_commands cmd, const char *source, uint32_t sourceAddress) override { this->emitCommand(cmd, source, sourceAddress); }
+    void onSaveWanted() override;
+    void onSensorFlags() override;
+    ShadeBehaviour behaviour{*this, *this, this->lastFrame, *this, *this, this->shadeId, this->name};
 };
 class SomfyGroup : public SomfyRemote {
   protected:
@@ -305,8 +266,9 @@ class SomfyShadeController {
     SomfyGroup * findGroupByRemoteAddress(uint32_t address);
     // Returns the radio job's ticket, 0 when the radio can't take it.
     uint32_t sendFrame(somfy_frame_t &frame, uint8_t repeats = 0, uint16_t delayMs = 0, bool priority = false);
-    void processFrame(somfy_frame_t &frame, bool internal = false);
-    void markTxPending(uint32_t remoteAddress, uint32_t ticket);
+    // skip, when set, is left out: a shade that hears its own frame.
+    void processFrame(somfy_frame_t &frame, bool internal = false, const SomfyRemote *skip = nullptr);
+    void markTxPending(uint32_t remoteAddress, uint32_t ticket, const SomfyRemote *skip = nullptr);
     void processTxEvent(const somfy_tx_event_t &evt);
     void emitState(uint8_t num = 255);
     // The change fan-out: sends every shade and group that changed since the
