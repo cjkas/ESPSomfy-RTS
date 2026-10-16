@@ -2,13 +2,13 @@
 #include "ConfigSettings.h"
 #include "Somfy.h"
 #include "SomfySnapshot.h"
-#include "Sockets.h"
-#include "entryPoints/MQTT.h"
+#include "SocketEmitter.h"
+#include "MqttConnection.h"
 
 extern SomfyShadeController somfy;
 extern SocketEmitter sockEmit;
 extern ConfigSettings settings;
-extern MQTTClass mqtt;
+extern MqttConnection mqtt;
 
 void SomfyRoom::publish() {
   if(mqtt.connected()) {

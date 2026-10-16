@@ -1,5 +1,6 @@
 #include <unity.h>
 #include <string.h>
+#include <string>
 #include "entryPoints/MqttCommands.h"
 
 static shade_request_t req;
@@ -137,6 +138,14 @@ static void test_group_sunny_and_windy() {
   TEST_ASSERT_TRUE(parse("espsomfy/groups/2/windy/set", "1"));
   TEST_ASSERT_EQUAL_INT8(1, req.windy);
 }
+static void test_every_subscribed_topic_is_understood() {
+  // What the connection subscribes to and what the parser takes can't drift.
+  for(const char *pattern : MQTT_COMMAND_TOPICS) {
+    std::string topic = std::string("espsomfy/") + pattern;
+    topic.replace(topic.find('+'), 1, "3");
+    TEST_ASSERT_TRUE_MESSAGE(parse(topic.c_str(), "1"), topic.c_str());
+  }
+}
 static void test_groups_only_take_their_commands() {
   TEST_ASSERT_FALSE(parse("espsomfy/groups/2/target/set", "30"));
   TEST_ASSERT_FALSE(parse("espsomfy/groups/2/mypos/set", "30"));
@@ -161,5 +170,6 @@ int main(int argc, char **argv) {
   RUN_TEST(test_group_direction_and_sun_flag);
   RUN_TEST(test_group_sunny_and_windy);
   RUN_TEST(test_groups_only_take_their_commands);
+  RUN_TEST(test_every_subscribed_topic_is_understood);
   return UNITY_END();
 }

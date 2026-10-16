@@ -4,8 +4,8 @@
 #include <esp_task_wdt.h>
 #include "esp_log.h"
 #include "ConfigSettings.h"
-#include "MQTT.h"
-#include "MqttCommands.h"
+#include "MqttConnection.h"
+#include "entryPoints/MqttCommands.h"
 #include "Somfy.h"
 #include "LoopQueue.h"
 #include "ESPNetwork.h"
@@ -26,21 +26,21 @@ extern rebootDelay_t rebootDelay;
 extern LoopQueue loopQueue;
 
 
-bool MQTTClass::begin() {
+bool MqttConnection::begin() {
   this->suspended = false;
   return true;
 }
-bool MQTTClass::end() {
+bool MqttConnection::end() {
   this->suspended = true;
   this->disconnect();
   return true;
 }
-void MQTTClass::reset() {
+void MqttConnection::reset() {
   this->disconnect();
   this->lastConnect = 0;
   this->connect();
 }
-bool MQTTClass::loop() {
+bool MqttConnection::loop() {
   if(settings.MQTT.enabled && !rebootDelay.reboot && !this->suspended && !mqttClient.connected()) {
     esp_task_wdt_reset();
     if(!this->connected() && net.connected()) this->connect();
@@ -49,7 +49,7 @@ bool MQTTClass::loop() {
   if(settings.MQTT.enabled) mqttClient.loop();
   return true;
 }
-void MQTTClass::receive(const char *topic, byte*payload, uint32_t length) {
+void MqttConnection::receive(const char *topic, byte*payload, uint32_t length) {
   esp_task_wdt_reset(); // Make sure we do not reboot here.
   ESP_LOGD(TAG, "MQTT Topic:%s payload:%.*s", topic, (int)length, (const char *)payload);
   // This already runs on loop(), but going through the loop queue keeps MQTT
@@ -61,7 +61,7 @@ void MQTTClass::receive(const char *topic, byte*payload, uint32_t length) {
   }
   loopQueue.submit(item);
 }
-bool MQTTClass::connect() {
+bool MqttConnection::connect() {
   esp_task_wdt_reset(); // Make sure we do not reboot here.
   if(mqttClient.connected()) {
     if(!settings.MQTT.enabled || this->suspended)
@@ -88,21 +88,8 @@ bool MQTTClass::connect() {
         this->publish("serverId", settings.serverId, true);
         this->publish("mac", net.mac.c_str());
         somfy.publish();
-        this->subscribe("shades/+/target/set");
-        this->subscribe("shades/+/tiltTarget/set");
-        this->subscribe("shades/+/direction/set");
-        this->subscribe("shades/+/mypos/set");
-        this->subscribe("shades/+/myTiltPos/set");
-        this->subscribe("shades/+/sunFlag/set");
-        this->subscribe("shades/+/sunny/set");
-        this->subscribe("shades/+/windy/set");
-        this->subscribe("shades/+/position/set");
-        this->subscribe("shades/+/tiltPosition/set");
-        this->subscribe("groups/+/direction/set");
-        this->subscribe("groups/+/sunFlag/set");
-        this->subscribe("groups/+/sunny/set");
-        this->subscribe("groups/+/windy/set");
-        mqttClient.setCallback(MQTTClass::receive);
+        for(const char *topic : MQTT_COMMAND_TOPICS) this->subscribe(topic);
+        mqttClient.setCallback(MqttConnection::receive);
         ESP_LOGI(TAG, "MQTT Startup Completed");
         esp_task_wdt_reset();
         this->lastConnect = millis();
@@ -119,28 +106,14 @@ bool MQTTClass::connect() {
   }
   return true;
 }
-bool MQTTClass::disconnect() {
+bool MqttConnection::disconnect() {
   if(mqttClient.connected()) {
-    this->unsubscribe("shades/+/target/set");
-    this->unsubscribe("shades/+/direction/set");
-    this->unsubscribe("shades/+/tiltTarget/set");
-    this->unsubscribe("shades/+/mypos/set");
-    this->unsubscribe("shades/+/myTiltPos/set");
-    this->unsubscribe("shades/+/sunFlag/set");
-    this->unsubscribe("groups/+/direction/set");
-    this->unsubscribe("shades/+/sunny/set");
-    this->unsubscribe("shades/+/windy/set");
-    this->unsubscribe("shades/+/position/set");
-    this->unsubscribe("shades/+/tiltPosition/set");
-    this->unsubscribe("groups/+/direction/set");
-    this->unsubscribe("groups/+/sunFlag/set");
-    this->unsubscribe("groups/+/sunny/set");
-    this->unsubscribe("groups/+/windy/set");
+    for(const char *topic : MQTT_COMMAND_TOPICS) this->unsubscribe(topic);
     mqttClient.disconnect();
   }
   return true;
 }
-bool MQTTClass::unsubscribe(const char *topic) {
+bool MqttConnection::unsubscribe(const char *topic) {
   if(mqttClient.connected()) {
     char top[128];
     if(strlen(settings.MQTT.rootTopic) > 0)
@@ -152,7 +125,7 @@ bool MQTTClass::unsubscribe(const char *topic) {
   }
   return true;
 }
-bool MQTTClass::subscribe(const char *topic) {
+bool MqttConnection::subscribe(const char *topic) {
   if(mqttClient.connected()) {
     esp_task_wdt_reset(); // Make sure we do not reboot here.
     char top[128];
@@ -165,7 +138,7 @@ bool MQTTClass::subscribe(const char *topic) {
   }
   return true;
 }
-bool MQTTClass::publish(const char *topic, const char *payload, bool retain) {
+bool MqttConnection::publish(const char *topic, const char *payload, bool retain) {
   if(mqttClient.connected()) {
     char top[128];
     if(strlen(settings.MQTT.rootTopic) > 0)
@@ -178,11 +151,11 @@ bool MQTTClass::publish(const char *topic, const char *payload, bool retain) {
   }
   return false;
 }
-bool MQTTClass::publish(const char *topic, uint32_t val, bool retain) {
+bool MqttConnection::publish(const char *topic, uint32_t val, bool retain) {
   snprintf(g_content, sizeof(g_content), "%u", val);
   return this->publish(topic, g_content, retain);
 }
-bool MQTTClass::unpublish(const char *topic) {
+bool MqttConnection::unpublish(const char *topic) {
   if(mqttClient.connected()) {
     char top[128];
     if(strlen(settings.MQTT.rootTopic) > 0)
@@ -199,7 +172,7 @@ bool MQTTClass::unpublish(const char *topic) {
 //  mqttClient.endPublish();
 }
 
-bool MQTTClass::publishBuffer(const char *topic, uint8_t *data, uint16_t len, bool retain) {
+bool MqttConnection::publishBuffer(const char *topic, uint8_t *data, uint16_t len, bool retain) {
   size_t res;
   uint16_t offset = 0;
   uint16_t to_write = len;
@@ -216,28 +189,28 @@ bool MQTTClass::publishBuffer(const char *topic, uint8_t *data, uint16_t len, bo
   mqttClient.endPublish();
   return true;
 }
-bool MQTTClass::publishDisco(const char *topic, JsonObject &obj, bool retain) {
+bool MqttConnection::publishDisco(const char *topic, JsonObject &obj, bool retain) {
   serializeJson(obj, g_content, sizeof(g_content));
   this->publishBuffer(topic, (uint8_t *)g_content, strlen(g_content), retain);
   return true;
 }
-bool MQTTClass::publish(const char *topic, int8_t val, bool retain) {
+bool MqttConnection::publish(const char *topic, int8_t val, bool retain) {
   snprintf(g_content, sizeof(g_content), "%d", val);
   return this->publish(topic, g_content, retain);
 }
-bool MQTTClass::publish(const char *topic, uint8_t val, bool retain) {
+bool MqttConnection::publish(const char *topic, uint8_t val, bool retain) {
   snprintf(g_content, sizeof(g_content), "%u", val);
   return this->publish(topic, g_content, retain);
 }
-bool MQTTClass::publish(const char *topic, uint16_t val, bool retain) {
+bool MqttConnection::publish(const char *topic, uint16_t val, bool retain) {
   snprintf(g_content, sizeof(g_content), "%u", val);
   return this->publish(topic, g_content, retain);
 }
-bool MQTTClass::publish(const char *topic, bool val, bool retain) {
+bool MqttConnection::publish(const char *topic, bool val, bool retain) {
   snprintf(g_content, sizeof(g_content), "%s", val ? "true" : "false");
   return this->publish(topic, g_content, retain);
 }
-bool MQTTClass::connected() {
+bool MqttConnection::connected() {
   if(settings.MQTT.enabled) return mqttClient.connected();
   return false;
 }
