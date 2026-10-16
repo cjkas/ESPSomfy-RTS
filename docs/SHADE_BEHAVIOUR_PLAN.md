@@ -85,7 +85,7 @@ The decisions are the user's. Each question comes with a recommended answer, and
 ### Still open
 
 - **Reconcile: what is decided first, and in what order.** The candidates, each pinned by a "today:" test in `test_shadebehaviour` unless marked:
-  - `settingPos` is never cleared on a lift arrival, so a later step also sends a stop (`test_today_a_step_after_move_to_target_sends_a_stop`).
+  - ~~`settingPos` is never cleared on a lift arrival, so a later step also sends a stop.~~ Fixed (Q18).
   - Up and My on tilt-only shades differ between the web, a remote and a group (`test_today_up_on_tilt_only_*`, `test_today_my_while_tilt_only_moves`).
   - An integrated tilt sent to a lift target without a tilt turns its slats back with an Up after the stop (`test_today_integrated_tilt_turns_back_after_a_lift_target`).
   - A remote step uses the step size this shade last *sent*, because `copy()` never copies `stepSize` (`test_remote_step_uses_the_step_size_last_sent`).
@@ -152,3 +152,11 @@ The decisions are the user's. Each question comes with a recommended answer, and
 - **`onTxEvent` takes no `now`:** the event carries its own time.
 - **A known ordering change:** when a simMy shade's Favorite or My sends again from inside its own echo, a shade linked to it now hears the outer frame before the inner one. Before, it depended on the two shades' slots. Nothing else changes order.
 - **Flash:** `esp32dev` `firmware.bin` grows 1,397,776 → 1,399,776 B (+2,000 B, 88.6%), mostly the virtual calls through the two seams.
+
+**Reconcile round 1 (2026-10-16), all as recommended.** Each fix is one PR stacked on #47, and each changes a "today:" test.
+
+- **Q17. Order.** Clear bugs first: `settingPos` (Q18), the remote step size (Q19), group sun flags (Q20), the long-press wrap (Q21). Then the rules where the copies disagree: tilt-only Up/Down/My, and the integrated tilt turning back. The structural changes (self-echo, merging group commands, splitting `lastFrame`) wait until those are done and may be dropped.
+- **Q18. `settingPos` is cleared on a lift arrival,** as `settingTiltPos` is on a tilt arrival. A later step or group move then stops by itself instead of getting a My, which would have sent a stopped motor to its favorite.
+- **Q19. A remote's step uses the frame's own step size** (`frame.stepSize`, 1 when 0) instead of `lastFrame.stepSize`, which `copy()` never updates. `copy()` itself stays as it is.
+- **Q20. A group's SunFlag/Flag calls `onSensorFlags()`,** as the frame rule does, so every group works its flags out again.
+- **Q21. The long-press wait is wrap-safe:** `(int32_t)(now - await) > 0`.

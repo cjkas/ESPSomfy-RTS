@@ -135,6 +135,7 @@ void ShadeBehaviour::tick(uint32_t now) {
         }
       }
       this->p_direction(0);
+      this->settingPos = false;
       this->tiltStart = curTime;
       this->startTiltPos = this->s.currentTiltPos;
       if(this->isAtTarget()) this->commitShadePosition();
@@ -161,6 +162,7 @@ void ShadeBehaviour::tick(uint32_t now) {
         }
       }
       this->p_direction(0);
+      this->settingPos = false;
       this->tiltStart = curTime;
       this->startTiltPos = this->s.currentTiltPos;
       if(this->isAtTarget()) this->commitShadePosition();
