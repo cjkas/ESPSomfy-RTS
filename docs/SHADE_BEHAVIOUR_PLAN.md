@@ -1,6 +1,6 @@
 # Plan: deepen the shade behaviour
 
-**Status:** design settled (rounds 1–3, see "Decisions"), apart from the reconcile order, which waits for PR B's pinning tests. Nothing is built; PR A is next.
+**Status:** design settled (rounds 1–3, see "Decisions"), apart from the reconcile order, which waits for PR B's pinning tests. PR A (`refactor/shade-settings`) is built; PR B is next.
 **Written:** 2026-10-16, on top of `refactor/split-transports` (PR #44, the top of the LoopQueue stack #40–#44, which is not yet merged or run on a device). Line numbers refer to that branch.
 **Start here:** read [GLOSSARY.md](../GLOSSARY.md), [ADR-0002](adr/0002-loop-task-is-the-only-writer-of-the-shade-model.md) and [LOOP_QUEUE_PLAN.md](LOOP_QUEUE_PLAN.md) first. Their decisions are not reopened here.
 
@@ -125,3 +125,13 @@ The decisions are the user's. Each question comes with a recommended answer, and
   1. **PR A:** `ShadeSettings` and the `flags` split, with tests that the saved byte and JSON don't change.
   2. **PR B:** the move: `ShadeBehaviour`, `MotorLink`, `ShadeEvents`, `restore`/`setPosition`, the 12 readers and the pinning scenario tests. No behaviour change.
   3. **Reconcile:** one PR per decision. These start only after #40–#44, A and B have run on a device.
+
+**Before PR A (2026-10-16), all as recommended.** Q4 assumed every setting lives on `SomfyShade`. But `flipCommands`, `bitLength`, `repeats` and the `flags` byte are on the `SomfyRemote` base, which groups share and the send path uses.
+
+- **Q15. Two settings structs, held as bases.** `RemoteSettings` (`flipCommands`, `bitLength`, `repeats`) is a base of `SomfyRemote`, so shades and groups each have one. `ShadeSettings` (types, travel times, step size, `flipPosition`, `simMy`, `sunSensor`) is a second base of `SomfyShade`. Existing code like `shade->upTime` keeps compiling. The module will get two read-only references. That is still one copy of each, so nothing can drift.
+- **Q16. The `flags` byte.**
+  - SimMy and SunSensor are `bool`s in `ShadeSettings`, and Light is a `bool` on `SomfyShade`.
+  - SunFlag, Sunny, Windy, DemoMode and the unused Lighted stay on `SomfyShade` as `stateFlags` until PR B moves them into the module.
+  - A shade's byte is `getFlags()` (put together) and `setFlags()` (split), used by ConfigFile, JSON, MQTT, events and group flags.
+  - Groups keep their own `flags` byte (the OR of their shades), and `SomfyRemote::getFlags()` is virtual for `sendSensorCommand`.
+  - `test_shadesettings` checks that all 256 byte values come back unchanged.

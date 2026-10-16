@@ -33,7 +33,7 @@ void SomfyGroup::updateFlags() {
   for(uint8_t i = 0; i < SOMFY_MAX_GROUPED_SHADES; i++) {
     if(this->linkedShades[i] != 0) {
       SomfyShade *shade = somfy.getShadeById(this->linkedShades[i]);
-      if(shade) this->flags |= shade->flags;
+      if(shade) this->flags |= shade->getFlags();
     }
     else break;
   }

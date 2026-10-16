@@ -36,13 +36,13 @@ void snapshotShade(SomfyShade &shade, shade_snapshot_t &out) {
   out.shadeType = static_cast<uint8_t>(shade.shadeType);
   out.bitLength = shade.bitLength;
   out.proto = static_cast<uint8_t>(shade.proto);
-  out.flags = shade.flags;
+  out.flags = shade.getFlags();
   out.flipCommands = shade.flipCommands;
   out.flipPosition = shade.flipPosition;
   out.inGroup = shade.isInGroup();
-  out.sunSensor = shade.hasSunSensor();
-  out.light = shade.hasLight();
-  out.simMy = shade.simMy();
+  out.sunSensor = shade.sunSensor;
+  out.light = shade.light;
+  out.simMy = shade.simMy;
   out.repeats = shade.repeats;
   out.sortOrder = shade.sortOrder;
   out.gpioUp = shade.gpioUp;
@@ -74,7 +74,7 @@ void snapshotGroup(SomfyGroup &group, group_snapshot_t &out) {
   out.flags = 0;
   for(uint8_t i = 0; i < SOMFY_MAX_GROUPED_SHADES && group.linkedShades[i] != 0; i++) {
     SomfyShade *shade = somfy.getShadeById(group.linkedShades[i]);
-    if(shade) out.flags |= shade->flags;
+    if(shade) out.flags |= shade->getFlags();
   }
   out.linkedShadeCount = 0;
   for(uint8_t i = 0; i < SOMFY_MAX_GROUPED_SHADES; i++) {
