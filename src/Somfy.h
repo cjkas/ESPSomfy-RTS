@@ -4,14 +4,6 @@
 #include "ConfigSettings.h"
 #include "WResp.h"
 
-#define SOMFY_MAX_SHADES 32
-#define SOMFY_MAX_GROUPS 16
-#define SOMFY_MAX_LINKED_REMOTES 7
-#define SOMFY_MAX_GROUPED_SHADES 32
-#define SOMFY_MAX_ROOMS 16
-#define SOMFY_MAX_REPEATERS 7
-
-
 #include "SomfyFrame.h"
 #include "TxBuffer.h"
 #include "RadioScheduler.h"

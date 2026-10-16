@@ -2,51 +2,36 @@
 
 ## Concurrent mutation during chunked `/controller` response
 
-**Status:** open
-**Introduced:** 2026-04-19, alongside the chunked-response conversion of `/controller` (see [`ControllerChunker` in src/entryPoints/Web.cpp](../src/entryPoints/Web.cpp) and the original crash report about `cbuf::resize` aborting `async_tcp`).
+**Status:** fixed for the read routes; the web-task writers below are still open.
+**Introduced:** 2026-04-19, alongside the chunked-response conversion of `/controller` (the original crash report was about `cbuf::resize` aborting `async_tcp`).
+**Fixed:** 2026-10-16, step 2 of [LOOP_QUEUE_PLAN.md](LOOP_QUEUE_PLAN.md).
 
-### Summary
+### What it was
 
-The chunked streaming of `/controller` lazily reads `somfy.rooms`, `somfy.shades`, `somfy.groups`, and `somfy.repeaters` across many `async_tcp` callback invocations as the client's TCP send window opens. If another task mutates those arrays mid-stream, the rendered JSON can be internally inconsistent.
+The chunked `/controller` response read `somfy.rooms`, `somfy.shades`, `somfy.groups` and `somfy.repeaters` on async_tcp a piece at a time as the client's TCP window opened, for hundreds of ms to seconds. Anything that changed them meanwhile could make the document contradict itself: a deleted shade in `shades` but not in a group's `linkedShades`, two positions for one shade, a linked shade skipped or written twice. `/discovery`, `/shades` and the other reads had the same exposure, only shorter.
 
-### Why this is strictly worse than the pre-chunked code
+All eight read routes (`/controller`, `/discovery`, `/rooms`, `/shades`, `/groups`, `/room`, `/shade`, `/group`) now stream a ModelSnapshot that `loop()` fills, so each document describes one moment ([ADR-0002](adr/0002-loop-task-is-the-only-writer-of-the-shade-model.md)). That is fix option (c), taken per read in a heap slot of about 5.6 KB.
 
-The old `handleController` ran the serializers synchronously inside a single request-handler invocation, so the full JSON was built in memory *before* any bytes were sent. Window of exposure: a few milliseconds.
+### Still open
 
-The new `ControllerChunker` reads state as the response drains. On a slow link or under backpressure, that window is hundreds of ms to seconds.
-
-### Concrete failure modes
-
-1. A shade is deleted mid-stream (e.g. via `/deleteShade`) — it may appear in the `shades` array but be missing from a later group's `linkedShades`, or vice versa.
-2. `lastRollingCode` / position fields change between the `shades` pass and a later group's `linkedShades` pass — the client sees two values for the same shade in one document.
-3. A group's `linkedShades` list is mutated while the chunker iterates inside `S_GROUPS` — an entry is skipped or emitted twice.
-
-### Fix options (pick one later)
-
-- **(a) Document and accept.** In practice users rarely mutate shades while the config UI is loading. Zero code change.
-- **(b) FreeRTOS mutex around `somfy` reads/writes.** Acquire for the full duration of the chunked response and in every mutating path (RF RX, MQTT, web handlers). Cleanest but wide-reaching.
-- **(c) Up-front snapshot.** At handler start, copy the subset of `somfy` state the response will serialize into the `ControllerChunker`. Defeats part of the memory benefit — a full snapshot of shades + groups is close in size to the old growing cbuf. Could be reduced by snapshotting only minimal fields (IDs, names, rolling codes) and reading the rest live.
-
-### Related
-
-- Same exposure exists in any other endpoint converted to chunked responses next (`/discovery`, `/shades`). Resolve this issue before expanding the pattern.
-- Other handlers on the web server task still change the shade model that `loop()` owns:
+- Command and edit replies (`/shadeCommand`, `/saveShade`, `/linkRemote`, ...) still copy the one item they report from the live shade model on async_tcp, so a reply can show a value from the middle of a change. `/room`, `/shade` and `/group` also check on the live model whether the item exists, because the status goes out before the snapshot is filled.
+- Other handlers on the web server task still change the shade model that `loop()` owns (step 3 of the plan):
   - `/addRoom`, `/saveRoom`, `/deleteRoom`, `/addShade`, `/saveShade`, `/deleteShade`, `/addGroup`, `/saveGroup` and `/deleteGroup` add, change and remove rooms, shades and groups.
   - `/linkRemote` and `/unlinkRemote` change a shade's linked remotes. `/linkRemote` also sets a linked remote's rolling code, which `loop()` updates whenever it receives a frame from that remote: the last write wins, so a received frame can undo the code just set.
   - `/linkToGroup` and `/unlinkFromGroup` change a group's linked shades.
   - `/setPaired` sets `paired`.
 
   Shade requests (shade and group commands, set-My, unpair, `/setPositions`, `/setRollingCode`, and every MQTT command), a shades restore and `/updateShadeConfig` already go through the LoopQueue to `loop()`.
-- `/controller` leaves out a room, shade, group or linked shade that doesn't fit in its chunk buffer, see [Oversized `/controller` items are left out](#oversized-controller-items-are-left-out).
+- The read routes leave out an item that doesn't fit their 3 KB unit, see [Oversized read items are left out](#oversized-read-items-are-left-out).
 
-## Oversized `/controller` items are left out
+## Oversized read items are left out
 
 **Status:** open
-**Location:** `ControllerChunker::overflowed` in [src/entryPoints/Web.cpp](../src/entryPoints/Web.cpp).
+**Location:** `SnapshotWriter::overflowed` in [src/ModelSnapshot.cpp](../src/ModelSnapshot.cpp).
 
 ### Summary
 
-`ControllerChunker` builds each room, shade, group and linked shade into a 3 KB buffer before sending it. When one doesn't fit, the chunker logs an `ESP_LOGE` line, skips that item and carries on, so the document stays valid JSON. The client gets no sign that anything is missing: the item just isn't in the list.
+Every read route builds each room, shade, group and linked shade into a 3 KB unit before sending it. When one doesn't fit, the writer logs an `ESP_LOGE` line, skips that item and carries on, so the document stays valid JSON. The client gets no sign that anything is missing: the item just isn't in the list. Before step 2 only `/controller` did this; `/discovery`, `/shades` and the rest grew their buffer instead.
 
 A shade with every linked remote populated is about 1.5 KB today, so nothing overflows yet. It becomes a silent loss as soon as a change to the shade, room or group fields pushes an item past 3 KB.
 
@@ -90,12 +75,12 @@ Unlike the `/controller` HTTP crash, this path does **not** abort — there is n
 
 - Not the same code path as the `/controller` crash. Solve independently.
 - Worth grepping for `JsonSockEvent` usages that iterate collections (see references in `SomfyEvents.cpp`, `Transceiver.cpp`, `ESPNetwork.cpp`, `GitOTA.cpp`) to identify the most at-risk events.
-- [Group reads emit events from the web server task](#group-reads-emit-events-from-the-web-server-task): a second task writing the same buffer.
+- [Group reads emit events from the web server task](#group-reads-emit-events-from-the-web-server-task) (fixed): a second task writing the same buffer.
 
 ## Group reads emit events from the web server task
 
-**Status:** open
-**Location:** `serializeGroupRef` in [src/entryPoints/Web.cpp](../src/entryPoints/Web.cpp) calls `SomfyGroup::updateFlags()` in [src/SomfyGroup.cpp](../src/SomfyGroup.cpp).
+**Status:** fixed 2026-10-16, step 2 of [LOOP_QUEUE_PLAN.md](LOOP_QUEUE_PLAN.md) (fix option (a)). Read routes write from a ModelSnapshot, and the replies still written on async_tcp copy the group with `snapshotGroup()`, which works its flags out without changing the group or sending anything.
+**Location:** `serializeGroupRef` in [src/entryPoints/Web.cpp](../src/entryPoints/Web.cpp) called `SomfyGroup::updateFlags()` in [src/SomfyGroup.cpp](../src/SomfyGroup.cpp).
 
 ### Summary
 

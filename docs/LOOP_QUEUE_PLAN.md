@@ -1,6 +1,6 @@
 # Plan: domain modules behind the LoopQueue
 
-**Status:** steps 0 and 1 built (PRs #39 and #40); steps 2–5 planned.
+**Status:** steps 0–2 built (PRs #39, #40 and #41); steps 3–5 planned.
 **Written:** 2026-10-15, against commit `e624a41` on `refactor/entry-points-outputs`. Terms are defined in [GLOSSARY.md](../GLOSSARY.md); the threading rule is [ADR-0002](adr/0002-loop-task-is-the-only-writer-of-the-shade-model.md).
 
 ## Why
@@ -129,6 +129,20 @@ Each step is a PR of its own that can be tested on the device. Each one runs `pi
 `WebCommand.h` became `LoopQueue.h` (the item and the hold rule) and `ShadeRequests.h` (the request, the `ShadeOps` seam and the module). `SomfyShadeOps` is the device side of the seam. `entryPoints/MqttCommands` holds the topic parsing. There are 45 new native tests (271 in all).
 
 Flash: `esp32devdbg` 1,546,405 → 1,547,381 bytes, `esp32dev` 1,396,957 → 1,398,337 bytes.
+
+### Step 2: what changed in behaviour
+- **Each read describes one moment.** `/controller`, `/discovery`, `/rooms`, `/shades`, `/groups`, `/room`, `/shade` and `/group` stream a ModelSnapshot that `loop()` fills. The first two KNOWN_ISSUES items about `/controller` are fixed for reads.
+- **Every read is chunked.** `/discovery`, `/shades` and the rest used to be built whole into a growing response buffer, the path of the old `cbuf::resize` crash.
+- **A read waits for `loop()`.** The headers go out at once; the body follows once the snapshot is filled. That is usually one `loop()` pass, but if the headers' ACK comes back first the library only asks again on its next poll, up to about 500 ms later. A read queued behind a command that waits for the radio waits with it.
+- **At most two reads at once.** A third gets 503 "Busy, try the read again". Each read holds a 5.6 KB snapshot and a 3 KB unit on the heap only while it runs.
+- **An item too big for the 3 KB unit is left out of every read route**, not only `/controller` (see KNOWN_ISSUES).
+- **`/room`, `/shade` and `/group`** still answer 500 for an id that doesn't exist. If the item disappears between that check and the snapshot, the reply is 200 with `{"status":"ERROR","desc":"… Id not found."}`.
+- **Group flags in replies are worked out without side effects.** Serializing a group no longer calls `updateFlags()`, which sent `groupState` and published MQTT from the web server task.
+- **`/discovery` no longer logs where its time went.** Building it is now spread over the chunks.
+
+`ModelSnapshot.h/.cpp` holds the snapshot types, the JSON for each item, `SnapshotWriter` (the eight documents, built a unit at a time) and `SnapshotSlots`. `SomfySnapshot.cpp` copies the shade model into it, for `loop()`'s fills and for the replies still written on the web server task. The `SOMFY_MAX_*` limits moved to `ShadeTypes.h` so the native tests can use them. 21 new native tests, 292 in all.
+
+Flash: `esp32devdbg` 1,547,381 → 1,547,821 bytes, `esp32dev` 1,398,337 → 1,400,401 bytes.
 
 ### Step 0 on a device
 NVS stays at `0x9000`, so the rolling codes survive. The file system partition shrinks from `0xE0000` to `0xD0000`, and the existing LittleFS won't mount, because `LittleFS.begin()` doesn't format. So:

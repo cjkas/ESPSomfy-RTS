@@ -2,8 +2,16 @@
 #define SHADE_TYPES_H
 #include <Arduino.h>
 
-// The kinds of shade, tilt and group.  Kept free of the shade model so the
-// shade maths can use them in the unit tests on the PC (pio test -e native).
+// The kinds of shade, tilt and group, and how many of each the shade model
+// holds.  Kept free of the shade model so the shade maths can use them in the
+// unit tests on the PC (pio test -e native).
+
+#define SOMFY_MAX_SHADES 32
+#define SOMFY_MAX_GROUPS 16
+#define SOMFY_MAX_LINKED_REMOTES 7
+#define SOMFY_MAX_GROUPED_SHADES 32
+#define SOMFY_MAX_ROOMS 16
+#define SOMFY_MAX_REPEATERS 7
 
 enum class group_types : byte {
   channel = 0x00

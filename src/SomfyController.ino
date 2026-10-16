@@ -12,6 +12,7 @@
 #include "LoopQueue.h"
 #include "ShadeRequests.h"
 #include "SomfyShadeOps.h"
+#include "ModelSnapshot.h"
 #include "GitOTA.h"
 #include "esp_core_dump.h"
 #include "esp_system.h"
@@ -39,6 +40,7 @@ GitUpdater git;
 SomfyShadeOps shadeOps;
 ShadeRequests shadeRequests(shadeOps);
 LoopQueue loopQueue;
+SnapshotSlots snapshotSlots;
 
 uint32_t oldheap = 0;
 

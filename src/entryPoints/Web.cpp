@@ -11,6 +11,8 @@
 #include "Somfy.h"
 #include "WResp.h"
 #include "LoopQueue.h"
+#include "ModelSnapshot.h"
+#include "SomfySnapshot.h"
 #include "Web.h"
 #include "MQTT.h"
 #include "GitOTA.h"
@@ -30,12 +32,11 @@ extern MQTTClass mqtt;
 extern GitUpdater git;
 extern ESPNetwork net;
 extern LoopQueue loopQueue;
+extern SnapshotSlots snapshotSlots;
 
 //#define WEB_MAX_RESPONSE 34768
 #define WEB_MAX_RESPONSE 4096
 static char g_async_content[WEB_MAX_RESPONSE];
-// /discovery logs where its time went when it takes at least this long.
-#define DISCOVERY_SLOW_MS 50
 
 
 // General responses
@@ -202,140 +203,42 @@ static bool asyncHasParam(AsyncWebServerRequest *request, const char *name) {
   return request->hasParam(name);
 }
 
-// -- Serialization helpers (accept JsonFormatter& so both sync and async can use them) --
+// -- Serialization helpers --
+// Replies that still read the live shade model on this task (command and edit
+// replies) copy one item into the ModelSnapshot types and write it the way the
+// read routes do.  The read routes themselves write from a ModelSnapshot that
+// loop() fills (sendSnapshot).
 static void serializeRoom(SomfyRoom *room, JsonFormatter &json) {
-  json.addElem("roomId", room->roomId);
-  json.addElem("name", room->name);
-  json.addElem("sortOrder", room->sortOrder);
+  room_snapshot_t s;
+  snapshotRoom(*room, s);
+  writeRoom(json, s);
 }
 static void serializeShadeRef(SomfyShade *shade, JsonFormatter &json) {
-  json.addElem("shadeId", shade->getShadeId());
-  json.addElem("roomId", shade->roomId);
-  json.addElem("name", shade->name);
-  json.addElem("remoteAddress", (uint32_t)shade->getRemoteAddress());
-  json.addElem("paired", shade->paired);
-  json.addElem("shadeType", static_cast<uint8_t>(shade->shadeType));
-  json.addElem("flipCommands", shade->flipCommands);
-  json.addElem("flipPosition", shade->flipPosition);
-  json.addElem("bitLength", shade->bitLength);
-  json.addElem("proto", static_cast<uint8_t>(shade->proto));
-  json.addElem("flags", shade->flags);
-  json.addElem("sunSensor", shade->hasSunSensor());
-  json.addElem("hasLight", shade->hasLight());
-  json.addElem("repeats", shade->repeats);
+  shade_snapshot_t s;
+  snapshotShade(*shade, s);
+  writeShadeRef(json, s);
 }
 // paired and lastRollingCode are passed in for a response that reports the
 // change the main loop is about to make.  An unpair is held until it goes on
 // air (holdLoopItem), so the answer comes true.
 static void serializeShade(SomfyShade *shade, JsonFormatter &json, bool paired, uint16_t lastRollingCode) {
-  json.addElem("shadeId", shade->getShadeId());
-  json.addElem("roomId", shade->roomId);
-  json.addElem("name", shade->name);
-  json.addElem("remoteAddress", (uint32_t)shade->getRemoteAddress());
-  json.addElem("upTime", (uint32_t)shade->upTime);
-  json.addElem("downTime", (uint32_t)shade->downTime);
-  json.addElem("paired", paired);
-  json.addElem("lastRollingCode", (uint32_t)lastRollingCode);
-  json.addElem("position", shade->transformPosition(shade->currentPos));
-  json.addElem("tiltType", static_cast<uint8_t>(shade->tiltType));
-  json.addElem("tiltPosition", shade->transformPosition(shade->currentTiltPos));
-  json.addElem("tiltDirection", shade->tiltDirection);
-  json.addElem("tiltTime", (uint32_t)shade->tiltTime);
-  json.addElem("stepSize", (uint32_t)shade->stepSize);
-  json.addElem("tiltTarget", shade->transformPosition(shade->tiltTarget));
-  json.addElem("target", shade->transformPosition(shade->target));
-  json.addElem("myPos", shade->transformPosition(shade->myPos));
-  json.addElem("myTiltPos", shade->transformPosition(shade->myTiltPos));
-  json.addElem("direction", shade->direction);
-  json.addElem("shadeType", static_cast<uint8_t>(shade->shadeType));
-  json.addElem("bitLength", shade->bitLength);
-  json.addElem("proto", static_cast<uint8_t>(shade->proto));
-  json.addElem("flags", shade->flags);
-  json.addElem("flipCommands", shade->flipCommands);
-  json.addElem("flipPosition", shade->flipPosition);
-  json.addElem("inGroup", shade->isInGroup());
-  json.addElem("sunSensor", shade->hasSunSensor());
-  json.addElem("light", shade->hasLight());
-  json.addElem("repeats", shade->repeats);
-  json.addElem("sortOrder", shade->sortOrder);
-  json.addElem("gpioUp", shade->gpioUp);
-  json.addElem("gpioDown", shade->gpioDown);
-  json.addElem("gpioMy", shade->gpioMy);
-  json.addElem("gpioLLTrigger", ((shade->gpioFlags & (uint8_t)gpio_flags_t::LowLevelTrigger) == 0) ? false : true);
-  json.addElem("simMy", shade->simMy());
-  json.beginArray("linkedRemotes");
-  for(uint8_t i = 0; i < SOMFY_MAX_LINKED_REMOTES; i++) {
-    SomfyLinkedRemote &lremote = shade->linkedRemotes[i];
-    if(lremote.getRemoteAddress() != 0) {
-      json.beginObject();
-      json.addElem("remoteAddress", (uint32_t)lremote.getRemoteAddress());
-      json.addElem("lastRollingCode", (uint32_t)lremote.lastRollingCode);
-      json.endObject();
-    }
-  }
-  json.endArray();
+  shade_snapshot_t s;
+  snapshotShade(*shade, s);
+  s.paired = paired;
+  s.lastRollingCode = lastRollingCode;
+  writeShade(json, s);
 }
 static void serializeShade(SomfyShade *shade, JsonFormatter &json) { serializeShade(shade, json, shade->paired, shade->lastRollingCode); }
 static void serializeGroupRef(SomfyGroup *group, JsonFormatter &json) {
-  group->updateFlags();
-  json.addElem("groupId", group->getGroupId());
-  json.addElem("roomId", group->roomId);
-  json.addElem("name", group->name);
-  json.addElem("remoteAddress", (uint32_t)group->getRemoteAddress());
-  json.addElem("lastRollingCode", (uint32_t)group->lastRollingCode);
-  json.addElem("bitLength", group->bitLength);
-  json.addElem("proto", static_cast<uint8_t>(group->proto));
-  json.addElem("sunSensor", group->hasSunSensor());
-  json.addElem("flipCommands", group->flipCommands);
-  json.addElem("flags", group->flags);
-  json.addElem("repeats", group->repeats);
-  json.addElem("sortOrder", group->sortOrder);
+  group_snapshot_t s;
+  snapshotGroup(*group, s);
+  writeGroupRef(json, s);
 }
 static void serializeGroup(SomfyGroup *group, JsonFormatter &json) {
-  serializeGroupRef(group, json);
-  json.beginArray("linkedShades");
-  for(uint8_t i = 0; i < SOMFY_MAX_GROUPED_SHADES; i++) {
-    uint8_t shadeId = group->linkedShades[i];
-    if(shadeId > 0 && shadeId < 255) {
-      SomfyShade *shade = somfy.getShadeById(shadeId);
-      if(shade) {
-        json.beginObject();
-        serializeShadeRef(shade, json);
-        json.endObject();
-      }
-    }
-  }
-  json.endArray();
-}
-static void serializeRooms(JsonFormatter &json) {
-  for(uint8_t i = 0; i < SOMFY_MAX_ROOMS; i++) {
-    SomfyRoom *room = &somfy.rooms[i];
-    if(room->roomId != 0) {
-      json.beginObject();
-      serializeRoom(room, json);
-      json.endObject();
-    }
-  }
-}
-static void serializeShades(JsonFormatter &json) {
-  for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
-    SomfyShade &shade = somfy.shades[i];
-    if(shade.getShadeId() != 255) {
-      json.beginObject();
-      serializeShade(&shade, json);
-      json.endObject();
-    }
-  }
-}
-static void serializeGroups(JsonFormatter &json) {
-  for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++) {
-    SomfyGroup &group = somfy.groups[i];
-    if(group.getGroupId() != 255) {
-      json.beginObject();
-      serializeGroup(&group, json);
-      json.endObject();
-    }
-  }
+  group_snapshot_t s;
+  snapshotGroup(*group, s);
+  shade_snapshot_t linked;
+  writeGroup(json, s, liveShade, &linked);
 }
 static void serializeRepeaters(JsonFormatter &json) {
   for(uint8_t i = 0; i < SOMFY_MAX_REPEATERS; i++) {
@@ -401,318 +304,117 @@ static void serializeGitRelease(GitRelease *rel, JsonFormatter &json) {
   json.endObject();
 }
 
-// Memory-bounded streaming builder for /controller. Produces the JSON payload
-// one small unit at a time into a fixed 3KB buffer, so a chunked HTTP response
-// can drain it as the TCP send window allows — no growing cbuf in the async
-// response stream.
-class ControllerChunker {
-public:
-  enum : uint8_t { S_HEADER, S_ROOMS, S_SHADES, S_GROUPS, S_REPEATERS, S_DONE };
-  static constexpr uint16_t LS_OPEN = 0xFFFF;
+// The parts of /controller that aren't in the shade model.
+static void controllerHeader(JsonFormatter &json, const model_snapshot_t &snap) {
+  json.addElem("maxRooms", (uint8_t)SOMFY_MAX_ROOMS);
+  json.addElem("maxShades", (uint8_t)SOMFY_MAX_SHADES);
+  json.addElem("maxGroups", (uint8_t)SOMFY_MAX_GROUPS);
+  json.addElem("maxGroupedShades", (uint8_t)SOMFY_MAX_GROUPED_SHADES);
+  json.addElem("maxLinkedRemotes", (uint8_t)SOMFY_MAX_LINKED_REMOTES);
+  json.addElem("startingAddress", snap.startingAddress);
+  json.beginObject("transceiver");
+  json.beginObject("config");
+  serializeTransceiverConfig(json);
+  json.endObject();
+  json.endObject();
+  json.beginObject("version");
+  serializeGitVersion(json);
+  json.endObject();
+}
+// The parts of /discovery that aren't in the shade model.
+static void discoveryHeader(JsonFormatter &json, const model_snapshot_t &snap) {
+  (void)snap;
+  const char *connType = "Unknown";
+  if(net.connType == conn_types_t::ethernet) connType = "Ethernet";
+  else if(net.connType == conn_types_t::wifi) connType = "Wifi";
+  json.addElem("serverId", settings.serverId);
+  json.addElem("version", settings.fwVersion.name);
+  json.addElem("latest", git.latest.name);
+  json.addElem("model", "ESPSomfyRTS");
+  json.addElem("hostname", settings.hostname);
+  json.addElem("authType", static_cast<uint8_t>(settings.Security.type));
+  json.addElem("permissions", settings.Security.permissions);
+  json.addElem("chipModel", settings.chipModel);
+  json.addElem("connType", connType);
+  json.addElem("checkForUpdate", settings.checkForUpdate);
+  json.beginObject("memory");
+  json.addElem("max", ESP.getMaxAllocHeap());
+  json.addElem("free", ESP.getFreeHeap());
+  json.addElem("min", ESP.getMinFreeHeap());
+  json.addElem("total", ESP.getHeapSize());
+  json.addElem("uptime", (uint64_t)millis());
+  json.endObject();
+}
 
-  BufferedJsonFormatter fmt;
+// A read served from a ModelSnapshot that loop() fills, so the document
+// describes one moment (docs/adr/0002-loop-task-is-the-only-writer-of-the-shade-model.md).
+// Each item is formatted into a fixed 3 KB unit and streamed as the TCP send
+// window allows, so there is no growing response buffer either.
+struct SnapshotRead {
+  uint8_t slot;
   char unit[3072];
-  size_t unitLen = 0;
-  size_t consumed = 0;
-  uint8_t section = S_HEADER;
-  uint16_t idx = 0;
-  uint16_t lsIdx = LS_OPEN;
-  bool firstInArray = true;
-  bool firstInLSArray = true;
-
-  size_t generate(uint8_t *out, size_t maxLen) {
-    size_t written = 0;
-    while(written < maxLen) {
-      if(consumed < unitLen) {
-        size_t n = unitLen - consumed;
-        if(n > maxLen - written) n = maxLen - written;
-        memcpy(out + written, unit + consumed, n);
-        consumed += n;
-        written += n;
-      } else {
-        produceNext();
-        if(unitLen == 0) return written;
-      }
-    }
-    return written;
-  }
-
-private:
-  void resetFmt(size_t offset = 0) {
-    unit[offset] = 0;
-    fmt.setBuffer(unit + offset, sizeof(unit) - offset);
-  }
-
-  // An item too big for the unit buffer is left out so the JSON stays valid.
-  // Skipping one produces nothing, so go on to the next until something is
-  // produced or the document is done.
-  void produceNext() {
-    consumed = 0;
-    do produceUnit(); while(unitLen == 0 && section != S_DONE);
-  }
-
-  // True when the unit just formatted didn't fit.  It is logged and skipped.
-  bool overflowed(const char *what, uint8_t id) {
-    if(!fmt.overflowed()) return false;
-    ESP_LOGE(TAG, "/controller: %s %u doesn't fit in %u bytes, leaving it out", what, id, (unsigned)sizeof(unit));
-    unitLen = 0;
-    return true;
-  }
-
-  void produceUnit() {
-    unitLen = 0;
-    switch(section) {
-      case S_HEADER: {
-        resetFmt();
-        fmt.beginObject();
-        fmt.addElem("maxRooms", (uint8_t)SOMFY_MAX_ROOMS);
-        fmt.addElem("maxShades", (uint8_t)SOMFY_MAX_SHADES);
-        fmt.addElem("maxGroups", (uint8_t)SOMFY_MAX_GROUPS);
-        fmt.addElem("maxGroupedShades", (uint8_t)SOMFY_MAX_GROUPED_SHADES);
-        fmt.addElem("maxLinkedRemotes", (uint8_t)SOMFY_MAX_LINKED_REMOTES);
-        fmt.addElem("startingAddress", (uint32_t)somfy.startingAddress);
-        fmt.beginObject("transceiver");
-        fmt.beginObject("config");
-        serializeTransceiverConfig(fmt);
-        fmt.endObject();
-        fmt.endObject();
-        fmt.beginObject("version");
-        serializeGitVersion(fmt);
-        fmt.endObject();
-        fmt.beginArray("rooms");
-        // Only fixed size values so this can't happen short of a bug.
-        if(fmt.overflowed()) ESP_LOGE(TAG, "/controller: header doesn't fit in %u bytes", (unsigned)sizeof(unit));
-        unitLen = fmt.length();
-        section = S_ROOMS;
-        idx = 0;
-        firstInArray = true;
-        return;
-      }
-      case S_ROOMS: {
-        while(idx < SOMFY_MAX_ROOMS && somfy.rooms[idx].roomId == 0) idx++;
-        if(idx >= SOMFY_MAX_ROOMS) {
-          strcpy(unit, "],\"shades\":[");
-          unitLen = strlen(unit);
-          section = S_SHADES;
-          idx = 0;
-          firstInArray = true;
-          return;
-        }
-        size_t pos = 0;
-        if(!firstInArray) unit[pos++] = ',';
-        resetFmt(pos);
-        fmt.beginObject();
-        serializeRoom(&somfy.rooms[idx], fmt);
-        fmt.endObject();
-        if(overflowed("room", somfy.rooms[idx].roomId)) { idx++; return; }
-        unitLen = pos + fmt.length();
-        idx++;
-        firstInArray = false;
-        return;
-      }
-      case S_SHADES: {
-        while(idx < SOMFY_MAX_SHADES && somfy.shades[idx].getShadeId() == 255) idx++;
-        if(idx >= SOMFY_MAX_SHADES) {
-          strcpy(unit, "],\"groups\":[");
-          unitLen = strlen(unit);
-          section = S_GROUPS;
-          idx = 0;
-          lsIdx = LS_OPEN;
-          firstInArray = true;
-          return;
-        }
-        size_t pos = 0;
-        if(!firstInArray) unit[pos++] = ',';
-        resetFmt(pos);
-        fmt.beginObject();
-        serializeShade(&somfy.shades[idx], fmt);
-        fmt.endObject();
-        if(overflowed("shade", somfy.shades[idx].getShadeId())) { idx++; return; }
-        unitLen = pos + fmt.length();
-        idx++;
-        firstInArray = false;
-        return;
-      }
-      case S_GROUPS: {
-        while(idx < SOMFY_MAX_GROUPS && somfy.groups[idx].getGroupId() == 255) idx++;
-        if(idx >= SOMFY_MAX_GROUPS) {
-          strcpy(unit, "],\"repeaters\":[");
-          unitLen = strlen(unit);
-          section = S_REPEATERS;
-          idx = 0;
-          firstInArray = true;
-          return;
-        }
-        SomfyGroup *g = &somfy.groups[idx];
-        if(lsIdx == LS_OPEN) {
-          size_t pos = 0;
-          if(!firstInArray) unit[pos++] = ',';
-          resetFmt(pos);
-          fmt.beginObject();
-          serializeGroupRef(g, fmt);
-          fmt.beginArray("linkedShades");
-          if(overflowed("group", g->getGroupId())) { idx++; return; }
-          unitLen = pos + fmt.length();
-          lsIdx = 0;
-          firstInArray = false;
-          firstInLSArray = true;
-          return;
-        }
-        SomfyShade *lshade = nullptr;
-        while(lsIdx < SOMFY_MAX_GROUPED_SHADES) {
-          uint8_t sid = g->linkedShades[lsIdx];
-          if(sid > 0 && sid < 255) {
-            lshade = somfy.getShadeById(sid);
-            if(lshade) break;
-          }
-          lsIdx++;
-        }
-        if(!lshade) {
-          strcpy(unit, "]}");
-          unitLen = 2;
-          idx++;
-          lsIdx = LS_OPEN;
-          return;
-        }
-        size_t pos = 0;
-        if(!firstInLSArray) unit[pos++] = ',';
-        resetFmt(pos);
-        fmt.beginObject();
-        serializeShadeRef(lshade, fmt);
-        fmt.endObject();
-        if(overflowed("linked shade", lshade->getShadeId())) { lsIdx++; return; }
-        unitLen = pos + fmt.length();
-        lsIdx++;
-        firstInLSArray = false;
-        return;
-      }
-      case S_REPEATERS: {
-        while(idx < SOMFY_MAX_REPEATERS && somfy.repeaters[idx] == 0) idx++;
-        if(idx >= SOMFY_MAX_REPEATERS) {
-          strcpy(unit, "]}");
-          unitLen = 2;
-          section = S_DONE;
-          return;
-        }
-        size_t pos = 0;
-        if(!firstInArray) unit[pos++] = ',';
-        pos += snprintf(unit + pos, sizeof(unit) - pos, "%lu", (unsigned long)somfy.repeaters[idx]);
-        unitLen = pos;
-        idx++;
-        firstInArray = false;
-        return;
-      }
-      case S_DONE:
-      default:
-        unitLen = 0;
-        return;
-    }
-  }
+  SnapshotWriter writer;
+  SnapshotRead(uint8_t slot, snapshot_doc_t doc, uint8_t id, snapshot_header_t header)
+    : slot(slot), writer(snapshotSlots.snapshot(slot), doc, id, header, unit, sizeof(unit)) {}
+  // The response is gone, whether it finished or the client went away.
+  ~SnapshotRead() { snapshotSlots.release(this->slot); }
 };
+static void sendSnapshot(AsyncWebServerRequest *request, snapshot_doc_t doc, uint8_t id = 0, snapshot_header_t header = nullptr) {
+  const int8_t slot = snapshotSlots.acquire();
+  if(slot < 0) {
+    request->send(503, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Busy, try the read again\"}"));
+    return;
+  }
+  loop_item_t item;
+  item.type = loop_item_type_t::snapshot_fill;
+  item.slot = static_cast<uint8_t>(slot);
+  if(!loopQueue.submit(item)) {
+    snapshotSlots.cancel(slot);
+    sendQueueFull(request);
+    return;
+  }
+  auto read = std::make_shared<SnapshotRead>(static_cast<uint8_t>(slot), doc, id, header);
+  // The headers go now; the body waits until loop() has filled the snapshot.
+  // The library asks again on the next ACK or poll.
+  AsyncWebServerResponse *response = request->beginChunkedResponse(_encoding_json,
+    [read](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
+      (void)index;
+      if(!snapshotSlots.filled(read->slot)) return RESPONSE_TRY_AGAIN;
+      return read->writer.generate(buffer, maxLen);
+    });
+  request->send(response);
+}
 
 // -- Async handler implementations --
 void Web::handleDiscovery(AsyncWebServerRequest *request) {
   if(request->method() == HTTP_POST || request->method() == HTTP_GET) {
     ESP_LOGD(TAG, "Async Discovery Requested");
-    char connType[10] = "Unknown";
-    if(net.connType == conn_types_t::ethernet) strcpy(connType, "Ethernet");
-    else if(net.connType == conn_types_t::wifi) strcpy(connType, "Wifi");
-    // This handler runs on the async_tcp task, which also serves the sockets,
-    // so a slow one is logged with where its time went.
-    ElapsedTimer total, step;
-    uint32_t usHead, usMem, usRooms, usShades, usGroups, usSend;
-    AsyncJsonResp resp;
-    resp.beginResponse(request, g_async_content, sizeof(g_async_content));
-    resp.beginObject();
-    resp.addElem("serverId", settings.serverId);
-    resp.addElem("version", settings.fwVersion.name);
-    resp.addElem("latest", git.latest.name);
-    resp.addElem("model", "ESPSomfyRTS");
-    resp.addElem("hostname", settings.hostname);
-    resp.addElem("authType", static_cast<uint8_t>(settings.Security.type));
-    resp.addElem("permissions", settings.Security.permissions);
-    resp.addElem("chipModel", settings.chipModel);
-    resp.addElem("connType", connType);
-    resp.addElem("checkForUpdate", settings.checkForUpdate);
-    usHead = step.lap();
-    resp.beginObject("memory");
-    resp.addElem("max", ESP.getMaxAllocHeap());
-    resp.addElem("free", ESP.getFreeHeap());
-    resp.addElem("min", ESP.getMinFreeHeap());
-    resp.addElem("total", ESP.getHeapSize());
-    resp.addElem("uptime", (uint64_t)millis());
-    resp.endObject();
-    usMem = step.lap();
-    resp.beginArray("rooms");
-    serializeRooms(resp);
-    resp.endArray();
-    usRooms = step.lap();
-    resp.beginArray("shades");
-    serializeShades(resp);
-    resp.endArray();
-    usShades = step.lap();
-    resp.beginArray("groups");
-    serializeGroups(resp);
-    resp.endArray();
-    resp.endObject();
-    usGroups = step.lap();
-    resp.endResponse();
-    usSend = step.us();
+    sendSnapshot(request, snapshot_doc_t::discovery, 0, discoveryHeader);
     net.needsBroadcast = true;
-    if(total.us() >= DISCOVERY_SLOW_MS * 1000) {
-      ESP_LOGW(TAG, "discovery: head %.1f mem %.1f rooms %.1f shades %.1f groups %.1f send %.1f ms",
-        usHead / 1000.0f, usMem / 1000.0f, usRooms / 1000.0f, usShades / 1000.0f, usGroups / 1000.0f, usSend / 1000.0f);
-    }
   }
   else
     request->send(500, _encoding_text, "Invalid http method");
 }
 void Web::handleGetRooms(AsyncWebServerRequest *request) {
   if(!this->isAuthenticated(request)) return;
-  if(request->method() == HTTP_POST || request->method() == HTTP_GET) {
-    AsyncJsonResp resp;
-    resp.beginResponse(request, g_async_content, sizeof(g_async_content));
-    resp.beginArray();
-    serializeRooms(resp);
-    resp.endArray();
-    resp.endResponse();
-  }
+  if(request->method() == HTTP_POST || request->method() == HTTP_GET) sendSnapshot(request, snapshot_doc_t::rooms);
   else request->send(404, _encoding_text, _response_404);
 }
 void Web::handleGetShades(AsyncWebServerRequest *request) {
   if(!this->isAuthenticated(request)) return;
-  if(request->method() == HTTP_POST || request->method() == HTTP_GET) {
-    AsyncJsonResp resp;
-    resp.beginResponse(request, g_async_content, sizeof(g_async_content));
-    resp.beginArray();
-    serializeShades(resp);
-    resp.endArray();
-    resp.endResponse();
-  }
+  if(request->method() == HTTP_POST || request->method() == HTTP_GET) sendSnapshot(request, snapshot_doc_t::shades);
   else request->send(404, _encoding_text, _response_404);
 }
 void Web::handleGetGroups(AsyncWebServerRequest *request) {
   if(!this->isAuthenticated(request)) return;
-  if(request->method() == HTTP_POST || request->method() == HTTP_GET) {
-    AsyncJsonResp resp;
-    resp.beginResponse(request, g_async_content, sizeof(g_async_content));
-    resp.beginArray();
-    serializeGroups(resp);
-    resp.endArray();
-    resp.endResponse();
-  }
+  if(request->method() == HTTP_POST || request->method() == HTTP_GET) sendSnapshot(request, snapshot_doc_t::groups);
   else request->send(404, _encoding_text, _response_404);
 }
 void Web::handleController(AsyncWebServerRequest *request) {
   if(!this->isAuthenticated(request)) return;
   if(request->method() == HTTP_POST || request->method() == HTTP_GET) {
     settings.printAvailHeap();
-    auto state = std::make_shared<ControllerChunker>();
-    AsyncWebServerResponse *response = request->beginChunkedResponse(_encoding_json,
-      [state](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
-        return state->generate(buffer, maxLen);
-      });
-    request->send(response);
+    sendSnapshot(request, snapshot_doc_t::controller, 0, controllerHeader);
   }
   else request->send(404, _encoding_text, _response_404);
 }
@@ -923,15 +625,9 @@ void Web::handleRoom(AsyncWebServerRequest *request) {
   if(request->method() == HTTP_GET) {
     if(asyncHasParam(request, "roomId")) {
       int roomId = asyncParam(request, "roomId").toInt();
-      SomfyRoom *room = somfy.getRoomById(roomId);
-      if(room) {
-        AsyncJsonResp resp;
-        resp.beginResponse(request, g_async_content, sizeof(g_async_content));
-        resp.beginObject();
-        serializeRoom(room, resp);
-        resp.endObject();
-        resp.endResponse();
-      }
+      // The status goes out before the snapshot is filled, so whether the room
+      // exists is checked here, on the live model.
+      if(somfy.getRoomById(roomId)) sendSnapshot(request, snapshot_doc_t::room, roomId);
       else request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Room Id not found.\"}"));
     }
     else request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"You must supply a valid room id.\"}"));
@@ -944,15 +640,8 @@ void Web::handleShade(AsyncWebServerRequest *request) {
   if(request->method() == HTTP_GET) {
     if(asyncHasParam(request, "shadeId")) {
       int shadeId = asyncParam(request, "shadeId").toInt();
-      SomfyShade *shade = somfy.getShadeById(shadeId);
-      if(shade) {
-        AsyncJsonResp resp;
-        resp.beginResponse(request, g_async_content, sizeof(g_async_content));
-        resp.beginObject();
-        serializeShade(shade, resp);
-        resp.endObject();
-        resp.endResponse();
-      }
+      // As for /room, existence is checked on the live model.
+      if(somfy.getShadeById(shadeId)) sendSnapshot(request, snapshot_doc_t::shade, shadeId);
       else request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade Id not found.\"}"));
     }
     else request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"You must supply a valid shade id.\"}"));
@@ -965,15 +654,8 @@ void Web::handleGroup(AsyncWebServerRequest *request) {
   if(request->method() == HTTP_GET) {
     if(asyncHasParam(request, "groupId")) {
       int groupId = asyncParam(request, "groupId").toInt();
-      SomfyGroup *group = somfy.getGroupById(groupId);
-      if(group) {
-        AsyncJsonResp resp;
-        resp.beginResponse(request, g_async_content, sizeof(g_async_content));
-        resp.beginObject();
-        serializeGroup(group, resp);
-        resp.endObject();
-        resp.endResponse();
-      }
+      // As for /room, existence is checked on the live model.
+      if(somfy.getGroupById(groupId)) sendSnapshot(request, snapshot_doc_t::group, groupId);
       else request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Group Id not found.\"}"));
     }
     else request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"You must supply a valid group id.\"}"));
