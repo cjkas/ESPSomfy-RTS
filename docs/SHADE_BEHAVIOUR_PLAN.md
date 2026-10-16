@@ -89,7 +89,7 @@ The decisions are the user's. Each question comes with a recommended answer, and
   - Up and My on tilt-only shades differ between the web, a remote and a group (`test_today_up_on_tilt_only_*`, `test_today_my_while_tilt_only_moves`).
   - An integrated tilt sent to a lift target without a tilt turns its slats back with an Up after the stop (`test_today_integrated_tilt_turns_back_after_a_lift_target`).
   - ~~A remote step uses the step size this shade last *sent*.~~ Fixed (Q19).
-  - A group's SunFlag or Flag doesn't make other groups work their flags out again (`test_group_sun_flag_needs_a_sensor`).
+  - ~~A group's SunFlag or Flag doesn't make other groups work their flags out again.~~ Fixed (Q20).
   - The self-echo (Q5) and merging group commands into the frame rule (Q8).
   - `lastFrame` doing two jobs (the Q6 revisit).
   - The 500 ms long-press deadline is compared as `now > await`, which isn't wrap-safe (not tested).
