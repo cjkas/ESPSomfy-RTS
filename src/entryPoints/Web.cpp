@@ -10,6 +10,7 @@
 #include "SSDP.h"
 #include "Somfy.h"
 #include "WResp.h"
+#include "LoopQueue.h"
 #include "Web.h"
 #include "MQTT.h"
 #include "GitOTA.h"
@@ -28,6 +29,7 @@ extern Web webServer;
 extern MQTTClass mqtt;
 extern GitUpdater git;
 extern ESPNetwork net;
+extern LoopQueue loopQueue;
 
 //#define WEB_MAX_RESPONSE 34768
 #define WEB_MAX_RESPONSE 4096
@@ -47,60 +49,52 @@ static const char _encoding_json[] = "application/json";
 
 static const char *TAG = "Web";
 
-static QueueHandle_t webCmdQueue = nullptr;
-
 static void sendQueueFull(AsyncWebServerRequest *request);
 static void sendRadioUnavailable(AsyncWebServerRequest *request);
-// Hands a command to the main loop, which owns the shades.  When it can't be
-// the request is answered with the reason and false is returned.
-static bool queueLoopCommand(AsyncWebServerRequest *request, const web_command_t &cmd) {
+// Hands an item to loop(), which owns the shades.  When it can't be the
+// request is answered with the reason and false is returned.
+static bool queueLoopItem(AsyncWebServerRequest *request, const loop_item_t &item) {
   // Nothing can go on air during a frequency scan so tell the client now rather
-  // than dropping the command once it reaches the radio.
-  if(webCommandUsesRadio(cmd.type) && somfy.transceiver.txSuspended()) { sendRadioUnavailable(request); return false; }
-  if(!webServer.queueCommand(cmd)) { sendQueueFull(request); return false; }
+  // than dropping the request once it reaches the radio.
+  if(loopItemUsesRadio(item) && somfy.transceiver.txSuspended()) { sendRadioUnavailable(request); return false; }
+  if(!loopQueue.submit(item)) { sendQueueFull(request); return false; }
   return true;
 }
-// Radio work for these handlers runs on the main loop via the command queue.
+static bool queueShadeRequest(AsyncWebServerRequest *request, const shade_request_t &req) {
+  loop_item_t item;
+  item.request = req;
+  return queueLoopItem(request, item);
+}
 static bool queueSetMyPosition(AsyncWebServerRequest *request, SomfyShade *shade, int8_t pos, int8_t tilt) {
-  web_command_t cmd = {};
-  cmd.type = web_cmd_t::set_my_position;
-  cmd.shadeId = shade->getShadeId();
-  cmd.position = pos;
-  cmd.tiltPosition = tilt;
-  return queueLoopCommand(request, cmd);
+  shade_request_t req;
+  req.type = shade_request_type_t::set_favorite;
+  req.id = shade->getShadeId();
+  req.position = pos;
+  req.tiltPosition = tilt;
+  return queueShadeRequest(request, req);
 }
-// The main loop clears paired and saves it once the Prog is queued.  The
-// shade belongs to the main loop so it isn't changed here.
+// loop() clears paired and saves it once the Prog is queued.  The shade
+// belongs to loop() so it isn't changed here.
 static bool queueUnpairShade(AsyncWebServerRequest *request, SomfyShade *shade) {
-  web_command_t cmd = {};
-  cmd.type = web_cmd_t::unpair_shade;
-  cmd.shadeId = shade->getShadeId();
-  return queueLoopCommand(request, cmd);
+  shade_request_t req;
+  req.type = shade_request_type_t::unpair;
+  req.id = shade->getShadeId();
+  return queueShadeRequest(request, req);
 }
-// Sending a command reads and commits the rolling code on the main loop, so
-// a new code is set there too.
+// Sending a command reads and commits the rolling code on loop(), so a new
+// code is set there too.
 static bool queueSetRollingCode(AsyncWebServerRequest *request, SomfyShade *shade, uint16_t rollingCode) {
-  web_command_t cmd = {};
-  cmd.type = web_cmd_t::set_rolling_code;
-  cmd.shadeId = shade->getShadeId();
-  cmd.rollingCode = rollingCode;
-  return queueLoopCommand(request, cmd);
+  shade_request_t req;
+  req.type = shade_request_type_t::set_rolling_code;
+  req.id = shade->getShadeId();
+  req.rollingCode = rollingCode;
+  return queueShadeRequest(request, req);
 }
-// A restore's options travel through the command queue as RESTORE_* bits.
+// A restore's options travel through the loop queue as RESTORE_* bits.
 static uint8_t restoreParts(const restore_options_t &opts) {
   return (opts.settings ? RESTORE_SETTINGS : 0) | (opts.shades ? RESTORE_SHADES : 0) |
     (opts.network ? RESTORE_NETWORK : 0) | (opts.transceiver ? RESTORE_TRANSCEIVER : 0) |
     (opts.repeaters ? RESTORE_REPEATERS : 0) | (opts.mqtt ? RESTORE_MQTT : 0);
-}
-static restore_options_t restoreOptions(uint8_t parts) {
-  restore_options_t opts;
-  opts.settings = parts & RESTORE_SETTINGS;
-  opts.shades = parts & RESTORE_SHADES;
-  opts.network = parts & RESTORE_NETWORK;
-  opts.transceiver = parts & RESTORE_TRANSCEIVER;
-  opts.repeaters = parts & RESTORE_REPEATERS;
-  opts.mqtt = parts & RESTORE_MQTT;
-  return opts;
 }
 // The radio and MQTT are shut down once an upload starts and only a reboot
 // brings them back.  The completion handler schedules it but never runs if the
@@ -125,7 +119,6 @@ AsyncWebServer asyncServer(80);
 AsyncWebServer asyncApiServer(8081);
 void Web::startup() {
   ESP_LOGI(TAG, "Launching web server...");
-  if(!webCmdQueue) webCmdQueue = xQueueCreate(WEB_CMD_QUEUE_SIZE, sizeof(web_command_t));
 
   asyncServer.on("/loginContext", HTTP_GET, [](AsyncWebServerRequest *request) {
     AsyncJsonResponse *response = new AsyncJsonResponse();
@@ -143,127 +136,7 @@ void Web::startup() {
   ESP_LOGI(TAG, "Async API server started on port 8081");
 }
 void Web::loop() {
-  this->processQueue();
   delay(1);
-}
-bool Web::queueCommand(const web_command_t &cmd) {
-  if(!webCmdQueue) return false;
-  // This runs on the async_tcp task which also services the sockets so it must
-  // never wait on the main loop or the radio.
-  if(xQueueSend(webCmdQueue, &cmd, 0) != pdTRUE) {
-    ESP_LOGE(TAG, "Command queue full, dropping command");
-    return false;
-  }
-  return true;
-}
-void Web::processQueue() {
-  if(!webCmdQueue) return;
-  web_command_t cmd;
-  // Commands run in order, so only the one at the head can be held back.
-  while(xQueuePeek(webCmdQueue, &cmd, 0) == pdTRUE) {
-    if(holdWebCommand(cmd.type, somfy.transceiver.txSuspended(), somfy.transceiver.txHasRoom())) break;
-    // loop() is the only consumer so this is the command we peeked.
-    xQueueReceive(webCmdQueue, &cmd, 0);
-    bool sent = true;
-    switch(cmd.type) {
-      case web_cmd_t::shade_command: {
-        SomfyShade *shade = somfy.getShadeById(cmd.shadeId);
-        if(shade) {
-          if(cmd.target <= 100) sent = shade->moveToTarget(shade->transformPosition(cmd.target));
-          else sent = shade->sendCommand(cmd.command, cmd.repeat > 0 ? cmd.repeat : shade->repeats, cmd.stepSize);
-        }
-        break;
-      }
-      case web_cmd_t::group_command: {
-        SomfyGroup *group = somfy.getGroupById(cmd.groupId);
-        if(group) sent = group->sendCommand(cmd.command, cmd.repeat >= 0 ? cmd.repeat : group->repeats, cmd.stepSize);
-        break;
-      }
-      case web_cmd_t::tilt_command: {
-        SomfyShade *shade = somfy.getShadeById(cmd.shadeId);
-        if(shade) {
-          if(cmd.target <= 100) sent = shade->moveToTiltTarget(shade->transformPosition(cmd.target));
-          else sent = shade->sendTiltCommand(cmd.command);
-        }
-        break;
-      }
-      case web_cmd_t::shade_repeat: {
-        SomfyShade *shade = somfy.getShadeById(cmd.shadeId);
-        if(shade) {
-          if(shade->shadeType == shade_types::garage1 && cmd.command == somfy_commands::Prog) cmd.command = somfy_commands::Toggle;
-          if(!shade->isLastCommand(cmd.command)) sent = shade->sendCommand(cmd.command, cmd.repeat >= 0 ? cmd.repeat : shade->repeats, cmd.stepSize);
-          else sent = shade->repeatFrame(cmd.repeat >= 0 ? cmd.repeat : shade->repeats);
-        }
-        break;
-      }
-      case web_cmd_t::group_repeat: {
-        SomfyGroup *group = somfy.getGroupById(cmd.groupId);
-        if(group) {
-          if(!group->isLastCommand(cmd.command)) sent = group->sendCommand(cmd.command, cmd.repeat >= 0 ? cmd.repeat : group->repeats, cmd.stepSize);
-          else sent = group->repeatFrame(cmd.repeat >= 0 ? cmd.repeat : group->repeats);
-        }
-        break;
-      }
-      case web_cmd_t::set_positions: {
-        SomfyShade *shade = somfy.getShadeById(cmd.shadeId);
-        if(shade) {
-          if(cmd.position >= 0) shade->target = shade->currentPos = cmd.position;
-          if(cmd.tiltPosition >= 0 && shade->tiltType != tilt_types::none) shade->tiltTarget = shade->currentTiltPos = cmd.tiltPosition;
-          shade->emitState();
-        }
-        break;
-      }
-      case web_cmd_t::shade_sensor: {
-        SomfyShade *shade = somfy.getShadeById(cmd.shadeId);
-        if(shade) {
-          sent = shade->sendSensorCommand(cmd.windy, cmd.sunny, cmd.repeat >= 0 ? (uint8_t)cmd.repeat : shade->repeats);
-          shade->emitState();
-        }
-        break;
-      }
-      case web_cmd_t::group_sensor: {
-        SomfyGroup *group = somfy.getGroupById(cmd.groupId);
-        if(group) {
-          sent = group->sendSensorCommand(cmd.windy, cmd.sunny, cmd.repeat >= 0 ? (uint8_t)cmd.repeat : group->repeats);
-          group->emitState();
-        }
-        break;
-      }
-      case web_cmd_t::set_my_position: {
-        SomfyShade *shade = somfy.getShadeById(cmd.shadeId);
-        if(shade) sent = shade->setMyPosition(cmd.position, cmd.tiltPosition);
-        break;
-      }
-      case web_cmd_t::unpair_shade: {
-        SomfyShade *shade = somfy.getShadeById(cmd.shadeId);
-        if(shade) {
-          sent = shade->sendCommand(somfy_commands::Prog, shade->bitLength == 56 ? 7 : 1);
-          if(sent) {
-            shade->paired = false;
-            shade->save();
-          }
-        }
-        break;
-      }
-      case web_cmd_t::set_rolling_code: {
-        SomfyShade *shade = somfy.getShadeById(cmd.shadeId);
-        if(shade) shade->setRollingCode(cmd.rollingCode);
-        break;
-      }
-      case web_cmd_t::restore_shades: {
-        restore_options_t opts = restoreOptions(cmd.restoreParts);
-        ShadeConfigFile::restore(&somfy, "/shades.tmp", opts);
-        ESP_LOGI(TAG, "Rebooting ESP for restored settings...");
-        rebootDelay.reboot = true;
-        rebootDelay.rebootTime = millis() + 1000;
-        break;
-      }
-      case web_cmd_t::load_shades:
-        somfy.loadShadesFile("/shades.tmp");
-        break;
-    }
-    if(!sent) ESP_LOGW(TAG, "Radio didn't take web command %u", static_cast<uint8_t>(cmd.type));
-  }
 }
 bool Web::isAuthenticated(AsyncWebServerRequest *request, bool cfg) {
   ESP_LOGD(TAG, "Checking async authentication");
@@ -353,7 +226,7 @@ static void serializeShadeRef(SomfyShade *shade, JsonFormatter &json) {
 }
 // paired and lastRollingCode are passed in for a response that reports the
 // change the main loop is about to make.  An unpair is held until it goes on
-// air (holdWebCommand), so the answer comes true.
+// air (holdLoopItem), so the answer comes true.
 static void serializeShade(SomfyShade *shade, JsonFormatter &json, bool paired, uint16_t lastRollingCode) {
   json.addElem("shadeId", shade->getShadeId());
   json.addElem("roomId", shade->roomId);
@@ -898,40 +771,30 @@ void Web::handleLogin(AsyncWebServerRequest *request, JsonVariant &json) {
 void Web::handleShadeCommand(AsyncWebServerRequest *request, JsonVariant &json) {
   if(request->method() == HTTP_OPTIONS) { request->send(200); return; }
   if(!this->isAuthenticated(request)) return;
-  uint8_t shadeId = 255;
-  uint8_t target = 255;
-  uint8_t stepSize = 0;
-  int8_t repeat = -1;
-  somfy_commands command = somfy_commands::My;
+  shade_request_t req;
+  req.type = shade_request_type_t::shade_command;
   // Try query params
   if(asyncHasParam(request, "shadeId")) {
-    shadeId = asyncParam(request, "shadeId").toInt();
-    if(asyncHasParam(request, "command")) command = translateSomfyCommand(asyncParam(request, "command"));
-    else if(asyncHasParam(request, "target")) target = asyncParam(request, "target").toInt();
-    if(asyncHasParam(request, "repeat")) repeat = asyncParam(request, "repeat").toInt();
-    if(asyncHasParam(request, "stepSize")) stepSize = asyncParam(request, "stepSize").toInt();
+    req.id = asyncParam(request, "shadeId").toInt();
+    if(asyncHasParam(request, "command")) req.command = translateSomfyCommand(asyncParam(request, "command"));
+    else if(asyncHasParam(request, "target")) req.target = requestTarget(asyncParam(request, "target").toInt());
+    if(asyncHasParam(request, "repeat")) req.repeat = requestRepeat(asyncParam(request, "repeat").toInt());
+    if(asyncHasParam(request, "stepSize")) req.stepSize = asyncParam(request, "stepSize").toInt();
   }
   else if(!json.isNull()) {
     JsonObject obj = json.as<JsonObject>();
-    if(!obj["shadeId"].isNull()) shadeId = obj["shadeId"];
+    if(!obj["shadeId"].isNull()) req.id = obj["shadeId"];
     else { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No shade id was supplied.\"}")); return; }
-    if(!obj["command"].isNull()) { String scmd = obj["command"]; command = translateSomfyCommand(scmd); }
-    else if(!obj["target"].isNull()) target = obj["target"].as<uint8_t>();
-    if(!obj["repeat"].isNull()) repeat = obj["repeat"].as<uint8_t>();
-    if(!obj["stepSize"].isNull()) stepSize = obj["stepSize"].as<uint8_t>();
+    if(!obj["command"].isNull()) { String scmd = obj["command"]; req.command = translateSomfyCommand(scmd); }
+    else if(!obj["target"].isNull()) req.target = requestTarget(obj["target"].as<int>());
+    if(!obj["repeat"].isNull()) req.repeat = requestRepeat(obj["repeat"].as<int>());
+    if(!obj["stepSize"].isNull()) req.stepSize = obj["stepSize"].as<uint8_t>();
   }
   else { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No shade object supplied.\"}")); return; }
-  SomfyShade *shade = somfy.getShadeById(shadeId);
+  SomfyShade *shade = somfy.getShadeById(req.id);
   if(shade) {
-    ESP_LOGI(TAG, "handleShadeCommand shade=%u target=%u command=%s", shadeId, target, translateSomfyCommand(command).c_str());
-    web_command_t cmd = {};
-    cmd.type = web_cmd_t::shade_command;
-    cmd.shadeId = shadeId;
-    cmd.target = target;
-    cmd.command = command;
-    cmd.repeat = repeat;
-    cmd.stepSize = stepSize;
-    if(!queueLoopCommand(request, cmd)) return;
+    ESP_LOGI(TAG, "handleShadeCommand shade=%u target=%d command=%s", req.id, req.target, translateSomfyCommand(req.command).c_str());
+    if(!queueShadeRequest(request, req)) return;
     AsyncJsonResp resp;
     resp.beginResponse(request, g_async_content, sizeof(g_async_content));
     resp.beginObject();
@@ -944,35 +807,27 @@ void Web::handleShadeCommand(AsyncWebServerRequest *request, JsonVariant &json) 
 void Web::handleGroupCommand(AsyncWebServerRequest *request, JsonVariant &json) {
   if(request->method() == HTTP_OPTIONS) { request->send(200); return; }
   if(!this->isAuthenticated(request)) return;
-  uint8_t groupId = 255;
-  uint8_t stepSize = 0;
-  int8_t repeat = -1;
-  somfy_commands command = somfy_commands::My;
+  shade_request_t req;
+  req.type = shade_request_type_t::group_command;
   if(asyncHasParam(request, "groupId")) {
-    groupId = asyncParam(request, "groupId").toInt();
-    if(asyncHasParam(request, "command")) command = translateSomfyCommand(asyncParam(request, "command"));
-    if(asyncHasParam(request, "repeat")) repeat = asyncParam(request, "repeat").toInt();
-    if(asyncHasParam(request, "stepSize")) stepSize = asyncParam(request, "stepSize").toInt();
+    req.id = asyncParam(request, "groupId").toInt();
+    if(asyncHasParam(request, "command")) req.command = translateSomfyCommand(asyncParam(request, "command"));
+    if(asyncHasParam(request, "repeat")) req.repeat = requestRepeat(asyncParam(request, "repeat").toInt());
+    if(asyncHasParam(request, "stepSize")) req.stepSize = asyncParam(request, "stepSize").toInt();
   }
   else if(!json.isNull()) {
     JsonObject obj = json.as<JsonObject>();
-    if(!obj["groupId"].isNull()) groupId = obj["groupId"];
+    if(!obj["groupId"].isNull()) req.id = obj["groupId"];
     else { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No group id was supplied.\"}")); return; }
-    if(!obj["command"].isNull()) { String scmd = obj["command"]; command = translateSomfyCommand(scmd); }
-    if(!obj["repeat"].isNull()) repeat = obj["repeat"].as<uint8_t>();
-    if(!obj["stepSize"].isNull()) stepSize = obj["stepSize"].as<uint8_t>();
+    if(!obj["command"].isNull()) { String scmd = obj["command"]; req.command = translateSomfyCommand(scmd); }
+    if(!obj["repeat"].isNull()) req.repeat = requestRepeat(obj["repeat"].as<int>());
+    if(!obj["stepSize"].isNull()) req.stepSize = obj["stepSize"].as<uint8_t>();
   }
   else { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No group object supplied.\"}")); return; }
-  SomfyGroup *group = somfy.getGroupById(groupId);
+  SomfyGroup *group = somfy.getGroupById(req.id);
   if(group) {
-    ESP_LOGI(TAG, "handleGroupCommand group=%u command=%s", groupId, translateSomfyCommand(command).c_str());
-    web_command_t cmd = {};
-    cmd.type = web_cmd_t::group_command;
-    cmd.groupId = groupId;
-    cmd.command = command;
-    cmd.repeat = repeat;
-    cmd.stepSize = stepSize;
-    if(!queueLoopCommand(request, cmd)) return;
+    ESP_LOGI(TAG, "handleGroupCommand group=%u command=%s", req.id, translateSomfyCommand(req.command).c_str());
+    if(!queueShadeRequest(request, req)) return;
     AsyncJsonResp resp;
     resp.beginResponse(request, g_async_content, sizeof(g_async_content));
     resp.beginObject();
@@ -985,31 +840,25 @@ void Web::handleGroupCommand(AsyncWebServerRequest *request, JsonVariant &json) 
 void Web::handleTiltCommand(AsyncWebServerRequest *request, JsonVariant &json) {
   if(request->method() == HTTP_OPTIONS) { request->send(200); return; }
   if(!this->isAuthenticated(request)) return;
-  uint8_t shadeId = 255;
-  uint8_t target = 255;
-  somfy_commands command = somfy_commands::My;
+  shade_request_t req;
+  req.type = shade_request_type_t::tilt_command;
   if(asyncHasParam(request, "shadeId")) {
-    shadeId = asyncParam(request, "shadeId").toInt();
-    if(asyncHasParam(request, "command")) command = translateSomfyCommand(asyncParam(request, "command"));
-    else if(asyncHasParam(request, "target")) target = asyncParam(request, "target").toInt();
+    req.id = asyncParam(request, "shadeId").toInt();
+    if(asyncHasParam(request, "command")) req.command = translateSomfyCommand(asyncParam(request, "command"));
+    else if(asyncHasParam(request, "target")) req.target = requestTarget(asyncParam(request, "target").toInt());
   }
   else if(!json.isNull()) {
     JsonObject obj = json.as<JsonObject>();
-    if(!obj["shadeId"].isNull()) shadeId = obj["shadeId"];
+    if(!obj["shadeId"].isNull()) req.id = obj["shadeId"];
     else { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No shade id was supplied.\"}")); return; }
-    if(!obj["command"].isNull()) { String scmd = obj["command"]; command = translateSomfyCommand(scmd); }
-    else if(!obj["target"].isNull()) target = obj["target"].as<uint8_t>();
+    if(!obj["command"].isNull()) { String scmd = obj["command"]; req.command = translateSomfyCommand(scmd); }
+    else if(!obj["target"].isNull()) req.target = requestTarget(obj["target"].as<int>());
   }
   else { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No shade object supplied.\"}")); return; }
-  SomfyShade *shade = somfy.getShadeById(shadeId);
+  SomfyShade *shade = somfy.getShadeById(req.id);
   if(shade) {
-    ESP_LOGI(TAG, "handleTiltCommand shade=%u target=%u command=%s", shadeId, target, translateSomfyCommand(command).c_str());
-    web_command_t cmd = {};
-    cmd.type = web_cmd_t::tilt_command;
-    cmd.shadeId = shadeId;
-    cmd.target = target;
-    cmd.command = command;
-    if(!queueLoopCommand(request, cmd)) return;
+    ESP_LOGI(TAG, "handleTiltCommand shade=%u target=%d command=%s", req.id, req.target, translateSomfyCommand(req.command).c_str());
+    if(!queueShadeRequest(request, req)) return;
     AsyncJsonResp resp;
     resp.beginResponse(request, g_async_content, sizeof(g_async_content));
     resp.beginObject();
@@ -1024,33 +873,27 @@ void Web::handleRepeatCommand(AsyncWebServerRequest *request, JsonVariant &json)
   if(!this->isAuthenticated(request)) return;
   uint8_t shadeId = 255;
   uint8_t groupId = 255;
-  uint8_t stepSize = 0;
-  int8_t repeat = -1;
-  somfy_commands command = somfy_commands::My;
+  shade_request_t req;
   if(asyncHasParam(request, "shadeId")) shadeId = asyncParam(request, "shadeId").toInt();
   else if(asyncHasParam(request, "groupId")) groupId = asyncParam(request, "groupId").toInt();
-  if(asyncHasParam(request, "command")) command = translateSomfyCommand(asyncParam(request, "command"));
-  if(asyncHasParam(request, "repeat")) repeat = asyncParam(request, "repeat").toInt();
-  if(asyncHasParam(request, "stepSize")) stepSize = asyncParam(request, "stepSize").toInt();
+  if(asyncHasParam(request, "command")) req.command = translateSomfyCommand(asyncParam(request, "command"));
+  if(asyncHasParam(request, "repeat")) req.repeat = requestRepeat(asyncParam(request, "repeat").toInt());
+  if(asyncHasParam(request, "stepSize")) req.stepSize = asyncParam(request, "stepSize").toInt();
   if(shadeId == 255 && groupId == 255 && !json.isNull()) {
     JsonObject obj = json.as<JsonObject>();
     if(!obj["shadeId"].isNull()) shadeId = obj["shadeId"];
     if(!obj["groupId"].isNull()) groupId = obj["groupId"];
-    if(!obj["stepSize"].isNull()) stepSize = obj["stepSize"];
-    if(!obj["command"].isNull()) { String scmd = obj["command"]; command = translateSomfyCommand(scmd); }
-    if(!obj["repeat"].isNull()) repeat = obj["repeat"].as<uint8_t>();
+    if(!obj["stepSize"].isNull()) req.stepSize = obj["stepSize"];
+    if(!obj["command"].isNull()) { String scmd = obj["command"]; req.command = translateSomfyCommand(scmd); }
+    if(!obj["repeat"].isNull()) req.repeat = requestRepeat(obj["repeat"].as<int>());
   }
   if(shadeId != 255) {
-    ESP_LOGI(TAG, "handleRepeatCommand shade=%u command=%s", shadeId, translateSomfyCommand(command).c_str());
+    ESP_LOGI(TAG, "handleRepeatCommand shade=%u command=%s", shadeId, translateSomfyCommand(req.command).c_str());
     SomfyShade *shade = somfy.getShadeById(shadeId);
     if(!shade) { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade reference could not be found.\"}")); return; }
-    web_command_t cmd = {};
-    cmd.type = web_cmd_t::shade_repeat;
-    cmd.shadeId = shadeId;
-    cmd.command = command;
-    cmd.repeat = repeat;
-    cmd.stepSize = stepSize;
-    if(!queueLoopCommand(request, cmd)) return;
+    req.type = shade_request_type_t::shade_repeat;
+    req.id = shadeId;
+    if(!queueShadeRequest(request, req)) return;
     AsyncJsonResp resp;
     resp.beginResponse(request, g_async_content, sizeof(g_async_content));
     resp.beginObject();
@@ -1059,16 +902,12 @@ void Web::handleRepeatCommand(AsyncWebServerRequest *request, JsonVariant &json)
     resp.endResponse();
   }
   else if(groupId != 255) {
-    ESP_LOGI(TAG, "handleRepeatCommand group=%u command=%s", groupId, translateSomfyCommand(command).c_str());
+    ESP_LOGI(TAG, "handleRepeatCommand group=%u command=%s", groupId, translateSomfyCommand(req.command).c_str());
     SomfyGroup *group = somfy.getGroupById(groupId);
     if(!group) { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Group reference could not be found.\"}")); return; }
-    web_command_t cmd = {};
-    cmd.type = web_cmd_t::group_repeat;
-    cmd.groupId = groupId;
-    cmd.command = command;
-    cmd.repeat = repeat;
-    cmd.stepSize = stepSize;
-    if(!queueLoopCommand(request, cmd)) return;
+    req.type = shade_request_type_t::group_repeat;
+    req.id = groupId;
+    if(!queueShadeRequest(request, req)) return;
     AsyncJsonResp resp;
     resp.beginResponse(request, g_async_content, sizeof(g_async_content));
     resp.beginObject();
@@ -1144,27 +983,24 @@ void Web::handleGroup(AsyncWebServerRequest *request) {
 void Web::handleSetPositions(AsyncWebServerRequest *request, JsonVariant &json) {
   if(request->method() == HTTP_OPTIONS) { request->send(200); return; }
   if(!this->isAuthenticated(request)) return;
-  uint8_t shadeId = asyncHasParam(request, "shadeId") ? asyncParam(request, "shadeId").toInt() : 255;
-  int8_t pos = asyncHasParam(request, "position") ? asyncParam(request, "position").toInt() : -1;
-  int8_t tiltPos = asyncHasParam(request, "tiltPosition") ? asyncParam(request, "tiltPosition").toInt() : -1;
+  shade_request_t req;
+  req.type = shade_request_type_t::set_positions;
+  if(asyncHasParam(request, "shadeId")) req.id = asyncParam(request, "shadeId").toInt();
+  if(asyncHasParam(request, "position")) req.position = requestTarget(asyncParam(request, "position").toInt());
+  if(asyncHasParam(request, "tiltPosition")) req.tiltPosition = requestTarget(asyncParam(request, "tiltPosition").toInt());
   if(!json.isNull()) {
     JsonObject obj = json.as<JsonObject>();
-    if(!obj["shadeId"].isNull()) shadeId = obj["shadeId"];
-    if(!obj["position"].isNull()) pos = obj["position"];
-    if(!obj["tiltPosition"].isNull()) tiltPos = obj["tiltPosition"];
+    if(!obj["shadeId"].isNull()) req.id = obj["shadeId"];
+    if(!obj["position"].isNull()) req.position = requestTarget(obj["position"].as<int>());
+    if(!obj["tiltPosition"].isNull()) req.tiltPosition = requestTarget(obj["tiltPosition"].as<int>());
   }
-  if(shadeId != 255) {
-    ESP_LOGI(TAG, "handleSetPositions shade=%u pos=%d tiltPos=%d", shadeId, pos, tiltPos);
-    SomfyShade *shade = somfy.getShadeById(shadeId);
+  if(req.id != 255) {
+    ESP_LOGI(TAG, "handleSetPositions shade=%u pos=%d tiltPos=%d", req.id, req.position, req.tiltPosition);
+    SomfyShade *shade = somfy.getShadeById(req.id);
     if(shade) {
-      web_command_t cmd = {};
-      cmd.type = web_cmd_t::set_positions;
-      cmd.shadeId = shadeId;
-      cmd.position = pos;
-      cmd.tiltPosition = tiltPos;
-      if(!this->queueCommand(cmd)) { sendQueueFull(request); return; }
-      // The main loop applies the command after we answer so this is the state
-      // before it.  Clients get the result from the shadeState socket event.
+      if(!queueShadeRequest(request, req)) return;
+      // loop() applies the request after we answer so this is the state before
+      // it.  Clients get the result from the shadeState socket event.
       AsyncJsonResp resp;
       resp.beginResponse(request, g_async_content, sizeof(g_async_content));
       resp.beginObject();
@@ -1181,33 +1017,30 @@ void Web::handleSetSensor(AsyncWebServerRequest *request, JsonVariant &json) {
   if(!this->isAuthenticated(request)) return;
   uint8_t shadeId = asyncHasParam(request, "shadeId") ? asyncParam(request, "shadeId").toInt() : 255;
   uint8_t groupId = asyncHasParam(request, "groupId") ? asyncParam(request, "groupId").toInt() : 255;
-  int8_t sunny = asyncHasParam(request, "sunny") ? (toBoolean(asyncParam(request, "sunny").c_str(), false) ? 1 : 0) : -1;
-  int8_t windy = asyncHasParam(request, "windy") ? asyncParam(request, "windy").toInt() : -1;
-  int8_t repeat = asyncHasParam(request, "repeat") ? asyncParam(request, "repeat").toInt() : -1;
+  shade_request_t req;
+  if(asyncHasParam(request, "sunny")) req.sunny = toBoolean(asyncParam(request, "sunny").c_str(), false) ? 1 : 0;
+  if(asyncHasParam(request, "windy")) req.windy = asyncParam(request, "windy").toInt();
+  if(asyncHasParam(request, "repeat")) req.repeat = requestRepeat(asyncParam(request, "repeat").toInt());
   if(!json.isNull()) {
     JsonObject obj = json.as<JsonObject>();
     if(!obj["shadeId"].isNull()) shadeId = obj["shadeId"].as<uint8_t>();
     if(!obj["groupId"].isNull()) groupId = obj["groupId"].as<uint8_t>();
     if(!obj["sunny"].isNull()) {
-      if(obj["sunny"].is<bool>()) sunny = obj["sunny"].as<bool>() ? 1 : 0;
-      else sunny = obj["sunny"].as<int8_t>();
+      if(obj["sunny"].is<bool>()) req.sunny = obj["sunny"].as<bool>() ? 1 : 0;
+      else req.sunny = obj["sunny"].as<int8_t>();
     }
     if(!obj["windy"].isNull()) {
-      if(obj["windy"].is<bool>()) windy = obj["windy"].as<bool>() ? 1 : 0;
-      else windy = obj["windy"].as<int8_t>();
+      if(obj["windy"].is<bool>()) req.windy = obj["windy"].as<bool>() ? 1 : 0;
+      else req.windy = obj["windy"].as<int8_t>();
     }
-    if(!obj["repeat"].isNull()) repeat = obj["repeat"].as<uint8_t>();
+    if(!obj["repeat"].isNull()) req.repeat = requestRepeat(obj["repeat"].as<int>());
   }
   if(shadeId != 255) {
     SomfyShade *shade = somfy.getShadeById(shadeId);
     if(shade) {
-      web_command_t cmd = {};
-      cmd.type = web_cmd_t::shade_sensor;
-      cmd.shadeId = shadeId;
-      cmd.sunny = sunny;
-      cmd.windy = windy;
-      cmd.repeat = repeat;
-      if(!queueLoopCommand(request, cmd)) return;
+      req.type = shade_request_type_t::shade_sensor;
+      req.id = shadeId;
+      if(!queueShadeRequest(request, req)) return;
       // The main loop applies the command after we answer so this is the state
       // before it.  Clients get the result from the shadeState socket event.
       AsyncJsonResp resp;
@@ -1222,13 +1055,9 @@ void Web::handleSetSensor(AsyncWebServerRequest *request, JsonVariant &json) {
   else if(groupId != 255) {
     SomfyGroup *group = somfy.getGroupById(groupId);
     if(group) {
-      web_command_t cmd = {};
-      cmd.type = web_cmd_t::group_sensor;
-      cmd.groupId = groupId;
-      cmd.sunny = sunny;
-      cmd.windy = windy;
-      cmd.repeat = repeat;
-      if(!queueLoopCommand(request, cmd)) return;
+      req.type = shade_request_type_t::group_sensor;
+      req.id = groupId;
+      if(!queueShadeRequest(request, req)) return;
       // As above, this is the state before the command and groupState follows.
       AsyncJsonResp resp;
       resp.beginResponse(request, g_async_content, sizeof(g_async_content));
@@ -1511,10 +1340,10 @@ void Web::begin() {
         }
         // The main loop restores, since it owns the shades and their rolling
         // codes, and then reboots.
-        web_command_t cmd = {};
-        cmd.type = web_cmd_t::restore_shades;
-        cmd.restoreParts = restoreParts(opts);
-        if(!queueLoopCommand(request, cmd)) return;
+        loop_item_t item;
+        item.type = loop_item_type_t::restore_shades;
+        item.restoreParts = restoreParts(opts);
+        if(!queueLoopItem(request, item)) return;
         request->send(200, _encoding_json, "{\"status\":\"Success\",\"desc\":\"Restoring Shade settings\"}");
       }
     },
@@ -1776,9 +1605,8 @@ void Web::begin() {
       }
       SomfyShade* shade = somfy.getShadeById(shadeId);
       if(shade) {
-        tilt = requestedFavoriteTilt(tilt, shade->tiltType, shade->myTiltPos, shade->flipPosition);
         if(pos >= 0 && pos <= 100)
-          if(!queueSetMyPosition(request, shade, shade->transformPosition(pos), shade->transformPosition(tilt))) return;
+          if(!queueSetMyPosition(request, shade, pos, requestTarget(tilt))) return;
         AsyncJsonResp resp;
         resp.beginResponse(request, g_async_content, sizeof(g_async_content));
         resp.beginObject();
@@ -1802,9 +1630,8 @@ void Web::begin() {
     else { request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No shade object supplied.\"}")); return; }
     SomfyShade* shade = somfy.getShadeById(shadeId);
     if(shade) {
-      tilt = requestedFavoriteTilt(tilt, shade->tiltType, shade->myTiltPos, shade->flipPosition);
       if(pos >= 0 && pos <= 100)
-        if(!queueSetMyPosition(request, shade, shade->transformPosition(pos), shade->transformPosition(tilt))) return;
+        if(!queueSetMyPosition(request, shade, pos, requestTarget(tilt))) return;
       AsyncJsonResp resp;
       resp.beginResponse(request, g_async_content, sizeof(g_async_content));
       resp.beginObject();
@@ -2326,9 +2153,9 @@ void Web::begin() {
       }
       if(final) {
         // The main loop loads it, since it owns the shades.
-        web_command_t cmd = {};
-        cmd.type = web_cmd_t::load_shades;
-        webServer.queueCommand(cmd);
+        loop_item_t item;
+        item.type = loop_item_type_t::load_shades;
+        loopQueue.submit(item);
       }
     });
 

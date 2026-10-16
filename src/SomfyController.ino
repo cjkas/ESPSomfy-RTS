@@ -9,6 +9,9 @@
 #include "Utils.h"
 #include "Somfy.h"
 #include "entryPoints/MQTT.h"
+#include "LoopQueue.h"
+#include "ShadeRequests.h"
+#include "SomfyShadeOps.h"
 #include "GitOTA.h"
 #include "esp_core_dump.h"
 #include "esp_system.h"
@@ -33,6 +36,9 @@ rebootDelay_t rebootDelay;
 SomfyShadeController somfy;
 MQTTClass mqtt;
 GitUpdater git;
+SomfyShadeOps shadeOps;
+ShadeRequests shadeRequests(shadeOps);
+LoopQueue loopQueue;
 
 uint32_t oldheap = 0;
 
@@ -112,6 +118,8 @@ void setup() {
   settings.begin();
   if(WiFi.status() == WL_CONNECTED) WiFi.disconnect(true);
   delay(10);
+  // Before anything that can submit to it: the web servers and MQTT.
+  loopQueue.begin();
   webServer.startup();
   webServer.begin();
   delay(1000);
@@ -144,6 +152,9 @@ void loop() {
   esp_task_wdt_reset();
   somfy.loop();
   logIfSlow(TAG, "Loop somfy", timing.lap(), LOOP_SLOW_MS);
+  esp_task_wdt_reset();
+  loopQueue.drain();
+  logIfSlow(TAG, "Loop queue", timing.lap(), LOOP_SLOW_MS);
   esp_task_wdt_reset();
   if(net.connected() || net.softAPOpened) {
     if(!rebootDelay.reboot && net.connected() && !net.softAPOpened) {
