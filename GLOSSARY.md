@@ -86,6 +86,13 @@ _Avoid_: MQTTController
 What pushes state events to WebSocket clients on port 8080. A client can only join or leave a room; it sends no commands.
 _Avoid_: WebSocketController
 
+**MqttConnection**
+The link to the MQTT broker that MqttCommands and MqttPublisher share: connecting, the root topic and the subscriptions.
+_Avoid_: MQTTClass
+
+**Change fan-out**
+What sends everything that changed about a shade or group in one pass of `loop()` once: its changed MQTT topics, then one state event.
+
 ## Domain modules
 
 **Domain module**

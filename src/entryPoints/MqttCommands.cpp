@@ -2,6 +2,23 @@
 #include <string.h>
 #include "MqttCommands.h"
 
+const char *const MQTT_COMMAND_TOPICS[MQTT_COMMAND_TOPIC_COUNT] = {
+  "shades/+/target/set",
+  "shades/+/tiltTarget/set",
+  "shades/+/direction/set",
+  "shades/+/mypos/set",
+  "shades/+/myTiltPos/set",
+  "shades/+/sunFlag/set",
+  "shades/+/sunny/set",
+  "shades/+/windy/set",
+  "shades/+/position/set",
+  "shades/+/tiltPosition/set",
+  "groups/+/direction/set",
+  "groups/+/sunFlag/set",
+  "groups/+/sunny/set",
+  "groups/+/windy/set"
+};
+
 namespace {
 struct segment_t {
   const char *s = "";

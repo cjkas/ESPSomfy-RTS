@@ -1,6 +1,6 @@
 # Plan: domain modules behind the LoopQueue
 
-**Status:** steps 0–4 built (PRs #39 to #43); step 5 planned.
+**Status:** all steps built (PRs #39 to #44).
 **Written:** 2026-10-15, against commit `e624a41` on `refactor/entry-points-outputs`. Terms are defined in [GLOSSARY.md](../GLOSSARY.md); the threading rule is [ADR-0002](adr/0002-loop-task-is-the-only-writer-of-the-shade-model.md).
 
 ## Why
@@ -167,6 +167,22 @@ Flash: `esp32devdbg` 1,547,821 → 1,536,337 bytes, `esp32dev` 1,400,401 → 1,3
 - **Topic values come from one tested place.** `publishShadeTopics()` writes the topics from a shade snapshot, and `publishState()` (all topics, on connect) uses it too.
 
 8 new native tests, 327 in all. Flash: `esp32devdbg` 1,536,337 → 1,536,533 bytes, `esp32dev` 1,393,221 → 1,393,449 bytes.
+
+### Step 5: the file split
+Code moved unchanged; only files and names changed.
+
+| File | Holds |
+|---|---|
+| `entryPoints/WebUiRoutes.cpp` | `registerWebUiRoutes()`: the port 80 routes and the UI's files, with the helpers only they use |
+| `entryPoints/ApiRoutes.cpp` | `registerApiRoutes()`: the port 8081 routes |
+| `entryPoints/Web.cpp` | the web servers' lifecycle, auth, and the handlers both route sets call |
+| `entryPoints/WebRoutes.h` | what those three share |
+| `entryPoints/MqttCommands.*` | + `MQTT_COMMAND_TOPICS`, the topics the connection subscribes to |
+| `MqttConnection.*` | was `entryPoints/MQTT.*`; class `MQTTClass` → `MqttConnection` |
+| `outputs/MqttPublisher.cpp` | was `outputs/SomfyMqtt.cpp` |
+| `outputs/SocketEmitter.*` | was `outputs/Sockets.*` |
+
+The subscribe and unsubscribe lists, which repeated `groups/+/direction/set`, became the one `MQTT_COMMAND_TOPICS` list, and a native test checks that the parser takes every topic in it. Flash: `esp32devdbg` 1,536,533 → 1,539,645 bytes (+3.1 KB, since the routes are a second file that uses ArduinoJson, as SOMFY_SPLIT_PLAN.md warned), `esp32dev` 1,393,449 → 1,391,113 bytes (−2.3 KB, where `-Os` inlines less).
 
 ### Step 0 on a device
 NVS stays at `0x9000`, so the rolling codes survive. The file system partition shrinks from `0xE0000` to `0xD0000`, and the existing LittleFS won't mount, because `LittleFS.begin()` doesn't format. So:

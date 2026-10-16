@@ -1,12 +1,12 @@
 #include <esp_task_wdt.h>
 #include "Somfy.h"
 #include "SomfyEditor.h"
-#include "Sockets.h"
-#include "entryPoints/MQTT.h"
+#include "SocketEmitter.h"
+#include "MqttConnection.h"
 
 extern SomfyShadeController somfy;
 extern SocketEmitter sockEmit;
-extern MQTTClass mqtt;
+extern MqttConnection mqtt;
 
 void SomfyShade::emitState() { this->changed |= SHADE_CHANGED_STATE; }
 void SomfyShade::emitState(const char *evt) { this->emitState(255, evt); }

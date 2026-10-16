@@ -1,9 +1,9 @@
-#ifndef MQTT_H
-#define MQTT_H
+#ifndef MQTT_CONNECTION_H
+#define MQTT_CONNECTION_H
 #include <Arduino.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
-class MQTTClass {
+class MqttConnection {
   public:
     uint64_t lastConnect = 0;
     bool suspended = false;

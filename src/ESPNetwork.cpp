@@ -14,17 +14,17 @@ static inline void safe_wdt_reset() {
 #include "ConfigSettings.h"
 #include "ESPNetwork.h"
 #include "entryPoints/Web.h"
-#include "outputs/Sockets.h"
+#include "outputs/SocketEmitter.h"
 #include "Utils.h"
 #include "SSDP.h"
-#include "entryPoints/MQTT.h"
+#include "MqttConnection.h"
 
 static const char *TAG = "Network";
 
 extern ConfigSettings settings;
 extern Web webServer;
 extern SocketEmitter sockEmit;
-extern MQTTClass mqtt;
+extern MqttConnection mqtt;
 extern rebootDelay_t rebootDelay;
 extern ESPNetwork net;
 extern SomfyShadeController somfy;
