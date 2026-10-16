@@ -60,6 +60,16 @@ The per-shade switch that lets the sun move a shade. While it is on, lasting sun
 **Extend / retract**
 Where the weather sends a shade: extend to its favorite, or fully when it has none; retract fully. A tilt-only shade extends and retracts its tilt, every other shade its lift.
 
+**ShadeSettings**
+What the user sets up for a shade and its behaviour only reads: shade and tilt type, travel times, step size, flip position, simulated My and sun sensor.
+_Avoid_: config (the whole shade model is saved in the config file)
+
+**RemoteSettings**
+What shades and groups share about how their frames go on air: flip commands, bit length and repeats.
+
+**Flags**
+The byte a shade is saved and sent with. Its sun sensor, light and simulated My bits are settings; its sun flag, sunny, windy and demo mode bits are state. A group's flags are its shades' flags together.
+
 ## Entry points and outputs
 
 **Entry point**

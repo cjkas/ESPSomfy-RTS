@@ -113,9 +113,9 @@ bool SomfyShade::isInGroup() {
 }
 void SomfyShade::checkMovement() {
   const uint64_t curTime = millis();
-  const bool sunFlag = this->flags & static_cast<uint8_t>(somfy_flags_t::SunFlag);
-  const bool isSunny = this->flags & static_cast<uint8_t>(somfy_flags_t::Sunny);
-  const bool isWindy = this->flags & static_cast<uint8_t>(somfy_flags_t::Windy);
+  const bool sunFlag = this->stateFlags & static_cast<uint8_t>(somfy_flags_t::SunFlag);
+  const bool isSunny = this->stateFlags & static_cast<uint8_t>(somfy_flags_t::Sunny);
+  const bool isWindy = this->stateFlags & static_cast<uint8_t>(somfy_flags_t::Windy);
   // We need to first evaluate the sensor flags as these could be triggering movement from previous sensor inputs. So
   // we must check this before setting the directional items or it will not get processed until the next loop.
   int32_t downTime = (int32_t)this->downTime;
@@ -318,13 +318,15 @@ uint16_t SomfyShade::p_lastRollingCode(uint16_t code) {
   return old;
 }
 bool SomfyShade::p_flag(somfy_flags_t flag, bool val) {
-  bool old = !!(this->flags & static_cast<uint8_t>(flag));
+  bool old = !!(this->stateFlags & static_cast<uint8_t>(flag));
   if(val) 
-      this->flags |= static_cast<uint8_t>(flag);
+      this->stateFlags |= static_cast<uint8_t>(flag);
   else
-      this->flags &= ~(static_cast<uint8_t>(flag));
+      this->stateFlags &= ~(static_cast<uint8_t>(flag));
   return old;
 }
+uint8_t SomfyShade::getFlags() { return joinShadeFlags(*this, this->light, this->stateFlags); }
+void SomfyShade::setFlags(uint8_t flags) { splitShadeFlags(flags, *this, this->light, this->stateFlags); }
 bool SomfyShade::p_sunFlag(bool val) {
   bool old = this->p_flag(somfy_flags_t::SunFlag, val);
   if(old != val) this->changed |= SHADE_CHANGED_SUN_FLAG;
@@ -487,7 +489,7 @@ void SomfyShade::processWaitingFrame() {
           this->emitState();
         }
         else if(this->isIdle()) {
-          if(this->simMy())
+          if(this->simMy)
             this->moveToMyPosition(); // Call out like this (instead of move to target) so that we don't get some of the goofy tilt only problems.
           else {
             if(this->myPos >= 0.0f && this->myPos <= 100.0f) this->p_target(this->myPos);
@@ -542,7 +544,7 @@ void SomfyShade::processFrame(somfy_frame_t &frame, bool internal) {
       this->lastFrame.processed = true;
       if(this->shadeType == shade_types::drycontact || this->shadeType == shade_types::drycontact2) return;
       {
-        const uint8_t prevFlags = this->flags;
+        const uint8_t prevFlags = this->stateFlags;
         const bool wasSunny = prevFlags & static_cast<uint8_t>(somfy_flags_t::Sunny);
         const bool wasWindy = prevFlags & static_cast<uint8_t>(somfy_flags_t::Windy);
         const uint16_t status = frame.rollingCode << 4;
@@ -559,11 +561,11 @@ void SomfyShade::processFrame(somfy_frame_t &frame, bool internal) {
           this->p_windy(false);
           //this->flags &= ~(static_cast<uint8_t>(somfy_flags_t::Windy));
         if(frame.rollingCode & static_cast<uint8_t>(somfy_flags_t::DemoMode))
-          this->flags |= static_cast<uint8_t>(somfy_flags_t::DemoMode);
+          this->stateFlags |= static_cast<uint8_t>(somfy_flags_t::DemoMode);
         else
-          this->flags &= ~(static_cast<uint8_t>(somfy_flags_t::DemoMode));
-        const bool isSunny = this->flags & static_cast<uint8_t>(somfy_flags_t::Sunny);
-        const bool isWindy = this->flags & static_cast<uint8_t>(somfy_flags_t::Windy);
+          this->stateFlags &= ~(static_cast<uint8_t>(somfy_flags_t::DemoMode));
+        const bool isSunny = this->stateFlags & static_cast<uint8_t>(somfy_flags_t::Sunny);
+        const bool isWindy = this->stateFlags & static_cast<uint8_t>(somfy_flags_t::Windy);
         this->sensors.onSensorFrame(wasSunny, wasWindy, isSunny, isWindy, (uint32_t)curTime);
         this->emitState();
         somfy.updateGroupFlags();
@@ -594,8 +596,8 @@ void SomfyShade::processFrame(somfy_frame_t &frame, bool internal) {
       if(this->shadeType == shade_types::drycontact || this->shadeType == shade_types::drycontact2) return;
       if(this->lastFrame.rollingCode & 0x8000) return; // Some sensors send bogus frames with a rollingCode >= 32768 that cause them to change the state.
       {
-        const bool isWindy = this->flags & static_cast<uint8_t>(somfy_flags_t::Windy);
-        const bool isSunny = this->flags & static_cast<uint8_t>(somfy_flags_t::Sunny);
+        const bool isWindy = this->stateFlags & static_cast<uint8_t>(somfy_flags_t::Windy);
+        const bool isSunny = this->stateFlags & static_cast<uint8_t>(somfy_flags_t::Sunny);
         //this->flags |= static_cast<uint8_t>(somfy_flags_t::SunFlag);
         this->p_sunFlag(true);
         this->applySensorMove(this->sensors.onSunFlag(isSunny, isWindy));
@@ -746,7 +748,7 @@ void SomfyShade::processFrame(somfy_frame_t &frame, bool internal) {
     case somfy_commands::Favorite:
       if(this->lastFrame.processed) return;
       this->lastFrame.processed = true;
-      if(this->simMy()) {
+      if(this->simMy) {
         this->moveToMyPosition();
       }
       else {
@@ -813,7 +815,7 @@ void SomfyShade::processInternalCommand(somfy_commands cmd, uint8_t repeat) {
     case somfy_commands::My:
       if(this->isIdle()) {
         ESP_LOGD(TAG, "Shade #%d is idle", this->getShadeId());
-        if(this->simMy()) {
+        if(this->simMy) {
           this->moveToMyPosition();
         }
         else {
@@ -839,18 +841,18 @@ void SomfyShade::processInternalCommand(somfy_commands cmd, uint8_t repeat) {
       break;
     case somfy_commands::Flag:
       this->p_sunFlag(false);
-      if(this->hasSunSensor()) {
+      if(this->sunSensor) {
         somfy.isDirty = true;
         this->emitState();
       }
       else {
-        ESP_LOGW(TAG, "Shade does not have sensor %d", this->flags);
+        ESP_LOGW(TAG, "Shade does not have sensor %d", this->getFlags());
       }
       break;    
     case somfy_commands::SunFlag:
-      if(this->hasSunSensor()) {
-        const bool isWindy = this->flags & static_cast<uint8_t>(somfy_flags_t::Windy);
-        const bool isSunny = this->flags & static_cast<uint8_t>(somfy_flags_t::Sunny);
+      if(this->sunSensor) {
+        const bool isWindy = this->stateFlags & static_cast<uint8_t>(somfy_flags_t::Windy);
+        const bool isSunny = this->stateFlags & static_cast<uint8_t>(somfy_flags_t::Sunny);
         this->p_sunFlag(true);
         //this->flags |= static_cast<uint8_t>(somfy_flags_t::SunFlag);
         this->applySensorMove(this->sensors.onSunFlag(isSunny, isWindy));
@@ -858,7 +860,7 @@ void SomfyShade::processInternalCommand(somfy_commands cmd, uint8_t repeat) {
         this->emitState();
       }
       else
-        ESP_LOGW(TAG, "Shade does not have sensor %d", this->flags);
+        ESP_LOGW(TAG, "Shade does not have sensor %d", this->getFlags());
       break;
     default:
       dir = 0;
@@ -1095,7 +1097,7 @@ bool SomfyShade::moveToMyPosition() {
   }
   if(this->myPos == -1 && (this->tiltType == tilt_types::none || this->myTiltPos == -1)) return true;
   this->settingPos = false;
-  if(this->simMy()) {
+  if(this->simMy) {
     ESP_LOGI(TAG, "Moving to simulated favorite");
     if(!this->moveToTarget(this->myPos, this->myTiltPos)) return false;
   }

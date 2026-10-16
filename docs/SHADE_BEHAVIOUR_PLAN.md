@@ -1,6 +1,6 @@
 # Plan: deepen the shade behaviour
 
-**Status:** design in progress. Round 1 of the design questions is open (below); nothing is built.
+**Status:** design settled (rounds 1–3, see "Decisions"), apart from the reconcile order, which waits for PR B's pinning tests. PR A (`refactor/shade-settings`) is built; PR B is next.
 **Written:** 2026-10-16, on top of `refactor/split-transports` (PR #44, the top of the LoopQueue stack #40–#44, which is not yet merged or run on a device). Line numbers refer to that branch.
 **Start here:** read [GLOSSARY.md](../GLOSSARY.md), [ADR-0002](adr/0002-loop-task-is-the-only-writer-of-the-shade-model.md) and [LOOP_QUEUE_PLAN.md](LOOP_QUEUE_PLAN.md) first. Their decisions are not reopened here.
 
@@ -66,37 +66,25 @@ One module holding the shade's behaviour behind a small interface:
 
 The decisions are the user's. Each question comes with a recommended answer, and they are asked in rounds, as in the LoopQueue plan. Settled answers move to "Decisions".
 
-### Round 1 (open)
+### Found while preparing round 2
 
-**Q1. What moves into the module.**
-- **Into the module:** everything that decides where the shade is and where it is going: `processFrame`, `processWaitingFrame`, `processInternalCommand`, `sendCommand`, `sendTiltCommand`, `moveToTarget`, `moveToTiltTarget`, `setMyPosition`, `moveToMyPosition`, `checkMovement` and `processTxEvent`. Their state goes too: positions, targets, directions, start times, the `setting*` flags, the favorite, `ShadeSensors` and `ShadeTxState`.
-- **Stays in `SomfyShade`:** identity and settings (id, name, remotes, types, times), persistence, GPIO, JSON and rolling codes.
+- **The echo does part of the sender's work, and it varies by command.** For a frame marked internal, `processFrame` leaves the targets alone on Up and Down (the sender sets them itself after the send). It does set them on My (when idle), Stop, Toggle, Favorite, StepUp and StepDown. So for Stop, Step, Toggle and Favorite sent from the web, the shade's *only* reaction is in its echo. A linked shade gets the same internal frame, so it follows My/Stop/Step/Toggle/Favorite but not Up/Down. The echo also resets `moveStart`/`startPos` and copies the frame into `lastFrame` on every shade it reaches.
+- **The order inside a send is:** encode → submit → commit rolling code → `lastFrame` → echo to every shade → `markTxPending` on the sender, its linked shades and the members of a group with that address. The sender's caller (`moveToTarget`, `sendCommand`, …) sets its targets *after* all of that.
+- **`lastFrame` serves two purposes.** It is the template `sendCommandAfter` builds the next frame from, and the long-press state `processWaitingFrame` reads (`await`, `repeats`, `processed`, `cmd`, `stepSize`).
+- **`emitCommand` is still a direct output.** It builds a socket event with ArduinoJson and publishes three MQTT topics on the spot, about 40 times in the shade code and once per member in `SomfyGroup::sendCommand`. `emitState()` only marks the shade changed.
+- **`isInGroup()` isn't used by the behaviour code.** Only the delete check in SomfyJson and the snapshot call it, so it stays in `SomfyShade`.
+- **`flags` mixes settings and state.** SimMy, SunSensor and Light are settings; SunFlag, Sunny, Windy and DemoMode are sensor state the behaviour changes. ConfigFile saves the whole byte.
+- **Outside writers of motion state:** ConfigFile at boot (positions, targets, favorite) and `SomfyShadeOps` setting a position without moving (`p_target`/`p_currentPos`). The other files only read it.
 
-Recommended: yes.
+### Found while preparing round 3
 
-**Q2. Three phases: pin, move, reconcile.**
-1. **Pin:** native scenario tests of today's behaviour, including where the copies disagree, each labelled "today: …". Every later behaviour change then shows up as a test change.
-2. **Move:** the code goes into the module unchanged, and the pinning tests stay green. Today's code can't be built natively, so phases 1 and 2 happen together: the seams go in while the tests are written against the moved, unchanged code.
-3. **Reconcile:** the copies are made to agree, one decision per commit, each checked on real motors.
+- **The sender's own echo needs the frame as sent, not just the command.** The Flag and SunFlag rules ignore a frame whose rolling code is 0x8000 or above (a guard against bogus sensors), and they apply it to the shade's own echo too. `flipCommands` flips the command on the way out and flips it back when the echo comes in.
+- **`sendSensorCommand` doesn't move.** ShadeRequests calls it through `SomfyShadeOps`, and it stays in `SomfyRemote`. It keeps echoing to every shade, the sender included, so the shade hears it through `onFrame`.
+- **GPIO:** `GP_Remote` pulses its pins inside the send; `GP_Relay` sends nothing and `setGPIOs()` drives the relays from `loop()` by reading the direction. Both stay outside the module.
 
-Recommended: yes.
+### Still open
 
-**Q3. Time is passed in.** Every input carries `now` (`onFrame(frame, now)`, `tick(now)`, ...), as `ShadeSensors::check(…, now)` and `TxHold` already do. The alternative is a clock interface the module asks. Recommended: pass it in.
-
-**Q4. One behaviour object per shade, settings as plain data.** Each `SomfyShade` holds one module object with the motion state. Its settings come in as a plain struct: shade type, tilt type, up/down/tilt times, step size, `simMy`, `flipCommands`. The alternative is functions with no state of their own, over a state struct the caller owns. Recommended: an object per shade.
-
-### Round 2 (waits for round 1)
-
-- **The echo.** Should the module apply its own commands directly, instead of reacting to its own echoed frame? This is the biggest decision; it decides what the radio seam looks like, and whether linked shades still learn about the command from the echo.
-- **The radio seam.** What it takes (command, repeats, step size, delay, priority) and returns (ticket or refused). Rolling codes, NVS and frame encoding stay behind it in `SomfyRemote`. GPIO-driven shades sit behind the same seam.
-- **Linked remotes and groups.** How a frame from a linked remote and a group command reach the module, and whether `processInternalCommand` stays a separate input.
-- **The global `somfy`.** Where `isDirty`/`commit()` go (a change bit the caller acts on?), `updateGroupFlags()` (the controller after the pass?), `transceiver.config` (part of the settings struct?), and `isInGroup()` (given by the caller?).
-
-### Later rounds
-
-- The names, which go into GLOSSARY.md (for example **ShadeBehaviour**, **MotorLink**). Check for clashes with `ShadeMotion`, `ShadeOps`, `ShadeRequests` and `ShadeChanges`.
-- The order of the steps and the PR split.
-- What the reconcile phase decides first: Up/Down/My on tilt-only shades, `settingPos` on arrival.
+- **Reconcile: what is decided first, and in what order.** Asked once PR B's pinning tests have listed every "today: …" disagreement. Known candidates: `settingPos` on arrival (may send extra stops), Up/Down/My on tilt-only shades, the self-echo (Q5), and merging group commands into the frame rule (Q8).
 
 ## Constraints
 
@@ -107,4 +95,43 @@ Recommended: yes.
 
 ## Decisions
 
-None yet.
+**Round 1 (2026-10-16), all as recommended:**
+
+- **Q1. What moves in.** `processFrame`, `processWaitingFrame`, `processInternalCommand`, `sendCommand`, `sendTiltCommand`, `moveToTarget`, `moveToTiltTarget`, `setMyPosition`, `moveToMyPosition`, `checkMovement` and `processTxEvent` move into the module. So do their helpers (`sendStop`, `sendSetMy`, `storeMyPosition`, `runToLimit`, `applySensorMove`, `applyStep`, `tiltRepeats`) and their state: positions, targets, directions, `lastMovement`, start times and positions, the `setting*` flags, `awaitMy`, the favorite, `ShadeSensors` and `ShadeTxState`. The `p_*` setters and change marking also move in. `SomfyShade` keeps identity, settings, persistence, GPIO, JSON, MQTT topics and rolling codes.
+- **Q2. Pin, move, reconcile.** Phases 1 and 2 land together and change no behaviour. Disagreements are pinned as "today: …" tests. Reconcile makes one decision per commit, each checked on real motors.
+- **Q3. Time is passed in.** Every input carries `now` as `uint32_t`, with wrap-safe elapsed times as in `TxHold`.
+- **Q4. One object per shade.** It holds a `const ShadeSettings&`. The settings fields move into that struct, which `SomfyShade` owns, so there is one copy and nothing to drift.
+
+**Round 2 (2026-10-16), all as recommended.** The principle: the module never touches anything outside itself; `SomfyShade` wraps it and does the outside work.
+
+- **Q5. The echo.** Today a sent frame is handed back to every shade as if a remote had sent it, and some commands (Stop, Step, Toggle, Favorite, My when idle) do their work only there. The module calls its own frame rule directly after a successful send, at the same point as today. Other shades (linked remotes) still hear the frame through the controller. Whether the sender should hear itself at all is a reconcile decision.
+- **Q6. Held-button state.** The module keeps its own record of the held button (`cmd`, `repeats`, `await`, `processed`, `stepSize`, `remoteAddress`). `SomfyRemote::lastFrame` stays the send template, and `SomfyShade` keeps copying frames into it as today.
+- **Q7. Command events.** They leave through an output seam, `onCommand(cmd, source, sourceAddress)`, which calls today's `emitCommand` on the device and records in tests. The timing is unchanged, and ArduinoJson stays out of the module.
+- **Q8. Group commands.** They stay a separate input, `onGroupCommand(cmd, repeat, now)`, with today's rule. `markTxPending` becomes `onTxQueued(ticket, now)`. Merging group commands into the frame rule is a reconcile decision.
+- **Q9. The global `somfy`.** The module reports "save wanted" and "sensor flags changed"; `SomfyShade` sets `somfy.isDirty` and calls `updateGroupFlags()`. `bitLength` goes into `ShadeSettings`, still filled in lazily by `SomfyShade`. `isInGroup()` stays in `SomfyShade`.
+- **Q10. The `flags` byte.** SunFlag, Sunny, Windy and DemoMode go into the module; SimMy and SunSensor into `ShadeSettings`; Light stays in `SomfyShade`. The byte is put back together for ConfigFile, JSON and MQTT, so nothing saved or sent changes.
+- **Q11. Reading the motion state.** A read-only `state()`. ConfigFile at boot writes through `restore(...)` and `SomfyShadeOps` through `setPosition(pos, tilt)`. The 12 reading files switch over in the move phase.
+
+**Round 3 (2026-10-16), all as recommended:**
+
+- **Q12. The radio seam.** The module sends with `send(cmd, repeats, stepSize, delayMs, priority)` and gets back `{sent, ticket, frame}`. On the device, `SomfyRemote` does what `sendCommandAfter` does today (rolling code, encode, submit or pulse GPIO, commit the code, `lastFrame`), but it echoes and marks the radio hold only for the *other* shades and group members. The module runs its own echo on the returned frame and marks its own hold. In tests a fake records each send, hands out tickets 1, 2, 3, … and can be told to refuse.
+- **Q13. Names.** These go into GLOSSARY.md with PR B, when the code exists:
+  - **ShadeBehaviour**: the module (`src/ShadeBehaviour.h/.cpp`, `test/test_shadebehaviour`).
+  - **ShadeSettings**: the read-only settings.
+  - **ShadeBehaviour::State**: the motion state `state()` returns.
+  - **MotorLink**: the send seam, radio or GPIO.
+  - **ShadeEvents**: the `onCommand(...)` output.
+- **Q14. Order and PRs**, stacked on #44:
+  1. **PR A:** `ShadeSettings` and the `flags` split, with tests that the saved byte and JSON don't change.
+  2. **PR B:** the move: `ShadeBehaviour`, `MotorLink`, `ShadeEvents`, `restore`/`setPosition`, the 12 readers and the pinning scenario tests. No behaviour change.
+  3. **Reconcile:** one PR per decision. These start only after #40–#44, A and B have run on a device.
+
+**Before PR A (2026-10-16), all as recommended.** Q4 assumed every setting lives on `SomfyShade`. But `flipCommands`, `bitLength`, `repeats` and the `flags` byte are on the `SomfyRemote` base, which groups share and the send path uses.
+
+- **Q15. Two settings structs, held as bases.** `RemoteSettings` (`flipCommands`, `bitLength`, `repeats`) is a base of `SomfyRemote`, so shades and groups each have one. `ShadeSettings` (types, travel times, step size, `flipPosition`, `simMy`, `sunSensor`) is a second base of `SomfyShade`. Existing code like `shade->upTime` keeps compiling. The module will get two read-only references. That is still one copy of each, so nothing can drift.
+- **Q16. The `flags` byte.**
+  - SimMy and SunSensor are `bool`s in `ShadeSettings`, and Light is a `bool` on `SomfyShade`.
+  - SunFlag, Sunny, Windy, DemoMode and the unused Lighted stay on `SomfyShade` as `stateFlags` until PR B moves them into the module.
+  - A shade's byte is `getFlags()` (put together) and `setFlags()` (split), used by ConfigFile, JSON, MQTT, events and group flags.
+  - Groups keep their own `flags` byte (the OR of their shades), and `SomfyRemote::getFlags()` is virtual for `sendSensorCommand`.
+  - `test_shadesettings` checks that all 256 byte values come back unchanged.

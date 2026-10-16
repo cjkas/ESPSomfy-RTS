@@ -193,7 +193,7 @@ void SomfyShade::publish() {
     this->publish("remoteAddress", this->getRemoteAddress(), true);
     this->publish("shadeType", static_cast<uint8_t>(this->shadeType), true);
     this->publish("tiltType", static_cast<uint8_t>(this->tiltType), true);
-    this->publish("flags", this->flags, true);
+    this->publish("flags", this->getFlags(), true);
     this->publish("flipCommands", this->flipCommands, true);
     this->publish("flipPosition", this->flipPosition, true);
     this->publishState();

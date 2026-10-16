@@ -24,9 +24,9 @@ void SomfyShade::emitState(uint8_t num, const char *evt) {
   json->addElem("tiltType", static_cast<uint8_t>(this->tiltType));
   json->addElem("flipCommands", this->flipCommands);
   json->addElem("flipPosition", this->flipPosition);
-  json->addElem("flags", this->flags);
-  json->addElem("sunSensor", this->hasSunSensor());
-  json->addElem("light", this->hasLight());
+  json->addElem("flags", this->getFlags());
+  json->addElem("sunSensor", this->sunSensor);
+  json->addElem("light", this->light);
   json->addElem("sortOrder", this->sortOrder);
   if(this->tiltType != tilt_types::none) {
     json->addElem("tiltDirection", this->tiltDirection);
@@ -82,7 +82,7 @@ void SomfyGroup::emitState(uint8_t num, const char *evt) {
       SomfyShade *shade = somfy.getShadeById(this->linkedShades[i]);
       if(shade) {
         json->addElem(this->linkedShades[i]);
-        flags |= shade->flags;
+        flags |= shade->getFlags();
       }
     }
   }

@@ -8,6 +8,7 @@
 #include "TxBuffer.h"
 #include "RadioScheduler.h"
 #include "ShadeTypes.h"
+#include "ShadeSettings.h"
 #include "ShadeMotion.h"
 #include "ShadeSensors.h"
 #include "ShadeChanges.h"
@@ -43,7 +44,7 @@ struct send_result_t {
   uint32_t ticket = 0;
   explicit operator bool() const { return this->sent; }
 };
-class SomfyRemote {
+class SomfyRemote : public RemoteSettings {
   // These sizes for the data have been
   // confirmed.  The address is actually 24bits
   // and the rolling code is 16 bits.
@@ -62,11 +63,7 @@ class SomfyRemote {
     uint8_t gpioMy = 0;
     uint32_t gpioRelease = 0;
     somfy_frame_t lastFrame;
-    bool flipCommands = false;
     uint16_t lastRollingCode = 0;
-    uint8_t flags = 0;
-    uint8_t bitLength = 0;
-    uint8_t repeats = 1;
     virtual bool isLastCommand(somfy_commands cmd);
     char *getRemotePrefId() {return m_remotePrefId;}
     virtual void setRemoteAddress(uint32_t address);
@@ -74,12 +71,8 @@ class SomfyRemote {
     uint16_t peekNextRollingCode();
     void commitRollingCode(uint16_t code);
     virtual uint16_t setRollingCode(uint16_t code);
-    bool hasSunSensor();
-    bool hasLight();
-    bool simMy();
-    void setSunSensor(bool bHasSensor);
-    void setLight(bool bHasLight);
-    void setSimMy(bool bSimMy);
+    // The flags byte (somfy_flags_t) as it is saved and sent.
+    virtual uint8_t getFlags() { return 0; }
     // The send functions return false only when the radio could not take the
     // command.  Nothing about the remote or shade state has changed in that case.
     virtual bool sendCommand(somfy_commands cmd);
@@ -96,7 +89,7 @@ class SomfyLinkedRemote : public SomfyRemote {
   public:
     SomfyLinkedRemote();    
 };
-class SomfyShade : public SomfyRemote {
+class SomfyShade : public SomfyRemote, public ShadeSettings {
   protected:
     uint8_t shadeId = 255;
     uint64_t moveStart = 0;
@@ -108,6 +101,9 @@ class SomfyShade : public SomfyRemote {
     bool settingPos = false;
     bool settingTiltPos = false;
     uint32_t awaitMy = 0;
+    // The flags bits that are state: sun flag, sunny, windy, demo mode and the
+    // unused lighted.  The setting bits are in ShadeSettings and light.
+    uint8_t stateFlags = 0;
     // Radio jobs whose outcome decides what the motor really did.
     ShadeTxState tx;
     bool sendStop(int8_t dir, bool tilt);
@@ -124,9 +120,7 @@ class SomfyShade : public SomfyRemote {
   public:
     uint8_t roomId = 0;
     int8_t sortOrder = 0;
-    bool flipPosition = false;
-    shade_types shadeType = shade_types::roller;
-    tilt_types tiltType = tilt_types::none;
+    bool light = false;
     float currentPos = 0.0f;
     float currentTiltPos = 0.0f;
     int8_t lastMovement = 0;
@@ -144,10 +138,9 @@ class SomfyShade : public SomfyRemote {
     char name[21] = "";
     void setShadeId(uint8_t id) { shadeId = id; }
     uint8_t getShadeId() { return shadeId; }
-    uint32_t upTime = 10000;
-    uint32_t downTime = 10000;
-    uint32_t tiltTime = 7000;
-    uint16_t stepSize = 100;
+    uint8_t getFlags() override;
+    // Sets the setting and state bits from a saved or sent flags byte.
+    void setFlags(uint8_t flags);
     bool save();
     bool isIdle();
     bool isInGroup();
@@ -232,6 +225,10 @@ class SomfyGroup : public SomfyRemote {
     int8_t sortOrder = 0;
     group_types groupType = group_types::channel;
     int8_t direction = 0; // 0 = stopped, 1=down, -1=up.
+    // Its linked shades' flags together, see updateFlags.
+    uint8_t flags = 0;
+    uint8_t getFlags() override { return this->flags; }
+    bool hasSunSensor() { return (this->flags & static_cast<uint8_t>(somfy_flags_t::SunSensor)) > 0; }
     char name[21] = "";
     uint8_t linkedShades[SOMFY_MAX_GROUPED_SHADES];
     void setGroupId(uint8_t id) { groupId = id; }

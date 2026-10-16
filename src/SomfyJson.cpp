@@ -80,9 +80,9 @@ int8_t SomfyShade::fromJSON(JsonObject &obj) {
     if(!obj["hasTilt"].isNull()) this->tiltType = static_cast<bool>(obj["hasTilt"]) ? tilt_types::none : tilt_types::tiltmotor;
     if(!obj["bitLength"].isNull()) this->bitLength = obj["bitLength"];
     if(!obj["proto"].isNull()) this->proto = static_cast<radio_proto>(obj["proto"].as<uint8_t>());
-    if(!obj["sunSensor"].isNull()) this->setSunSensor(obj["sunSensor"]);
-    if(!obj["simMy"].isNull()) this->setSimMy(obj["simMy"]);
-    if(!obj["light"].isNull()) this->setLight(obj["light"]);
+    if(!obj["sunSensor"].isNull()) this->sunSensor = obj["sunSensor"];
+    if(!obj["simMy"].isNull()) this->simMy = obj["simMy"];
+    if(!obj["light"].isNull()) this->light = obj["light"];
     if(!obj["gpioFlags"].isNull()) this->gpioFlags = obj["gpioFlags"];
     if(!obj["gpioLLTrigger"].isNull()) {
       if(obj["gpioLLTrigger"].as<bool>())
@@ -150,7 +150,7 @@ int8_t SomfyShade::fromJSON(JsonObject &obj) {
         this->linkedRemotes[j].setRemoteAddress(linkedAddresses[j]);
       }
     }
-    if(!obj["flags"].isNull()) this->flags = obj["flags"];
+    if(!obj["flags"].isNull()) this->setFlags(obj["flags"].as<uint8_t>());
     if(this->proto == radio_proto::GP_Remote || this->proto == radio_proto::GP_Relay) {
       if(!obj["gpioUp"].isNull()) this->gpioUp = obj["gpioUp"];
       if(!obj["gpioDown"].isNull()) this->gpioDown = obj["gpioDown"];
