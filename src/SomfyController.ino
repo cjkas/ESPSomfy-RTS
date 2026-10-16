@@ -158,6 +158,10 @@ void loop() {
   loopQueue.drain();
   logIfSlow(TAG, "Loop queue", timing.lap(), LOOP_SLOW_MS);
   esp_task_wdt_reset();
+  // What changed in this pass goes out once, to MQTT and the sockets.
+  somfy.sendChanges();
+  logIfSlow(TAG, "Loop changes", timing.lap(), LOOP_SLOW_MS);
+  esp_task_wdt_reset();
   if(net.connected() || net.softAPOpened) {
     if(!rebootDelay.reboot && net.connected() && !net.softAPOpened) {
       git.loop();

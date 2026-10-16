@@ -8,6 +8,7 @@ extern SomfyShadeController somfy;
 extern SocketEmitter sockEmit;
 extern MQTTClass mqtt;
 
+void SomfyShade::emitState() { this->changed |= SHADE_CHANGED_STATE; }
 void SomfyShade::emitState(const char *evt) { this->emitState(255, evt); }
 void SomfyShade::emitState(uint8_t num, const char *evt) {
   JsonSockEvent *json = sockEmit.beginEmit(evt);
@@ -65,6 +66,7 @@ void SomfyRoom::emitState(uint8_t num, const char *evt) {
   sockEmit.endEmit(num);
   this->publish();
 }
+void SomfyGroup::emitState() { this->changed |= GROUP_CHANGED_STATE; }
 void SomfyGroup::emitState(const char *evt) { this->emitState(255, evt); }
 void SomfyGroup::emitState(uint8_t num, const char *evt) {
   uint8_t flags = 0;
@@ -101,6 +103,26 @@ void emitRequestResult(uint32_t requestId, const edit_result_t &result) {
   json->addElem("desc", result.desc);
   json->endObject();
   sockEmit.endEmit();
+}
+// The change fan-out.  Everything that changed about a shade or group in this
+// loop() pass goes out once: its MQTT topics, then one state event.
+void SomfyShadeController::sendChanges() {
+  for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
+    SomfyShade &shade = this->shades[i];
+    const uint16_t changed = shade.changed;
+    shade.changed = 0;
+    if(!changed || shade.getShadeId() == 255) continue;
+    if(changed & SHADE_CHANGED_TOPICS) shade.publishTopics(changed);
+    shade.emitState(255, "shadeState");
+  }
+  for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++) {
+    SomfyGroup &group = this->groups[i];
+    const uint8_t changed = group.changed;
+    group.changed = 0;
+    if(!changed || group.getGroupId() == 255) continue;
+    if(changed & GROUP_CHANGED_DIRECTION) group.publish("direction", group.direction);
+    group.emitState(255, "groupState");
+  }
 }
 void SomfyShadeController::emitState(uint8_t num) {
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
