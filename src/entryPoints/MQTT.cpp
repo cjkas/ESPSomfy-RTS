@@ -5,7 +5,9 @@
 #include "esp_log.h"
 #include "ConfigSettings.h"
 #include "MQTT.h"
+#include "MqttCommands.h"
 #include "Somfy.h"
+#include "LoopQueue.h"
 #include "ESPNetwork.h"
 #include "Utils.h"
 
@@ -21,6 +23,7 @@ extern ConfigSettings settings;
 extern SomfyShadeController somfy;
 extern ESPNetwork net;
 extern rebootDelay_t rebootDelay;
+extern LoopQueue loopQueue;
 
 
 bool MQTTClass::begin() {
@@ -49,131 +52,14 @@ bool MQTTClass::loop() {
 void MQTTClass::receive(const char *topic, byte*payload, uint32_t length) {
   esp_task_wdt_reset(); // Make sure we do not reboot here.
   ESP_LOGD(TAG, "MQTT Topic:%s payload:%.*s", topic, (int)length, (const char *)payload);
-
-  // We need to start at the last slash in the data
-  uint8_t len = strlen(topic);
-  
-  uint8_t slashes = 0;
-  uint16_t ndx = strlen(topic) - 1;
-  while(ndx > 0) {
-    if(topic[ndx] == '/') slashes++;
-    if(slashes == 4) break;
-    ndx--;
+  // This already runs on loop(), but going through the loop queue keeps MQTT
+  // and web requests in order and holds them while the radio is full.
+  loop_item_t item;
+  if(!parseMqttCommand(topic, payload, length, item.request)) {
+    ESP_LOGW(TAG, "MQTT command not understood: %s", topic);
+    return;
   }
-  char entityId[4];
-  char command[32];
-  char entityType[7];
-  char value[10];
-  memset(command, 0x00, sizeof(command));
-  memset(entityId, 0x00, sizeof(entityId));
-  memset(entityType, 0x00, sizeof(entityType));
-  memset(value, 0x00, sizeof(value));
-  uint8_t i = 0;
-  while(topic[ndx] == '/' && ndx < len) ndx++;
-  while(ndx < len) {
-    if(topic[ndx] != '/' && i < sizeof(entityType))
-      entityType[i++] = topic[ndx];
-    ndx++;
-    if(topic[ndx] == '/') break;
-  }
-  i = 0;
-  while(topic[ndx] == '/' && ndx < len) ndx++;
-  while(ndx < len) {
-    if(topic[ndx] != '/' && i < sizeof(entityId))
-      entityId[i++] = topic[ndx];
-    ndx++;
-    if(topic[ndx] == '/') break;
-  }
-  i = 0;
-  while(topic[ndx] == '/' && ndx < len) ndx++;
-  while(ndx < len) {
-    if(topic[ndx] != '/' && i < sizeof(command))
-      command[i++] = topic[ndx];
-    ndx++;
-    if(topic[ndx] == '/') break;
-  }
-  for(uint8_t j = 0; j < length && j < sizeof(value); j++)
-    value[j] = payload[j];
-  
-  ESP_LOGD(TAG, "MQTT type:[%s] command:[%s] entityId:%s value:%s", entityType, command, entityId, value);
-  if(strncmp(entityType, "shades", sizeof(entityType)) == 0) {
-    SomfyShade* shade = somfy.getShadeById(atoi(entityId));
-    if (shade) {
-      int val = atoi(value);
-      if(strncmp(command, "target", sizeof(command)) == 0) {
-        if(val >= 0 && val <= 100) {
-          ESP_LOGI(TAG, "MQTT shade %s target=%d", entityId, val);
-          shade->moveToTarget(shade->transformPosition(atoi(value)));
-        }
-      }
-      if(strncmp(command, "tiltTarget", sizeof(command)) == 0) {
-        if(val >= 0 && val <= 100)
-          shade->moveToTiltTarget(atoi(value));
-      }
-      else if(strncmp(command, "direction", sizeof(command)) == 0) {
-        if(val < 0)
-          shade->sendCommand(somfy_commands::Up);
-        else if(val > 0)
-          shade->sendCommand(somfy_commands::Down);
-        else
-          shade->sendCommand(somfy_commands::My);
-      }
-      else if(strncmp(command, "mypos", sizeof(command)) == 0) {
-        if(val >= 0 && val <= 100)
-          shade->setMyPosition(val);
-      }
-      else if(strncmp(command, "myTiltPos", sizeof(command)) == 0) {
-        if(val >= 0 && val <= 100)
-          shade->setMyPosition(shade->myPos, val);
-      }
-      else if(strncmp(command, "sunFlag", sizeof(command)) == 0) {
-        shade->sendCommand(sunFlagCommand(val > 0));
-      }
-      else if(strncmp(command, "position", sizeof(command)) == 0) {
-        if(val >= 0 && val <= 100) {
-          shade->target = shade->currentPos = shade->transformPosition((float)val);
-          shade->emitState();
-        }
-      }
-      else if(strncmp(command, "tiltPosition", sizeof(command)) == 0) {
-        if(val >= 0 && val <= 100) {
-          shade->tiltTarget = shade->currentTiltPos = (float)val;
-          shade->emitState();
-        }
-      }
-      else if(strncmp(command, "sunny", sizeof(command)) == 0) {
-        if(val >= 0) shade->sendSensorCommand(-1, val, shade->repeats);
-      }
-      else if(strncmp(command, "windy", sizeof(command)) == 0) {
-        if(val >= 0) shade->sendSensorCommand(val, -1, shade->repeats);
-      }
-    }
-  }
-  else if(strncmp(entityType, "groups", sizeof(entityType)) == 0) {
-    SomfyGroup* group = somfy.getGroupById(atoi(entityId));
-    if (group) {
-      int val = atoi(value);
-      ESP_LOGI(TAG, "MQTT group %s command=%s value=%d", entityId, command, val);
-      if(strncmp(command, "direction", sizeof(command)) == 0) {
-        if(val < 0)
-          group->sendCommand(somfy_commands::Up);
-        else if(val > 0)
-          group->sendCommand(somfy_commands::Down);
-        else
-          group->sendCommand(somfy_commands::My);
-      }
-      else if(strncmp(command, "sunFlag", sizeof(command)) == 0) {
-        group->sendCommand(sunFlagCommand(val > 0));
-      }
-      else if(strncmp(command, "sunny", sizeof(command)) == 0) {
-        if(val >= 0) group->sendSensorCommand(-1, val, group->repeats);
-      }
-      else if(strncmp(command, "windy", sizeof(command)) == 0) {
-        if(val >= 0) group->sendSensorCommand(val, -1, group->repeats);
-      }
-    }
-  }
-  esp_task_wdt_reset(); // Make sure we do not reboot here.
+  loopQueue.submit(item);
 }
 bool MQTTClass::connect() {
   esp_task_wdt_reset(); // Make sure we do not reboot here.

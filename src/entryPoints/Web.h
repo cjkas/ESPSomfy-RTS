@@ -1,9 +1,6 @@
 #include <ESPAsyncWebServer.h>
 #include <AsyncJson.h>
-#include <freertos/queue.h>
-#include <freertos/semphr.h>
 #include "Somfy.h"
-#include "WebCommand.h"
 #ifndef webserver_h
 #define webserver_h
 
@@ -40,8 +37,5 @@ class Web {
     void handleBackup(AsyncWebServerRequest *request);
     void handleReboot(AsyncWebServerRequest *request);
     void handleNotFound(AsyncWebServerRequest *request);
-    bool queueCommand(const web_command_t &cmd);
-  private:
-    void processQueue();
 };
 #endif

@@ -36,7 +36,7 @@ The new `ControllerChunker` reads state as the response drains. On a slow link o
   - `/linkToGroup` and `/unlinkFromGroup` change a group's linked shades.
   - `/setPaired` sets `paired`.
 
-  Shade commands, set-My, unpair, `/setRollingCode`, a shades restore and `/updateShadeConfig` already go through the web command queue to `loop()`.
+  Shade requests (shade and group commands, set-My, unpair, `/setPositions`, `/setRollingCode`, and every MQTT command), a shades restore and `/updateShadeConfig` already go through the LoopQueue to `loop()`.
 - `/controller` leaves out a room, shade, group or linked shade that doesn't fit in its chunk buffer, see [Oversized `/controller` items are left out](#oversized-controller-items-are-left-out).
 
 ## Oversized `/controller` items are left out

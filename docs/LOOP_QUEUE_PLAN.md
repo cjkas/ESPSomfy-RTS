@@ -1,6 +1,6 @@
 # Plan: domain modules behind the LoopQueue
 
-**Status:** planned, nothing built yet.
+**Status:** steps 0 and 1 built (PRs #39 and #40); steps 2–5 planned.
 **Written:** 2026-10-15, against commit `e624a41` on `refactor/entry-points-outputs`. Terms are defined in [GLOSSARY.md](../GLOSSARY.md); the threading rule is [ADR-0002](adr/0002-loop-task-is-the-only-writer-of-the-shade-model.md).
 
 ## Why
@@ -117,6 +117,18 @@ Each step is a PR of its own that can be tested on the device. Each one runs `pi
 | 3 | ModelEditor, `requestResult` and the `index.js` changes. | the rest of the web-task writers in KNOWN_ISSUES |
 | 4 | Change fan-out with dirty bits, replacing publishing from the `p_*` setters. | writes that skip MQTT, `position` stuck at 50 |
 | 5 | Split `Web.cpp` into WebUiRoutes and ApiRoutes, and `MQTT.cpp`/`SomfyMqtt.cpp` into MqttCommands, an MQTT connection and MqttPublisher. Edit parsing stays in `SomfyJson.cpp`. | the glossary names land in the code |
+
+### Step 1: what changed in behaviour
+- **Flip handling is the same for every entry point.** MQTT `tiltTarget`, `mypos`, `myTiltPos` and `tiltPosition`, and `/setPositions` (which Home Assistant calls), now turn the position round for a shade with `flipPosition`, as the other routes always did.
+- **Setting the favorite over MQTT keeps the other half.** `mypos` on a shade with tilt keeps the favorite tilt; before, it set it to 0. `myTiltPos` keeps the favorite lift, or uses where the shade is when it has none.
+- **`repeat` means the same everywhere.** Left out or negative is the shade's or group's own repeats; 0 is no repeats. `/shadeCommand` used to read 0 as "the shade's own". A JSON `repeat` over 127 is capped; it used to wrap round to "the shade's own".
+- **Position corrections reach MQTT.** `/setPositions` and MQTT `position`/`tiltPosition` go through the setters, so they are published.
+- **MQTT commands go through the LoopQueue.** While the radio is full they wait instead of being refused, and they run in order with web requests. An MQTT command topic that isn't understood is logged.
+- **The LoopQueue is drained on every `loop()` pass**, with or without a network. It is no longer drained from inside a GitHub firmware download, so a restore can't reboot the device in the middle of one.
+
+`WebCommand.h` became `LoopQueue.h` (the item and the hold rule) and `ShadeRequests.h` (the request, the `ShadeOps` seam and the module). `SomfyShadeOps` is the device side of the seam. `entryPoints/MqttCommands` holds the topic parsing. There are 45 new native tests (271 in all).
+
+Flash: `esp32devdbg` 1,546,405 → 1,547,381 bytes, `esp32dev` 1,396,957 → 1,398,337 bytes.
 
 ### Step 0 on a device
 NVS stays at `0x9000`, so the rolling codes survive. The file system partition shrinks from `0xE0000` to `0xD0000`, and the existing LittleFS won't mount, because `LittleFS.begin()` doesn't format. So:
