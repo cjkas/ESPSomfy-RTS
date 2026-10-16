@@ -135,6 +135,8 @@ class ShadeBehaviour {
     bool storeMyPosition(float pos, float tiltPos, uint32_t now);
     // Repeats for a tilt command, more for a separate tilt motor.
     uint8_t tiltRepeats() const;
+    // A tilt-only shade has no lift to move: it stays all the way down.
+    void pinTiltOnlyLift();
     void runToLimit(int8_t dir, bool tilt, uint32_t since);
     // Sets the targets the sun or wind sends the shade to.
     void applySensorMove(SensorMove move);

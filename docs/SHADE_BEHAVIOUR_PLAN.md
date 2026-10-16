@@ -86,8 +86,8 @@ The decisions are the user's. Each question comes with a recommended answer, and
 
 - **Reconcile: what is decided first, and in what order.** The candidates, each pinned by a "today:" test in `test_shadebehaviour` unless marked:
   - ~~`settingPos` is never cleared on a lift arrival, so a later step also sends a stop.~~ Fixed (Q18).
-  - Up and My on tilt-only shades differ between the web, a remote and a group (`test_today_up_on_tilt_only_*`, `test_today_my_while_tilt_only_moves`).
-  - An integrated tilt sent to a lift target without a tilt turns its slats back with an Up after the stop (`test_today_integrated_tilt_turns_back_after_a_lift_target`).
+  - ~~Up and My on tilt-only shades differ between the web, a remote and a group.~~ Fixed (Q22).
+  - An integrated tilt sent to a lift target without a tilt turns its slats back with an Up after the stop (`test_today_integrated_tilt_turns_back_after_a_lift_target`). Deferred (Q23).
   - ~~A remote step uses the step size this shade last *sent*.~~ Fixed (Q19).
   - ~~A group's SunFlag or Flag doesn't make other groups work their flags out again.~~ Fixed (Q20).
   - The self-echo (Q5) and merging group commands into the frame rule (Q8).
@@ -160,3 +160,8 @@ The decisions are the user's. Each question comes with a recommended answer, and
 - **Q19. A remote's step uses the frame's own step size** (`frame.stepSize`, 1 when 0) instead of `lastFrame.stepSize`, which `copy()` never updates. `copy()` itself stays as it is.
 - **Q20. A group's SunFlag/Flag calls `onSensorFlags()`,** as the frame rule does, so every group works its flags out again.
 - **Q21. The long-press wait is wrap-safe:** `(int32_t)(now - await) > 0`.
+
+**Reconcile round 2 (2026-10-16):**
+
+- **Q22. A tilt-only shade's lift is pinned at 100 on every path** (web, remote, group; Up, Down, My, idle or moving), and those commands act on the tilt only. Before, the remote and group My paths and the web's My while moving left a lift that something had moved, and `tick` then simulated it travelling. `test_tilt_only_lift_stays_down_whatever_the_source` checks the 18 combinations.
+- **Q23. Integrated tilt turning back: deferred.** No integrated-tilt motor is at hand to watch, and reconcile only changes what has been checked on a real motor. The behaviour stays, still labelled "today:", until someone with such a shade can say whether the turn-back is clean.
