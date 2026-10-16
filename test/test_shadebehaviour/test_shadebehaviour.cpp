@@ -251,10 +251,9 @@ static void test_refused_stop_runs_on_to_the_limit() {
   TEST_ASSERT_EQUAL(1, r.link.sent.size());
   ASSERT_POS(100, r.st().target);
 }
-static void test_today_a_step_after_move_to_target_sends_a_stop() {
-  // today: arriving at a lift target never clears settingPos (the tilt
-  // blocks do clear settingTiltPos), so a later step also sends a stop when
-  // it arrives.  On the "still open" list of LOOP_QUEUE_PLAN.md.
+static void test_a_step_after_move_to_target_sends_no_stop() {
+  // The stop at the target ends the positioning, so a later step stops by
+  // itself.  A stop sent then would be a My to a still motor: its favorite.
   Rig r;
   r.b.moveToTarget(40, -1, r.now);
   r.onAir();
@@ -264,8 +263,20 @@ static void test_today_a_step_after_move_to_target_sends_a_stop() {
   r.b.sendCommand(somfy_commands::StepDown, 1, 1, r.now);
   r.onAir();
   r.run(2000);
-  TEST_ASSERT_EQUAL(before + 2, r.link.sent.size());
-  ASSERT_CMD(somfy_commands::My, r.lastSent().cmd);
+  TEST_ASSERT_EQUAL(before + 1, r.link.sent.size());
+  ASSERT_CMD(somfy_commands::StepDown, r.lastSent().cmd);
+  TEST_ASSERT_EQUAL_INT8(0, r.st().direction);
+}
+static void test_a_group_step_after_move_to_target_sends_no_stop() {
+  Rig r;
+  r.b.moveToTarget(40, -1, r.now);
+  r.onAir();
+  r.run(4100);
+  const size_t before = r.link.sent.size();
+  r.b.onGroupCommand(somfy_commands::StepDown, 1, r.now);
+  r.run(1000);
+  ASSERT_POS(41, r.st().currentPos);
+  TEST_ASSERT_EQUAL(before, r.link.sent.size());
 }
 static void test_toggle_on_a_56_bit_shade_sends_my() {
   Rig r;
@@ -602,7 +613,8 @@ int main(int argc, char **argv) {
   RUN_TEST(test_move_to_target_sends_a_stop_there);
   RUN_TEST(test_dropped_stop_runs_on_to_the_limit);
   RUN_TEST(test_refused_stop_runs_on_to_the_limit);
-  RUN_TEST(test_today_a_step_after_move_to_target_sends_a_stop);
+  RUN_TEST(test_a_step_after_move_to_target_sends_no_stop);
+  RUN_TEST(test_a_group_step_after_move_to_target_sends_no_stop);
   RUN_TEST(test_toggle_on_a_56_bit_shade_sends_my);
   RUN_TEST(test_flipped_shade_sends_the_other_way);
   RUN_TEST(test_remote_down_and_my_stop);
