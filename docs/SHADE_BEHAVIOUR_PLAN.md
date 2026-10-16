@@ -92,7 +92,7 @@ The decisions are the user's. Each question comes with a recommended answer, and
   - ~~A group's SunFlag or Flag doesn't make other groups work their flags out again.~~ Fixed (Q20).
   - The self-echo (Q5) and merging group commands into the frame rule (Q8).
   - `lastFrame` doing two jobs (the Q6 revisit).
-  - The 500 ms long-press deadline is compared as `now > await`, which isn't wrap-safe (not tested).
+  - ~~The 500 ms long-press deadline isn't wrap-safe.~~ Fixed (Q21).
 
 ## Constraints
 
