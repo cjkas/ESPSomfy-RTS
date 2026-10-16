@@ -35,6 +35,17 @@ enum class shade_types : byte {
   cgate1 = 0x0F,
   rgate1 = 0x10
 };
+// The bits of a shade's or group's flags.
+enum class somfy_flags_t : byte {
+    SunFlag = 0x01,
+    SunSensor = 0x02,
+    DemoMode = 0x04,
+    Light = 0x08,
+    Windy = 0x10,
+    Sunny = 0x20,
+    Lighted = 0x40,
+    SimMy = 0x80
+};
 enum class tilt_types : byte {
   none = 0x00,
   tiltmotor = 0x01,

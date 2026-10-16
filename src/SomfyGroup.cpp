@@ -43,7 +43,7 @@ int8_t SomfyGroup::p_direction(int8_t dir) {
   int8_t old = this->direction;
   if(old != dir) {
     this->direction = dir;
-    this->publish("direction", this->direction);
+    this->changed |= GROUP_CHANGED_DIRECTION;
   }
   return old;
 }

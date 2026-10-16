@@ -1,6 +1,7 @@
 #include "Utils.h"
 #include "ConfigSettings.h"
 #include "Somfy.h"
+#include "SomfySnapshot.h"
 #include "Sockets.h"
 #include "entryPoints/MQTT.h"
 
@@ -31,28 +32,23 @@ void SomfyRoom::unpublish() {
     mqtt.unpublish(topic);
   }
 }
+// Publishes one topic of a shade: shades/<id>/<topic>.
+static void publishShadeTopic(const char *topic, int32_t value, bool retain, void *ctx) {
+  SomfyShade *shade = static_cast<SomfyShade *>(ctx);
+  if(value < 0) shade->publish(topic, static_cast<int8_t>(value), retain);
+  else shade->publish(topic, static_cast<uint32_t>(value), retain);
+}
+void SomfyShade::publishTopics(uint16_t changed) {
+  if(!mqtt.connected()) return;
+  shade_snapshot_t s;
+  snapshotShade(*this, s);
+  publishShadeTopics(changed, s, publishShadeTopic, this);
+}
 void SomfyShade::publishState() {
-  if(mqtt.connected()) {
-    this->publish("position", (uint8_t)50, true);
-    this->publish("direction", (int8_t)0, true);
-    this->publish("target", (uint8_t)50, true);
-    this->publish("lastRollingCode", this->lastRollingCode);
-    this->publish("mypos", this->transformPosition(this->myPos), true);
-    this->publish("myTiltPos", this->transformPosition(this->myTiltPos), true);
-    if(this->tiltType != tilt_types::none) {
-      this->publish("tiltDirection", this->tiltDirection, true);
-      this->publish("tiltPosition", this->transformPosition(this->currentTiltPos), true);
-      this->publish("tiltTarget", this->transformPosition(this->tiltTarget), true);
-    }
-    const uint8_t sunFlag = !!(this->flags & static_cast<uint8_t>(somfy_flags_t::SunFlag));
-    const uint8_t isSunny = !!(this->flags & static_cast<uint8_t>(somfy_flags_t::Sunny));
-    const uint8_t isWindy = !!(this->flags & static_cast<uint8_t>(somfy_flags_t::Windy));
-    if(this->hasSunSensor()) {
-      this->publish("sunFlag", sunFlag);
-      this->publish("sunny", isSunny);
-    }
-    this->publish("windy", isWindy);
-  }
+  if(!mqtt.connected()) return;
+  shade_snapshot_t s;
+  snapshotShade(*this, s);
+  publishShadeTopics(shadeStateTopics(s), s, publishShadeTopic, this);
 }
 void SomfyShade::publishDisco() {
   if(!mqtt.connected() || !settings.MQTT.pubDisco) return;
