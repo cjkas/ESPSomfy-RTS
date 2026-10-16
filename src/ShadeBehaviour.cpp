@@ -450,6 +450,7 @@ void ShadeBehaviour::onWaitingFrame(uint32_t now) {
           else {
             if(this->s.myPos >= 0.0f && this->s.myPos <= 100.0f) this->p_target(this->s.myPos);
             if(this->s.myTiltPos >= 0.0f && this->s.myTiltPos <= 100.0f) this->p_tiltTarget(this->s.myTiltPos);
+            this->pinTiltOnlyLift();
           }
           this->setMovement(0, now);
           this->lastFrame.processed = true;
@@ -458,6 +459,7 @@ void ShadeBehaviour::onWaitingFrame(uint32_t now) {
         else {
           this->p_target(this->s.currentPos);
           this->p_tiltTarget(this->s.currentTiltPos);
+          this->pinTiltOnlyLift();
         }
         if(this->lastFrame.repeats > SETMY_REPEATS + 2) this->lastFrame.processed = true;
         if(this->lastFrame.processed) {
@@ -572,6 +574,7 @@ void ShadeBehaviour::onFrame(somfy_frame_t &frame, bool internal, uint32_t now) 
       }
       else {
         // If from a remote we will simply be going up.
+        this->pinTiltOnlyLift();
         if(this->settings.tiltType == tilt_types::tiltonly && !internal) this->p_tiltTarget(0.0f);
         else if(!internal) {
           if(this->settings.tiltType != tilt_types::tiltonly) this->p_target(0.0f);
@@ -601,6 +604,7 @@ void ShadeBehaviour::onFrame(somfy_frame_t &frame, bool internal, uint32_t now) 
         }
         else {
           this->lastFrame.processed = true;
+          this->pinTiltOnlyLift();
           if(!internal) {
             if(this->settings.tiltType != tilt_types::tiltonly) this->p_target(100.0f);
             if(this->settings.tiltType != tilt_types::none) this->p_tiltTarget(100.0f);
@@ -642,6 +646,7 @@ void ShadeBehaviour::onFrame(somfy_frame_t &frame, bool internal, uint32_t now) 
           if(this->lastFrame.processed) return;
           ESP_LOGI(TAG, "Moving to My target");
           this->lastFrame.processed = true;
+          this->pinTiltOnlyLift();
           if(this->s.myTiltPos >= 0.0f && this->s.myTiltPos <= 100.0f) this->p_tiltTarget(this->s.myTiltPos);
           if(this->s.myPos >= 0.0f && this->s.myPos <= 100.0f && this->settings.tiltType != tilt_types::tiltonly) this->p_target(this->s.myPos);
           this->emitCommand(cmd, internal ? "internal" : "remote", frame.remoteAddress);
@@ -650,6 +655,7 @@ void ShadeBehaviour::onFrame(somfy_frame_t &frame, bool internal, uint32_t now) 
       else {
         if(this->lastFrame.processed) return;
         this->lastFrame.processed = true;
+        this->pinTiltOnlyLift();
         if(!internal) {
           if(this->settings.tiltType != tilt_types::tiltonly) this->p_target(this->s.currentPos);
           this->p_tiltTarget(this->s.currentTiltPos);
@@ -767,12 +773,11 @@ void ShadeBehaviour::onGroupCommand(somfy_commands cmd, uint8_t repeat, uint32_t
         else {
           if(this->s.myTiltPos >= 0.0f && this->s.myTiltPos <= 100.0f) this->p_tiltTarget(this->s.myTiltPos);
           if(this->s.myPos >= 0.0f && this->s.myPos <= 100.0f && this->settings.tiltType != tilt_types::tiltonly) this->p_target(this->s.myPos);
+          this->pinTiltOnlyLift();
         }
       }
       else {
-        if(this->settings.tiltType == tilt_types::tiltonly) {
-          this->p_target(100.0f);
-        }
+        if(this->settings.tiltType == tilt_types::tiltonly) this->pinTiltOnlyLift();
         else this->p_target(this->s.currentPos);
         this->p_tiltTarget(this->s.currentTiltPos);
       }
@@ -894,6 +899,11 @@ bool ShadeBehaviour::sendSetMy(uint16_t delayMs, float oldPos, float oldTiltPos,
   this->p_myPos(oldPos);
   this->p_myTiltPos(oldTiltPos);
   return false;
+}
+void ShadeBehaviour::pinTiltOnlyLift() {
+  if(this->settings.tiltType != tilt_types::tiltonly) return;
+  this->p_target(100.0f);
+  this->p_currentPos(100.0f);
 }
 void ShadeBehaviour::runToLimit(int8_t dir, bool tilt, uint32_t since) {
   // The motor didn't get a stop at the target so it keeps going until its end
@@ -1123,6 +1133,7 @@ bool ShadeBehaviour::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t ste
       if(!this->transmit(cmd, repeat, 0, 0, false, now).sent) return false;
       if(this->settings.tiltType != tilt_types::tiltonly) this->p_target(this->s.currentPos);
       this->p_tiltTarget(this->s.currentTiltPos);
+      this->pinTiltOnlyLift();
     }
   }
   else if(cmd == somfy_commands::Toggle) {
