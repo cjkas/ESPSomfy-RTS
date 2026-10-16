@@ -522,9 +522,11 @@ static void test_group_sun_flag_needs_a_sensor() {
   r.b.onGroupCommand(somfy_commands::SunFlag, 1, r.now);
   TEST_ASSERT_TRUE(r.st().stateFlags & static_cast<uint8_t>(somfy_flags_t::SunFlag));
   TEST_ASSERT_EQUAL(1, r.events.saves);
-  // today: unlike the frame rule, the group rule doesn't ask for the group
-  // flags to be worked out again; SomfyGroup does that for its own group.
-  TEST_ASSERT_EQUAL(0, r.events.sensorFlags);
+  // As for a frame, every group works its flags out again.
+  TEST_ASSERT_EQUAL(1, r.events.sensorFlags);
+  r.b.onGroupCommand(somfy_commands::Flag, 1, r.now);
+  TEST_ASSERT_FALSE(r.st().stateFlags & static_cast<uint8_t>(somfy_flags_t::SunFlag));
+  TEST_ASSERT_EQUAL(2, r.events.sensorFlags);
 }
 
 /*********************************************************************

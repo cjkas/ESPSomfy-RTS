@@ -786,6 +786,8 @@ void ShadeBehaviour::onGroupCommand(somfy_commands cmd, uint8_t repeat, uint32_t
       break;
     case somfy_commands::Flag:
       this->p_sunFlag(false);
+      // Every group works its flags out again, as for a Flag frame.
+      this->events.onSensorFlags();
       if(this->settings.sunSensor) {
         this->events.onSaveWanted();
         this->emitState();
@@ -803,6 +805,7 @@ void ShadeBehaviour::onGroupCommand(somfy_commands cmd, uint8_t repeat, uint32_t
         this->applySensorMove(this->sensors.onSunFlag(isSunny, isWindy));
         this->events.onSaveWanted();
         this->emitState();
+        this->events.onSensorFlags();
       }
       else
         ESP_LOGW(TAG, "Shade does not have sensor %d", joinShadeFlags(this->settings, false, this->s.stateFlags));
