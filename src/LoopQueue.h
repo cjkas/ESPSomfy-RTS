@@ -23,13 +23,16 @@ enum class loop_item_type_t : uint8_t {
   shade_request,   // run by ShadeRequests
   restore_shades,  // restore from /shades.tmp, then reboot
   load_shades,     // replace the shades with /shades.tmp
-  snapshot_fill    // fill a read's ModelSnapshot
+  snapshot_fill,   // fill a read's ModelSnapshot
+  model_edit       // apply an edit with ModelEditor
 };
+struct model_edit_t;
 struct loop_item_t {
   loop_item_type_t type = loop_item_type_t::shade_request;
-  shade_request_t request;    // shade_request
-  uint8_t restoreParts = 0;   // restore_shades: RESTORE_* bits
-  uint8_t slot = 0;           // snapshot_fill: the SnapshotSlots slot
+  shade_request_t request;        // shade_request
+  uint8_t restoreParts = 0;       // restore_shades: RESTORE_* bits
+  uint8_t slot = 0;               // snapshot_fill: the SnapshotSlots slot
+  model_edit_t *edit = nullptr;   // model_edit: loop() runs and frees it
 };
 
 // Whether the item sends anything on air.

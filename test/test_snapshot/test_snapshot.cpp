@@ -218,6 +218,47 @@ static void test_a_left_out_item_does_not_leave_a_stray_comma() {
 }
 
 /*********************************************************************
+ * Repeaters, what a new item would get, and group options
+ ********************************************************************/
+static void test_repeaters_list() {
+  TEST_ASSERT_EQUAL_STRING("[12345,678]", document(snapshot_doc_t::repeaters).c_str());
+}
+static void test_next_room_fills_the_lowest_gap() {
+  TEST_ASSERT_EQUAL_STRING("{\"roomId\":1}", document(snapshot_doc_t::nextRoom).c_str());
+}
+static void test_next_shade() {
+  // Ids 1 and 4 are taken, so 2; its address is startingAddress + id unless taken.
+  snap.radioBitLength = 80;
+  snap.radioProto = 1;
+  TEST_ASSERT_EQUAL_STRING("{\"shadeId\":2,\"remoteAddress\":79,\"bitLength\":80,\"stepSize\":100,\"proto\":1}",
+    document(snapshot_doc_t::nextShade).c_str());
+}
+static void test_next_address_skips_one_already_used() {
+  snap.shades[0].remoteAddress = 79;  // what shade 2 would get
+  snap.shades[1].remoteAddress = 80;
+  TEST_ASSERT_EQUAL_UINT32(81, nextRemoteAddress(snap, 2));
+}
+static void test_next_group() {
+  TEST_ASSERT_EQUAL_STRING("{\"groupId\":1,\"remoteAddress\":78,\"bitLength\":0,\"proto\":0}",
+    document(snapshot_doc_t::nextGroup).c_str());
+}
+static void test_no_room_for_another_shade() {
+  snap.shadeCount = 0;
+  for(uint8_t id = 1; id <= SOMFY_MAX_SHADES - 2; id++) snap.shades[snap.shadeCount++] = shade(id, "S");
+  TEST_ASSERT_EQUAL_UINT8(255, nextShadeId(snap));
+}
+static void test_group_options_lists_the_shades_not_in_it() {
+  snap.shades[snap.shadeCount++] = shade(7, "Spare");
+  const std::string expected = groupWithLinked().substr(0, groupWithLinked().length() - 1) +
+    ",\"availShades\":[" + shadeRefJson(7) + "]}";
+  TEST_ASSERT_EQUAL_STRING(expected.c_str(), document(snapshot_doc_t::groupOptions, 6).c_str());
+}
+static void test_group_options_of_a_group_gone_by_the_snapshot() {
+  TEST_ASSERT_EQUAL_STRING("{\"status\":\"ERROR\",\"desc\":\"Group Id not found.\"}",
+    document(snapshot_doc_t::groupOptions, 9).c_str());
+}
+
+/*********************************************************************
  * Slots
  ********************************************************************/
 static SnapshotSlots slots;
@@ -288,6 +329,14 @@ int main(int argc, char **argv) {
   RUN_TEST(test_a_single_item_gone_by_the_snapshot_is_an_error);
   RUN_TEST(test_an_item_too_big_for_the_unit_is_left_out);
   RUN_TEST(test_a_left_out_item_does_not_leave_a_stray_comma);
+  RUN_TEST(test_repeaters_list);
+  RUN_TEST(test_next_room_fills_the_lowest_gap);
+  RUN_TEST(test_next_shade);
+  RUN_TEST(test_next_address_skips_one_already_used);
+  RUN_TEST(test_next_group);
+  RUN_TEST(test_no_room_for_another_shade);
+  RUN_TEST(test_group_options_lists_the_shades_not_in_it);
+  RUN_TEST(test_group_options_of_a_group_gone_by_the_snapshot);
   RUN_TEST(test_two_reads_at_once_and_no_more);
   RUN_TEST(test_a_read_is_filled_then_freed);
   RUN_TEST(test_a_read_gone_before_its_fill_is_not_filled);
