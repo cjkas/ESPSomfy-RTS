@@ -661,8 +661,8 @@ void ShadeBehaviour::onFrame(somfy_frame_t &frame, bool internal, uint32_t now) 
       this->lastFrame.processed = true;
       if(this->settings.shadeType == shade_types::drycontact || this->settings.shadeType == shade_types::drycontact2) return;
       dir = 0;
-      if(this->lastFrame.stepSize == 0) this->lastFrame.stepSize = 1;
-      if(!this->applyStep(-1, this->lastFrame.stepSize)) return;
+      // The number of steps the frame asks for.
+      if(!this->applyStep(-1, frame.stepSize == 0 ? 1 : frame.stepSize)) return;
       this->emitCommand(cmd, internal ? "internal" : "remote", frame.remoteAddress);
       break;
     case somfy_commands::StepDown:
@@ -670,8 +670,8 @@ void ShadeBehaviour::onFrame(somfy_frame_t &frame, bool internal, uint32_t now) 
       this->lastFrame.processed = true;
       if(this->settings.shadeType == shade_types::drycontact || this->settings.shadeType == shade_types::drycontact2) return;
       dir = 1;
-      if(this->lastFrame.stepSize == 0) this->lastFrame.stepSize = 1;
-      if(!this->applyStep(1, this->lastFrame.stepSize)) return;
+      // The number of steps the frame asks for.
+      if(!this->applyStep(1, frame.stepSize == 0 ? 1 : frame.stepSize)) return;
       this->emitCommand(cmd, internal ? "internal" : "remote", frame.remoteAddress);
       break;
     case somfy_commands::Toggle:

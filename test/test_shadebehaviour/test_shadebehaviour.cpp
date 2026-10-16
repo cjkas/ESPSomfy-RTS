@@ -111,10 +111,11 @@ struct Rig {
   void onAir() { this->event(tx_event_t::started, this->lastSent().ticket); }
   const Sent &lastSent() const { return this->link.sent.back(); }
   // A remote press: the first frame, then repeats more of the same frame.
-  void press(somfy_commands cmd, uint8_t repeats = 0, uint32_t address = ADDRESS) {
+  void press(somfy_commands cmd, uint8_t repeats = 0, uint32_t address = ADDRESS, uint8_t stepSize = 0) {
     somfy_frame_t frame;
     frame.valid = true;
     frame.cmd = cmd;
+    frame.stepSize = stepSize;
     frame.remoteAddress = address;
     frame.rollingCode = ++this->remoteCode;
     this->b.onFrame(frame, false, this->now);
@@ -353,16 +354,23 @@ static void test_remote_held_up_on_a_tilt_motor_tilts() {
   ASSERT_POS(50, h.st().target);
   ASSERT_POS(0, h.st().tiltTarget);
 }
-static void test_remote_step_uses_the_step_size_last_sent() {
-  // today: copy() never copies stepSize, so a remote step uses whatever step
-  // size this shade last sent, or 1 when that was 0.
+static void test_remote_step_uses_the_frames_step_size() {
   Rig r;
   r.b.restore(50, 0, -1, -1);
+  // A frame without a step size is one step.
   r.press(somfy_commands::StepDown);
   ASSERT_POS(51, r.st().target);
-  r.lastFrame.stepSize = 3;
-  r.lastFrame.processed = true;
-  r.press(somfy_commands::StepDown);
+  // What this shade last sent doesn't matter.
+  r.lastFrame.stepSize = 7;
+  r.press(somfy_commands::StepDown, 0, ADDRESS, 3);
+  // Steps count from where the shade is, still 50.
+  ASSERT_POS(53, r.st().target);
+}
+static void test_web_step_uses_the_step_size_sent() {
+  Rig r;
+  r.b.restore(50, 0, -1, -1);
+  r.b.sendCommand(somfy_commands::StepDown, 1, 3, r.now);
+  TEST_ASSERT_EQUAL_UINT8(3, r.lastSent().stepSize);
   ASSERT_POS(53, r.st().target);
 }
 static void test_wind_blocks_a_remote_down() {
@@ -621,7 +629,8 @@ int main(int argc, char **argv) {
   RUN_TEST(test_remote_my_when_idle_goes_to_the_favorite_after_half_a_second);
   RUN_TEST(test_remote_my_held_sets_the_favorite);
   RUN_TEST(test_remote_held_up_on_a_tilt_motor_tilts);
-  RUN_TEST(test_remote_step_uses_the_step_size_last_sent);
+  RUN_TEST(test_remote_step_uses_the_frames_step_size);
+  RUN_TEST(test_web_step_uses_the_step_size_sent);
   RUN_TEST(test_wind_blocks_a_remote_down);
   RUN_TEST(test_wind_retracts_the_shade);
   RUN_TEST(test_sun_flag_frame_turns_it_on_and_saves);
