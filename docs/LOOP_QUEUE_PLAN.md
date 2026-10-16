@@ -1,6 +1,6 @@
 # Plan: domain modules behind the LoopQueue
 
-**Status:** steps 0–3 built (PRs #39, #40, #41 and #42); steps 4 and 5 planned.
+**Status:** steps 0–4 built (PRs #39 to #43); step 5 planned.
 **Written:** 2026-10-15, against commit `e624a41` on `refactor/entry-points-outputs`. Terms are defined in [GLOSSARY.md](../GLOSSARY.md); the threading rule is [ADR-0002](adr/0002-loop-task-is-the-only-writer-of-the-shade-model.md).
 
 ## Why
@@ -158,6 +158,16 @@ Flash: `esp32devdbg` 1,547,381 → 1,547,821 bytes, `esp32dev` 1,398,337 → 1,4
 
 Flash: `esp32devdbg` 1,547,821 → 1,536,337 bytes, `esp32dev` 1,400,401 → 1,393,221 bytes. The 19 handler bodies became one path.
 
+### Step 4: what changed in behaviour
+- **MQTT gets the shade's real `position` and `target`.** Both were a constant 50 since `c94819e`, and `direction` was a constant 0 when MQTT connected.
+- **Each pass sends a changed shade or group once.** The `p_*` setters and `emitState()` only mark the shade (`SHADE_CHANGED_*` bits in `ShadeChanges.h`). At the end of each `loop()` pass, `SomfyShadeController::sendChanges()` publishes the changed MQTT topics and sends one `shadeState` or `groupState`.
+  - A group whose flags change now sends one `groupState`, not two.
+  - `emitState(evt)` with an event name (`shadeAdded`, ...) and `emitState(num)` for one client still go out at once.
+- **`position` and `tiltPosition` are retained by the broker** when they change, as they already were when MQTT connected. A client that subscribes later gets the current position.
+- **Topic values come from one tested place.** `publishShadeTopics()` writes the topics from a shade snapshot, and `publishState()` (all topics, on connect) uses it too.
+
+8 new native tests, 327 in all. Flash: `esp32devdbg` 1,536,337 → 1,536,533 bytes, `esp32dev` 1,393,221 → 1,393,449 bytes.
+
 ### Step 0 on a device
 NVS stays at `0x9000`, so the rolling codes survive. The file system partition shrinks from `0xE0000` to `0xD0000`, and the existing LittleFS won't mount, because `LittleFS.begin()` doesn't format. So:
 1. Take a backup through `/backup`.
@@ -174,7 +184,6 @@ NVS stays at `0x9000`, so the rolling codes survive. The file system partition s
 ## Found during the review, not part of this plan
 
 Still open, and each can be fixed on its own:
-- MQTT `position`/`target` published as a constant 50 ([SomfyShade.cpp:305](../src/SomfyShade.cpp#L305), [SomfyMqtt.cpp:36-38](../src/outputs/SomfyMqtt.cpp#L36-L38)). It's a one-line fix that needn't wait for step 4.
 - A restore without shades skips the shade and group records but not the room records, so it reads the rest of the file from the wrong place ([ConfigFile.cpp:578-580](../src/ConfigFile.cpp#L578-L580)).
 - `settingPos` is never cleared when the lift arrives, while `settingTiltPos` is. A later arrival may send an extra stop. Not confirmed on a device.
 - The Home Assistant integration sends no `apikey` header on shade, group and tilt commands.
@@ -187,3 +196,7 @@ Fixed by step 3:
 - `/linkRemote` and `/unlinkRemote` sent a 500 and then a second response.
 - The web UI's `procRoomRemoved` kept the removed room and dropped the others, and `deleteShade` never closed its prompt (`prompt.remove;`).
 - The web UI called `/repeaters`, which didn't exist.
+
+Fixed by step 4:
+- MQTT `position`/`target` were published as a constant 50, and `direction` as 0 on connect.
+- A group whose flags changed sent `groupState` twice.

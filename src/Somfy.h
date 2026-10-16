@@ -10,18 +10,9 @@
 #include "ShadeTypes.h"
 #include "ShadeMotion.h"
 #include "ShadeSensors.h"
+#include "ShadeChanges.h"
 #include "Transceiver.h"
 
-enum class somfy_flags_t : byte {
-    SunFlag = 0x01,
-    SunSensor = 0x02,
-    DemoMode = 0x04,
-    Light = 0x08,
-    Windy = 0x10,
-    Sunny = 0x20,
-    Lighted = 0x40,
-    SimMy = 0x80
-};
 enum class gpio_flags_t : byte {
   LowLevelTrigger = 0x01
 };
@@ -180,8 +171,14 @@ class SomfyShade : public SomfyRemote {
     bool sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize = 0);
     bool linkRemote(uint32_t remoteAddress, uint16_t rollingCode = 0);
     bool unlinkRemote(uint32_t remoteAddress);
-    void emitState(const char *evt = "shadeState");
+    // Marks the shade as changed; the change fan-out sends shadeState once per
+    // loop() pass.
+    void emitState();
+    // Sends evt about the shade to every client now.
+    void emitState(const char *evt);
     void emitState(uint8_t num, const char *evt = "shadeState");
+    // What changed since the fan-out last sent the shade (SHADE_CHANGED_* bits).
+    uint16_t changed = 0;
     void emitCommand(somfy_commands cmd, const char *source, uint32_t sourceAddress, const char *evt = "shadeCommand");
     void emitCommand(uint8_t num, somfy_commands cmd, const char *source, uint32_t sourceAddress, const char *evt = "shadeCommand");
     // False when the radio refused a command it sent.
@@ -193,6 +190,8 @@ class SomfyShade : public SomfyRemote {
     static void unpublish(uint8_t id);
     static void unpublish(uint8_t id, const char *topic);
     void publishState();
+    // Publishes the MQTT topics of the SHADE_CHANGED_* bits in changed.
+    void publishTopics(uint16_t changed);
     void commit();
     void commitShadePosition();
     void commitTiltPosition();
@@ -250,8 +249,14 @@ class SomfyGroup : public SomfyRemote {
     static void unpublish(uint8_t id, const char *topic);
     void publishState();
     void updateFlags();
-    void emitState(const char *evt = "groupState");
+    // Marks the group as changed; the change fan-out sends groupState once per
+    // loop() pass.
+    void emitState();
+    // Sends evt about the group to every client now.
+    void emitState(const char *evt);
     void emitState(uint8_t num, const char *evt = "groupState");
+    // What changed since the fan-out last sent the group (GROUP_CHANGED_* bits).
+    uint8_t changed = 0;
     bool sendCommand(somfy_commands cmd);
     bool sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize = 0);
     int8_t p_direction(int8_t dir);
@@ -307,6 +312,9 @@ class SomfyShadeController {
     void markTxPending(uint32_t remoteAddress, uint32_t ticket);
     void processTxEvent(const somfy_tx_event_t &evt);
     void emitState(uint8_t num = 255);
+    // The change fan-out: sends every shade and group that changed since the
+    // last pass, its changed MQTT topics and one state event.  loop() only.
+    void sendChanges();
     void publish();
     void processWaitingFrame();
     void commit();

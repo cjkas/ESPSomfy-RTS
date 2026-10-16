@@ -298,22 +298,23 @@ void SomfyShade::checkMovement() {
 }
 
 
-// State Setters
+// State Setters.  Each marks what clients see as changed when it does change;
+// the change fan-out publishes it once per loop() pass.
 float SomfyShade::p_currentPos(float pos) {
   float old = this->currentPos;
   this->currentPos = pos;
-  if(floor(old) != floor(pos)) this->publish("position", (uint8_t)50);
+  if(floor(old) != floor(pos)) this->changed |= SHADE_CHANGED_POSITION;
   return old;
 }
 float SomfyShade::p_currentTiltPos(float pos) {
   float old = this->currentTiltPos;
   this->currentTiltPos = pos;
-  if(floor(old) != floor(pos)) this->publish("tiltPosition", this->transformPosition(static_cast<uint8_t>(floor(this->currentTiltPos))));
+  if(floor(old) != floor(pos)) this->changed |= SHADE_CHANGED_TILT_POSITION;
   return old;
 }
 uint16_t SomfyShade::p_lastRollingCode(uint16_t code) {
   uint16_t old = SomfyRemote::p_lastRollingCode(code);
-  if(old != code) this->publish("lastRollingCode", code);
+  if(old != code) this->changed |= SHADE_CHANGED_ROLLING_CODE;
   return old;
 }
 bool SomfyShade::p_flag(somfy_flags_t flag, bool val) {
@@ -326,24 +327,24 @@ bool SomfyShade::p_flag(somfy_flags_t flag, bool val) {
 }
 bool SomfyShade::p_sunFlag(bool val) {
   bool old = this->p_flag(somfy_flags_t::SunFlag, val);
-  if(old != val) this->publish("sunFlag", static_cast<uint8_t>(val));
+  if(old != val) this->changed |= SHADE_CHANGED_SUN_FLAG;
   return old;
 }
 bool SomfyShade::p_windy(bool val) {
   bool old = this->p_flag(somfy_flags_t::Windy, val);
-  if(old != val) this->publish("windy", static_cast<uint8_t>(val));
+  if(old != val) this->changed |= SHADE_CHANGED_WINDY;
   return old;
 }
 bool SomfyShade::p_sunny(bool val) {
   bool old = this->p_flag(somfy_flags_t::Sunny, val);
-  if(old != val) this->publish("sunny", static_cast<uint8_t>(val));
+  if(old != val) this->changed |= SHADE_CHANGED_SUNNY;
   return old;
 }
 int8_t SomfyShade::p_direction(int8_t dir) {
   int8_t old = this->direction;
   if(old != dir) {
     this->direction = dir;
-    this->publish("direction", this->direction, true);
+    this->changed |= SHADE_CHANGED_DIRECTION;
   }
   return old;
 }
@@ -351,7 +352,7 @@ int8_t SomfyShade::p_tiltDirection(int8_t dir) {
   int8_t old = this->tiltDirection;
   if(old != dir) {
     this->tiltDirection = dir;
-    this->publish("tiltDirection", this->tiltDirection, true);
+    this->changed |= SHADE_CHANGED_TILT_DIRECTION;
   }
   return old;
 }
@@ -360,7 +361,7 @@ float SomfyShade::p_target(float target) {
   if(old != target) {
     this->target = target;
     if(this->transformPosition(old) != this->transformPosition(target))
-      this->publish("target", this->transformPosition(this->target), true);
+      this->changed |= SHADE_CHANGED_TARGET;
   }
   return old;
 }
@@ -369,17 +370,16 @@ float SomfyShade::p_tiltTarget(float target) {
   if(old != target) {
     this->tiltTarget = target;
     if(this->transformPosition(old) != this->transformPosition(target))
-      this->publish("tiltTarget", this->transformPosition(this->tiltTarget), true);
+      this->changed |= SHADE_CHANGED_TILT_TARGET;
   }
   return old;
 }
 float SomfyShade::p_myPos(float pos) {
   float old = this->myPos;
   if(old != pos) {
-    //if(this->transformPosition(pos) == 0) Serial.println("MyPos = %.2f", pos);
     this->myPos = pos;
     if(this->transformPosition(old) != this->transformPosition(pos))
-      this->publish("mypos", this->transformPosition(this->myPos), true);
+      this->changed |= SHADE_CHANGED_MY_POS;
   }
   return old;
 }
@@ -388,7 +388,7 @@ float SomfyShade::p_myTiltPos(float pos) {
   if(old != pos) {
     this->myTiltPos = pos;
     if(this->transformPosition(old) != this->transformPosition(pos))
-      this->publish("myTiltPos", this->transformPosition(this->myTiltPos), true);
+      this->changed |= SHADE_CHANGED_MY_TILT_POS;
   }
   return old;
 }
