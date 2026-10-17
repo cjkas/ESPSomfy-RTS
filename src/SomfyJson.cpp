@@ -179,15 +179,7 @@ bool SomfyGroup::fromJSON(JsonObject &obj) {
   
   //if(!obj["sunSensor"].isNull()) this->hasSunSensor() = obj["sunSensor"];  This is calculated
   if(!obj["repeats"].isNull()) this->repeats = obj["repeats"];
-  if(!obj["linkedShades"].isNull()) {
-    uint8_t linkedShades[SOMFY_MAX_GROUPED_SHADES];
-    memset(linkedShades, 0x00, sizeof(linkedShades));
-    JsonArray arr = obj["linkedShades"];
-    uint8_t i = 0;
-    for(uint8_t shadeId : arr) {
-      linkedShades[i++] = shadeId;
-    }
-  }
+  // Members change only through /linkToGroup and /unlinkFromGroup (ModelEditor).
   return true;
 }
 bool Transceiver::fromJSON(JsonObject& obj) {
