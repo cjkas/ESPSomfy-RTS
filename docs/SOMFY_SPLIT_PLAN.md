@@ -90,7 +90,7 @@ What changed in behaviour:
 - **Step edge cases**: a group step on a tilt-only shade already at its end now goes through like a remote step. A step that can't be sized (no travel time) leaves the targets alone.
 - The 8 debug logs of the sun and wind timers are gone. They were compiled out at `CORE_DEBUG_LEVEL=3`.
 
-Kept as it was: the fixed 1% step of a held step button in `processWaitingFrame`.
+Kept as it was: the fixed 1% step of a held step button in `processWaitingFrame`. It later turned out never to run: a step frame is acted on as soon as it arrives, so it is never left waiting. The branch was deleted, and `test_a_held_step_button_steps_once` pins what a held step button does.
 
 Left out on purpose, since neither fixes a bug or can be reached by the native tests:
 - the four near-copy arrive-at-target blocks in `checkMovement`. They are now in `ShadeBehaviour::tick` ([SHADE_BEHAVIOUR_PLAN.md](SHADE_BEHAVIOUR_PLAN.md)), still four copies, but pinned by native tests;

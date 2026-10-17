@@ -377,6 +377,18 @@ static void test_remote_step_uses_the_frames_step_size() {
   // Steps count from where the shade is, still 50.
   ASSERT_POS(53, r.st().target);
 }
+static void test_a_held_step_button_steps_once() {
+  // The repeats of a held step button are the same frame, so it steps once,
+  // by the frame's step size, and nothing more once the press is over.
+  Rig r;
+  r.b.restore(50, 0, -1, -1);
+  r.press(somfy_commands::StepDown, 20, ADDRESS, 2);
+  ASSERT_POS(52, r.st().target);
+  r.wait(1000);
+  ASSERT_POS(52, r.st().target);
+  ASSERT_POS(52, r.st().currentPos);
+  TEST_ASSERT_EQUAL(1, r.events.commands.size());
+}
 static void test_web_step_uses_the_step_size_sent() {
   Rig r;
   r.b.restore(50, 0, -1, -1);
@@ -652,6 +664,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_remote_my_held_sets_the_favorite);
   RUN_TEST(test_remote_held_up_on_a_tilt_motor_tilts);
   RUN_TEST(test_remote_step_uses_the_frames_step_size);
+  RUN_TEST(test_a_held_step_button_steps_once);
   RUN_TEST(test_web_step_uses_the_step_size_sent);
   RUN_TEST(test_wind_blocks_a_remote_down);
   RUN_TEST(test_wind_retracts_the_shade);
