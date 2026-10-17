@@ -574,10 +574,8 @@ bool ShadeConfigFile::restoreFile(SomfyShadeController *s, const char *filename,
   }
   else {
     ESP_LOGI(TAG, "Shade data ignored");
-    // FF past the shades and groups.
-    this->file.seek(this->file.position()
-      + (this->header.shadeRecords * this->header.shadeRecordSize)
-      + (this->header.groupRecords * this->header.groupRecordSize), SeekSet);  // Start at the beginning of the file after the header.
+    // FF past the rooms, shades and groups.
+    this->file.seek(this->file.position() + shadeModelBytes(this->header), SeekSet);
   }
   if(opts.repeaters) {
     ESP_LOGI(TAG, "Restoring Repeaters...");
