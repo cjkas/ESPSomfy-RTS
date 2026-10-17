@@ -7,21 +7,6 @@ static const char *TAG = "Somfy";
 
 extern SomfyShadeController somfy;
 
-// Commands that can set a shade moving.
-static bool startsMovement(somfy_commands cmd) {
-  switch(cmd) {
-    case somfy_commands::My:
-    case somfy_commands::Up:
-    case somfy_commands::Down:
-    case somfy_commands::StepUp:
-    case somfy_commands::StepDown:
-    case somfy_commands::Toggle:
-    case somfy_commands::Favorite:
-      return true;
-    default:
-      return false;
-  }
-}
 void SomfyRemote::setRemoteAddress(uint32_t address) { this->m_remoteAddress = address; this->m_rollingCodeSynced = false; snprintf(this->m_remotePrefId, sizeof(this->m_remotePrefId), "_%lu", (unsigned long)this->m_remoteAddress); }
 uint32_t SomfyRemote::getRemoteAddress() { return this->m_remoteAddress; }
 somfy_commands SomfyRemote::transformCommand(somfy_commands cmd) { return this->flipCommands ? flipCommand(cmd) : cmd; }
@@ -52,7 +37,7 @@ bool SomfyRemote::sendSensorCommand(int8_t isWindy, int8_t isSunny, uint8_t repe
 }
 bool SomfyRemote::sendCommand(somfy_commands cmd) { return this->sendCommand(cmd, this->repeats); }
 bool SomfyRemote::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize) { return this->sendCommandAfter(cmd, repeat, stepSize, 0).sent; }
-send_result_t SomfyRemote::sendCommandAfter(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs, bool priority) {
+send_result_t SomfyRemote::sendCommandAfter(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs, bool priority, bool hearsItself) {
   // Build the frame aside and only take the rolling code once the frame is
   // queued so a dropped command leaves the remote untouched.
   somfy_frame_t frame = this->lastFrame;
@@ -94,10 +79,12 @@ send_result_t SomfyRemote::sendCommandAfter(somfy_commands cmd, uint8_t repeat, 
   result.sent = true;
   this->commitRollingCode(frame.rollingCode);
   this->lastFrame = frame;
-  somfy.processFrame(this->lastFrame, true);
+  // A shade that hears its own frame (ShadeBehaviour) is left out here.
+  const SomfyRemote *skip = hearsItself ? this : nullptr;
+  somfy.processFrame(this->lastFrame, true, skip);
   // Idle shades (and group members) this sets moving wait for the frame to go
   // on air.  Stops are sent ahead of everything else so they don't need to.
-  if(result.ticket != 0 && !priority && startsMovement(frame.cmd)) somfy.markTxPending(frame.remoteAddress, result.ticket);
+  if(result.ticket != 0 && !priority && startsMovement(frame.cmd)) somfy.markTxPending(frame.remoteAddress, result.ticket, skip);
   return result;
 }
 bool SomfyRemote::isLastCommand(somfy_commands cmd) {

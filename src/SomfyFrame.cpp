@@ -431,3 +431,17 @@ void somfy_frame_t::copy(somfy_frame_t &frame) {
     this->repeats = frame.repeats;
   }
 }
+bool startsMovement(somfy_commands cmd) {
+  switch(cmd) {
+    case somfy_commands::My:
+    case somfy_commands::Up:
+    case somfy_commands::Down:
+    case somfy_commands::StepUp:
+    case somfy_commands::StepDown:
+    case somfy_commands::Toggle:
+    case somfy_commands::Favorite:
+      return true;
+    default:
+      return false;
+  }
+}

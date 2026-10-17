@@ -119,14 +119,16 @@ void SomfyRoom::clear() {
   strcpy(this->name, "");
 }
 bool SomfyRoom::save() { somfy.commit(); return true; }
-void SomfyShadeController::processFrame(somfy_frame_t &frame, bool internal) {
+void SomfyShadeController::processFrame(somfy_frame_t &frame, bool internal, const SomfyRemote *skip) {
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
+    if(&this->shades[i] == skip) continue;
     if(this->shades[i].getShadeId() != 255) this->shades[i].processFrame(frame, internal);
   }
 }
-void SomfyShadeController::markTxPending(uint32_t remoteAddress, uint32_t ticket) {
+void SomfyShadeController::markTxPending(uint32_t remoteAddress, uint32_t ticket, const SomfyRemote *skip) {
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
     SomfyShade *shade = &this->shades[i];
+    if(shade == skip) continue;
     if(shade->getShadeId() != 255 && shade->findRemote(remoteAddress)) shade->markTxPending(ticket);
   }
   // Group commands move their member shades through processInternalCommand.
