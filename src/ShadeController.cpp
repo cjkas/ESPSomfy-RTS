@@ -149,11 +149,11 @@ void SomfyShadeController::processWaitingFrame() {
     if(this->shades[i].getShadeId() != 255) this->shades[i].processWaitingFrame();
 }
 // A deleted shade, group or room leaves a gap, so a new one takes the lowest
-// free id.  Ids stop two short of the maximum, as they always have.
+// free id, from 1 up to the maximum.
 uint8_t SomfyShadeController::getNextShadeId() {
   uint8_t ids[SOMFY_MAX_SHADES];
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) ids[i] = this->shades[i].getShadeId();
-  const uint8_t id = firstFreeId(ids, SOMFY_MAX_SHADES, SOMFY_MAX_SHADES - 2);
+  const uint8_t id = firstFreeId(ids, SOMFY_MAX_SHADES, SOMFY_MAX_SHADES);
   return id == 0 ? 255 : id;
 }
 int8_t SomfyShadeController::getMaxShadeOrder() {
@@ -173,13 +173,13 @@ int8_t SomfyShadeController::getMaxGroupOrder() {
 uint8_t SomfyShadeController::getNextGroupId() {
   uint8_t ids[SOMFY_MAX_GROUPS];
   for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++) ids[i] = this->groups[i].getGroupId();
-  const uint8_t id = firstFreeId(ids, SOMFY_MAX_GROUPS, SOMFY_MAX_GROUPS - 2);
+  const uint8_t id = firstFreeId(ids, SOMFY_MAX_GROUPS, SOMFY_MAX_GROUPS);
   return id == 0 ? 255 : id;
 }
 uint8_t SomfyShadeController::getNextRoomId() {
   uint8_t ids[SOMFY_MAX_ROOMS];
   for(uint8_t i = 0; i < SOMFY_MAX_ROOMS; i++) ids[i] = this->rooms[i].roomId;
-  return firstFreeId(ids, SOMFY_MAX_ROOMS, SOMFY_MAX_ROOMS - 2);
+  return firstFreeId(ids, SOMFY_MAX_ROOMS, SOMFY_MAX_ROOMS);
 }
 int8_t SomfyShadeController::getMaxRoomOrder() {
   int8_t orders[SOMFY_MAX_ROOMS];

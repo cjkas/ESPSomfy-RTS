@@ -242,9 +242,17 @@ static void test_next_group() {
   TEST_ASSERT_EQUAL_STRING("{\"groupId\":1,\"remoteAddress\":78,\"bitLength\":0,\"proto\":0}",
     document(snapshot_doc_t::nextGroup).c_str());
 }
-static void test_no_room_for_another_shade() {
+static void test_the_last_ids_are_given_out() {
+  // Ids used to stop two short: 30 shades where the limit says 32.
   snap.shadeCount = 0;
   for(uint8_t id = 1; id <= SOMFY_MAX_SHADES - 2; id++) snap.shades[snap.shadeCount++] = shade(id, "S");
+  TEST_ASSERT_EQUAL_UINT8(SOMFY_MAX_SHADES - 1, nextShadeId(snap));
+  snap.shades[snap.shadeCount++] = shade(SOMFY_MAX_SHADES - 1, "S");
+  TEST_ASSERT_EQUAL_UINT8(SOMFY_MAX_SHADES, nextShadeId(snap));
+}
+static void test_no_room_for_another_shade() {
+  snap.shadeCount = 0;
+  for(uint8_t id = 1; id <= SOMFY_MAX_SHADES; id++) snap.shades[snap.shadeCount++] = shade(id, "S");
   TEST_ASSERT_EQUAL_UINT8(255, nextShadeId(snap));
 }
 static void test_group_options_lists_the_shades_not_in_it() {
@@ -334,6 +342,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_next_shade);
   RUN_TEST(test_next_address_skips_one_already_used);
   RUN_TEST(test_next_group);
+  RUN_TEST(test_the_last_ids_are_given_out);
   RUN_TEST(test_no_room_for_another_shade);
   RUN_TEST(test_group_options_lists_the_shades_not_in_it);
   RUN_TEST(test_group_options_of_a_group_gone_by_the_snapshot);

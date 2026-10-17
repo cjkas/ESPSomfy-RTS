@@ -126,18 +126,18 @@ void writeGroup(JsonFormatter &json, const group_snapshot_t &group, shade_lookup
 uint8_t nextRoomId(const model_snapshot_t &snap) {
   uint8_t ids[SOMFY_MAX_ROOMS];
   for(uint8_t i = 0; i < snap.roomCount; i++) ids[i] = snap.rooms[i].roomId;
-  return firstFreeId(ids, snap.roomCount, SOMFY_MAX_ROOMS - 2);
+  return firstFreeId(ids, snap.roomCount, SOMFY_MAX_ROOMS);
 }
 uint8_t nextShadeId(const model_snapshot_t &snap) {
   uint8_t ids[SOMFY_MAX_SHADES];
   for(uint8_t i = 0; i < snap.shadeCount; i++) ids[i] = snap.shades[i].shadeId;
-  const uint8_t id = firstFreeId(ids, snap.shadeCount, SOMFY_MAX_SHADES - 2);
+  const uint8_t id = firstFreeId(ids, snap.shadeCount, SOMFY_MAX_SHADES);
   return id == 0 ? 255 : id;
 }
 uint8_t nextGroupId(const model_snapshot_t &snap) {
   uint8_t ids[SOMFY_MAX_GROUPS];
   for(uint8_t i = 0; i < snap.groupCount; i++) ids[i] = snap.groups[i].groupId;
-  const uint8_t id = firstFreeId(ids, snap.groupCount, SOMFY_MAX_GROUPS - 2);
+  const uint8_t id = firstFreeId(ids, snap.groupCount, SOMFY_MAX_GROUPS);
   return id == 0 ? 255 : id;
 }
 uint32_t nextRemoteAddress(const model_snapshot_t &snap, uint8_t id) {
