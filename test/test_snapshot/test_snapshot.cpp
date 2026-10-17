@@ -4,7 +4,7 @@
 #include "ModelSnapshot.h"
 
 static model_snapshot_t snap;
-static char unitBuf[3072];
+static char unitBuf[SNAPSHOT_UNIT_SIZE];
 
 static room_snapshot_t room(uint8_t id, const char *name) {
   room_snapshot_t r{};

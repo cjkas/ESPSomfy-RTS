@@ -19,18 +19,18 @@ The handlers that changed the shade model on the web server task (adding, saving
 ### Still open
 
 - Command replies (`/shadeCommand`, `/tiltCommand`, `/unpairShade`, `/setRollingCode`, ...) still copy the one item they report from the live shade model on async_tcp, so a reply can show a value from the middle of a change. `/room`, `/shade`, `/group` and `/groupOptions` also check on the live model whether the item exists, because the status goes out before the snapshot is filled.
-- The read routes leave out an item that doesn't fit their 3 KB unit, see [Oversized read items are left out](#oversized-read-items-are-left-out).
+- The read routes would leave out an item that didn't fit their 3 KB unit; a test now proves none can, see [Oversized read items are left out](#oversized-read-items-are-left-out).
 
 ## Oversized read items are left out
 
-**Status:** open
-**Location:** `SnapshotWriter::overflowed` in [src/ModelSnapshot.cpp](../src/ModelSnapshot.cpp).
+**Status:** guarded by a test (fix option (b)). It can't happen with today's fields, and a change that would make it happen fails `test_snapshot_limits`.
+**Location:** `SnapshotWriter::overflowed` in [src/ModelSnapshot.cpp](../src/ModelSnapshot.cpp); the unit is `SNAPSHOT_UNIT_SIZE` in [src/ModelSnapshot.h](../src/ModelSnapshot.h).
 
 ### Summary
 
 Every read route builds each room, shade, group and linked shade into a 3 KB unit before sending it. When one doesn't fit, the writer logs an `ESP_LOGE` line, skips that item and carries on, so the document stays valid JSON. The client gets no sign that anything is missing: the item just isn't in the list. Before step 2 only `/controller` did this; `/discovery`, `/shades` and the rest grew their buffer instead.
 
-A shade with every linked remote populated is about 1.5 KB today, so nothing overflows yet. It becomes a silent loss as soon as a change to the shade, room or group fields pushes an item past 3 KB.
+`test_snapshot_limits` fills a snapshot with the largest possible items: 20-character names of control characters (each escaped to `\u00XX`), all 7 linked remotes, 32 members in every group, and the widest value of every number. It checks that every read document written with the real unit is identical to the same document written with an unlimited one. The largest items are a shade at 1,097 bytes, a linked shade at 345, a group at 333 and a room at 159, against 3,072. The log line stays as a backstop.
 
 ### Concrete failure modes
 

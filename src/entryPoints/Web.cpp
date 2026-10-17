@@ -285,7 +285,7 @@ static void discoveryHeader(JsonFormatter &json, const model_snapshot_t &snap) {
 // window allows, so there is no growing response buffer either.
 struct SnapshotRead {
   uint8_t slot;
-  char unit[3072];
+  char unit[SNAPSHOT_UNIT_SIZE];
   SnapshotWriter writer;
   SnapshotRead(uint8_t slot, snapshot_doc_t doc, uint8_t id, snapshot_header_t header)
     : slot(slot), writer(snapshotSlots.snapshot(slot), doc, id, header, unit, sizeof(unit)) {}
