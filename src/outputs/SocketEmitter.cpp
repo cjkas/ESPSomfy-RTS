@@ -49,7 +49,6 @@ static void removeClient(uint32_t asyncId) {
     if(slots[i].asyncId == asyncId) slots[i].asyncId = 0;
 }
 
-#define MAX_SOCK_RESPONSE 2048
 static char g_response[MAX_SOCK_RESPONSE];
 
 bool room_t::isJoined(uint8_t num) {
