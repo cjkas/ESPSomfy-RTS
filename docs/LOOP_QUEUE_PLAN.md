@@ -185,6 +185,8 @@ Code moved unchanged; only files and names changed.
 The subscribe and unsubscribe lists, which repeated `groups/+/direction/set`, became the one `MQTT_COMMAND_TOPICS` list, and a native test checks that the parser takes every topic in it. Flash: `esp32devdbg` 1,536,533 → 1,539,645 bytes (+3.1 KB, since the routes are a second file that uses ArduinoJson, as SOMFY_SPLIT_PLAN.md warned), `esp32dev` 1,393,449 → 1,391,113 bytes (−2.3 KB, where `-Os` inlines less).
 
 ### Step 0 on a device
+**No longer needed:** `esp32_huge_app.csv` now has the release file system (`0xE0000` at `0x310000`) and puts the coredump in the 64 KB that was unused at the end, so the debug and release builds share one data layout and either can be flashed over the other. A device formatted at `0xD0000` grows to `0xE0000` on its next mount, which LittleFS can do. What follows was the procedure while the debug table had the smaller file system.
+
 NVS stays at `0x9000`, so the rolling codes survive. The file system partition shrinks from `0xE0000` to `0xD0000`, and the existing LittleFS won't mount, because `LittleFS.begin()` doesn't format. So:
 1. Take a backup through `/backup`.
 2. Flash the partition table, firmware and file system over USB: `pio run -e esp32devdbg -t upload -t uploadfs`.
