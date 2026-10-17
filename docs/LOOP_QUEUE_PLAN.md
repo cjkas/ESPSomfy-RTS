@@ -201,11 +201,7 @@ NVS stays at `0x9000`, so the rolling codes survive. The file system partition s
 
 ## Found during the review, not part of this plan
 
-Still open, and each can be fixed on its own:
-- A restore without shades skips the shade and group records but not the room records, so it reads the rest of the file from the wrong place ([ConfigFile.cpp:578-580](../src/ConfigFile.cpp#L578-L580)).
-- The Home Assistant integration sends no `apikey` header on shade, group and tilt commands.
-- New ids stop two short of the maximum: 30 shades, 14 groups and 14 rooms instead of 32, 16 and 16 (`getNext*Id` stopped at `MAX - 1`). ModelEditor keeps those limits for now.
-- `SomfyGroup::fromJSON` reads `linkedShades` into a local array and drops it, so a group's members only change through `/linkToGroup` and `/unlinkFromGroup`.
+Nothing is still open.
 
 Fixed by step 3:
 - The Ethernet pin conflict was only checked for the up pin, and the check used the shade's current protocol instead of the one being saved.
@@ -220,3 +216,9 @@ Fixed by step 4:
 
 Fixed later, by [SHADE_BEHAVIOUR_PLAN.md](SHADE_BEHAVIOUR_PLAN.md) (reconcile Q18):
 - `settingPos` was never cleared when the lift arrived, while `settingTiltPos` was, so a later step or group move also sent a stop when it arrived.
+
+Fixed later, each on its own:
+- A restore without shades skipped the shade and group records but not the room records, so it read the rest of the file from the wrong place. The skip is now `shadeModelBytes()` in `ConfigHeader.h`, with native tests (#54).
+- New ids stopped two short of the maximum: 30 shades, 14 groups and 14 rooms instead of 32, 16 and 16, an off-by-one from the first commit. They now run to the maximum (#57).
+- `SomfyGroup::fromJSON` read `linkedShades` into a local array and dropped it, and wrote past that array when a request listed more than 32 shades. The code is gone; members change only through `/linkToGroup` and `/unlinkFromGroup` (#58).
+- The Home Assistant integration sent no `apikey` header on `/shades`, `/groups` and the shade, group and tilt commands, so they failed with security on. It now sends it on every call to a protected route ([ESPSomfy-RTS-HA#4](https://github.com/cjkas/ESPSomfy-RTS-HA/pull/4)).
