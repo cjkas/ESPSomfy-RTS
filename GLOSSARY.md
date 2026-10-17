@@ -70,6 +70,16 @@ What shades and groups share about how their frames go on air: flip commands, bi
 **Flags**
 The byte a shade is saved and sent with. Its sun sensor, light and simulated My bits are settings; its sun flag, sunny, windy and demo mode bits are state. A group's flags are its shades' flags together.
 
+**ShadeBehaviour**
+What a shade does with frames, commands, group commands and radio events, and where that leaves it: positions, targets, directions, the favorite and the sensor state.
+_Avoid_: shade logic, motion (`ShadeMotion` is the position maths it uses)
+
+**MotorLink**
+The seam a shade's commands reach its motor through, radio or GPIO. The shade hears its own frame; every other shade hears it through the link.
+
+**ShadeEvents**
+The seam through which a shade's behaviour reports what happened: changes for the change fan-out, commands for clients, a save wanted, and sensor flags for the groups.
+
 ## Entry points and outputs
 
 **Entry point**

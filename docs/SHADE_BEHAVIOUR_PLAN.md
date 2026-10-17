@@ -1,6 +1,6 @@
 # Plan: deepen the shade behaviour
 
-**Status:** design settled (rounds 1–3, see "Decisions"), apart from the reconcile order, which waits for PR B's pinning tests. PR A (`refactor/shade-settings`) is built; PR B is next.
+**Status:** done, apart from the device runs. PR A is #46 and PR B is #47 (the behaviour is in `ShadeBehaviour`, pinned by `test_shadebehaviour`). The reconcile fixes Q18–Q22 are one PR each, stacked on #47. Q23 is deferred and Q24 is left for later.
 **Written:** 2026-10-16, on top of `refactor/split-transports` (PR #44, the top of the LoopQueue stack #40–#44, which is not yet merged or run on a device). Line numbers refer to that branch.
 **Start here:** read [GLOSSARY.md](../GLOSSARY.md), [ADR-0002](adr/0002-loop-task-is-the-only-writer-of-the-shade-model.md) and [LOOP_QUEUE_PLAN.md](LOOP_QUEUE_PLAN.md) first. Their decisions are not reopened here.
 
@@ -84,7 +84,15 @@ The decisions are the user's. Each question comes with a recommended answer, and
 
 ### Still open
 
-- **Reconcile: what is decided first, and in what order.** Asked once PR B's pinning tests have listed every "today: …" disagreement. Known candidates: `settingPos` on arrival (may send extra stops), Up/Down/My on tilt-only shades, the self-echo (Q5), and merging group commands into the frame rule (Q8).
+- **Reconcile.** Every candidate is now fixed, deferred or left for later (Q17–Q24). Each was pinned by a "today:" test in `test_shadebehaviour` unless marked:
+  - ~~`settingPos` is never cleared on a lift arrival, so a later step also sends a stop.~~ Fixed (Q18).
+  - ~~Up and My on tilt-only shades differ between the web, a remote and a group.~~ Fixed (Q22).
+  - An integrated tilt sent to a lift target without a tilt turns its slats back with an Up after the stop (`test_today_integrated_tilt_turns_back_after_a_lift_target`). Deferred (Q23).
+  - ~~A remote step uses the step size this shade last *sent*.~~ Fixed (Q19).
+  - ~~A group's SunFlag or Flag doesn't make other groups work their flags out again.~~ Fixed (Q20).
+  - The self-echo (Q5) and merging group commands into the frame rule (Q8). Possible later (Q24).
+  - `lastFrame` doing two jobs (the Q6 revisit). Possible later (Q24).
+  - ~~The 500 ms long-press deadline isn't wrap-safe.~~ Fixed (Q21).
 
 ## Constraints
 
@@ -135,3 +143,27 @@ The decisions are the user's. Each question comes with a recommended answer, and
   - A shade's byte is `getFlags()` (put together) and `setFlags()` (split), used by ConfigFile, JSON, MQTT, events and group flags.
   - Groups keep their own `flags` byte (the OR of their shades), and `SomfyRemote::getFlags()` is virtual for `sendSensorCommand`.
   - `test_shadesettings` checks that all 256 byte values come back unchanged.
+
+**During PR B (2026-10-16):**
+
+- **Q6 revisited: `lastFrame` is shared.** The module holds a reference to `SomfyRemote::lastFrame` instead of its own copy. A copy would have to mirror five writes exactly: each send overwrites it; the shade's own echo then counts as a repeat; `repeatFrame` adds the queued repeats; a sensor send overwrites it; and `copy()` never copies `stepSize` or `await`. The user chose sharing. Splitting the two jobs is a reconcile candidate.
+- **Q12 refined.** `MotorLink::send` returns `{sent, ticket}`; the frame as sent is in the shared `lastFrame`. `SomfyRemote::sendCommandAfter(…, hearsItself = true)` leaves the sender out of the echo and the radio hold; `ShadeBehaviour::transmit` does both for itself.
+- **Q7 and Q9 refined: one output seam that fires on the spot.** `ShadeEvents` carries `onChanged` (the change bits), `onCommand`, `onSaveWanted` and `onSensorFlags`. Nothing is collected and read back after each call, so the timing is today's. `onSensorFlags` fires exactly where `somfy.updateGroupFlags()` was called, not on every sensor-bit change.
+- **`onTxEvent` takes no `now`:** the event carries its own time.
+- **A known ordering change:** when a simMy shade's Favorite or My sends again from inside its own echo, a shade linked to it now hears the outer frame before the inner one. Before, it depended on the two shades' slots. Nothing else changes order.
+- **Flash:** `esp32dev` `firmware.bin` grows 1,397,776 → 1,399,776 B (+2,000 B, 88.6%), mostly the virtual calls through the two seams.
+
+**Reconcile round 1 (2026-10-16), all as recommended.** Each fix is one PR stacked on #47, and each changes a "today:" test.
+
+- **Q17. Order.** Clear bugs first: `settingPos` (Q18), the remote step size (Q19), group sun flags (Q20), the long-press wrap (Q21). Then the rules where the copies disagree: tilt-only Up/Down/My, and the integrated tilt turning back. The structural changes (self-echo, merging group commands, splitting `lastFrame`) wait until those are done and may be dropped.
+- **Q18. `settingPos` is cleared on a lift arrival,** as `settingTiltPos` is on a tilt arrival. A later step or group move then stops by itself instead of getting a My, which would have sent a stopped motor to its favorite.
+- **Q19. A remote's step uses the frame's own step size** (`frame.stepSize`, 1 when 0) instead of `lastFrame.stepSize`, which `copy()` never updates. `copy()` itself stays as it is.
+- **Q20. A group's SunFlag/Flag calls `onSensorFlags()`,** as the frame rule does, so every group works its flags out again.
+- **Q21. The long-press wait is wrap-safe:** `(int32_t)(now - await) > 0`.
+
+**Reconcile round 2 (2026-10-16):**
+
+- **Q22. A tilt-only shade's lift is pinned at 100 on every path** (web, remote, group; Up, Down, My, idle or moving), and those commands act on the tilt only. Before, the remote and group My paths and the web's My while moving left a lift that something had moved, and `tick` then simulated it travelling. `test_tilt_only_lift_stays_down_whatever_the_source` checks the 18 combinations.
+- **Q23. Integrated tilt turning back: deferred.** No integrated-tilt motor is at hand to watch, and reconcile only changes what has been checked on a real motor. The behaviour stays, still labelled "today:", until someone with such a shade can say whether the turn-back is clean.
+- **Q24. The structural changes are left for later:** dropping the self-echo, merging group commands into the frame rule, and splitting `lastFrame`'s two jobs. None of them fixes anything a user would notice, each touches every command path, and the behaviour they would move is now pinned by tests, so they can be picked up any time.
+- **Q25. One PR per fix,** stacked on #47, each run on a device before it merges.

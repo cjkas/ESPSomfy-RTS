@@ -201,7 +201,6 @@ NVS stays at `0x9000`, so the rolling codes survive. The file system partition s
 
 Still open, and each can be fixed on its own:
 - A restore without shades skips the shade and group records but not the room records, so it reads the rest of the file from the wrong place ([ConfigFile.cpp:578-580](../src/ConfigFile.cpp#L578-L580)).
-- `settingPos` is never cleared when the lift arrives, while `settingTiltPos` is. A later arrival may send an extra stop. Not confirmed on a device.
 - The Home Assistant integration sends no `apikey` header on shade, group and tilt commands.
 - New ids stop two short of the maximum: 30 shades, 14 groups and 14 rooms instead of 32, 16 and 16 (`getNext*Id` stopped at `MAX - 1`). ModelEditor keeps those limits for now.
 - `SomfyGroup::fromJSON` reads `linkedShades` into a local array and drops it, so a group's members only change through `/linkToGroup` and `/unlinkFromGroup`.
@@ -216,3 +215,6 @@ Fixed by step 3:
 Fixed by step 4:
 - MQTT `position`/`target` were published as a constant 50, and `direction` as 0 on connect.
 - A group whose flags changed sent `groupState` twice.
+
+Fixed later, by [SHADE_BEHAVIOUR_PLAN.md](SHADE_BEHAVIOUR_PLAN.md) (reconcile Q18):
+- `settingPos` was never cleared when the lift arrived, while `settingTiltPos` was, so a later step or group move also sent a stop when it arrived.

@@ -39,6 +39,8 @@ somfy_commands translateSomfyCommand(const String& string);
 somfy_commands flipCommand(somfy_commands cmd);
 // The command that turns the sun flag on (SunFlag) or off (Flag).
 somfy_commands sunFlagCommand(bool on);
+// Whether cmd can set a shade moving.
+bool startsMovement(somfy_commands cmd);
 
 struct somfy_rx_t;
 struct somfy_frame_t {

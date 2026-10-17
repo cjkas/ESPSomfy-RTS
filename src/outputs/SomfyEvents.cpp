@@ -17,10 +17,10 @@ void SomfyShade::emitState(uint8_t num, const char *evt) {
   json->addElem("type", static_cast<uint8_t>(this->shadeType));
   json->addElem("remoteAddress", (uint32_t)this->getRemoteAddress());
   json->addElem("name", this->name);
-  json->addElem("direction", this->direction);
-  json->addElem("position", this->transformPosition(this->currentPos));
-  json->addElem("target", this->transformPosition(this->target));
-  json->addElem("myPos", this->transformPosition(this->myPos));
+  json->addElem("direction", this->state().direction);
+  json->addElem("position", this->transformPosition(this->state().currentPos));
+  json->addElem("target", this->transformPosition(this->state().target));
+  json->addElem("myPos", this->transformPosition(this->state().myPos));
   json->addElem("tiltType", static_cast<uint8_t>(this->tiltType));
   json->addElem("flipCommands", this->flipCommands);
   json->addElem("flipPosition", this->flipPosition);
@@ -29,10 +29,10 @@ void SomfyShade::emitState(uint8_t num, const char *evt) {
   json->addElem("light", this->light);
   json->addElem("sortOrder", this->sortOrder);
   if(this->tiltType != tilt_types::none) {
-    json->addElem("tiltDirection", this->tiltDirection);
-    json->addElem("tiltTarget", this->transformPosition(this->tiltTarget));
-    json->addElem("tiltPosition", this->transformPosition(this->currentTiltPos));
-    json->addElem("myTiltPos", this->transformPosition(this->myTiltPos));
+    json->addElem("tiltDirection", this->state().tiltDirection);
+    json->addElem("tiltTarget", this->transformPosition(this->state().tiltTarget));
+    json->addElem("tiltPosition", this->transformPosition(this->state().currentTiltPos));
+    json->addElem("myTiltPos", this->transformPosition(this->state().myTiltPos));
   }
   json->endObject();
   sockEmit.endEmit(num);

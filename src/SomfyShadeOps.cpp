@@ -12,9 +12,9 @@ bool SomfyShadeOps::findShade(uint8_t shadeId, shade_info_t &info) {
   info.tiltType = shade->tiltType;
   info.repeats = shade->repeats;
   info.bitLength = shade->bitLength;
-  info.currentPos = shade->currentPos;
-  info.myPos = shade->myPos;
-  info.myTiltPos = shade->myTiltPos;
+  info.currentPos = shade->state().currentPos;
+  info.myPos = shade->state().myPos;
+  info.myTiltPos = shade->state().myTiltPos;
   return true;
 }
 bool SomfyShadeOps::findGroup(uint8_t groupId, uint8_t &repeats) {
@@ -40,15 +40,7 @@ bool SomfyShadeOps::sendSensorCommand(uint8_t shadeId, int8_t windy, int8_t sunn
 bool SomfyShadeOps::setMyPosition(uint8_t shadeId, int8_t pos, int8_t tilt) { return somfy.getShadeById(shadeId)->setMyPosition(pos, tilt); }
 void SomfyShadeOps::setPositions(uint8_t shadeId, float pos, float tilt) {
   SomfyShade *shade = somfy.getShadeById(shadeId);
-  // Through the setters, so MQTT hears about it too.
-  if(pos >= 0.0f) {
-    shade->p_target(pos);
-    shade->p_currentPos(pos);
-  }
-  if(tilt >= 0.0f) {
-    shade->p_tiltTarget(tilt);
-    shade->p_currentTiltPos(tilt);
-  }
+  shade->setPosition(pos, tilt);
   shade->emitState();
 }
 void SomfyShadeOps::setUnpaired(uint8_t shadeId) {
