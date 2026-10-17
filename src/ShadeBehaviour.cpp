@@ -364,24 +364,7 @@ void ShadeBehaviour::onWaitingFrame(uint32_t now) {
   if(this->lastFrame.await > 0 && static_cast<int32_t>(now - this->lastFrame.await) > 0) {
     somfy_commands cmd = this->transformCommand(this->lastFrame.cmd);
     switch(cmd) {
-      case somfy_commands::StepUp:
-          this->lastFrame.processed = true;
-          // Simply move the shade up by 1%.
-          if(this->s.currentPos > 0) {
-            this->p_target(floor(this->s.currentPos) - 1);
-            this->setMovement(-1, now);
-            this->emitCommand(cmd, "remote", this->lastFrame.remoteAddress);
-          }
-          break;
-      case somfy_commands::StepDown:
-          this->lastFrame.processed = true;
-          // Simply move the shade down by 1%.
-          if(this->s.currentPos < 100) {
-            this->p_target(floor(this->s.currentPos) + 1);
-            this->setMovement(1, now);
-            this->emitCommand(cmd, "remote", this->lastFrame.remoteAddress);
-          }
-          break;
+      // A step acts as soon as it arrives (onFrame), so it is never waiting here.
       case somfy_commands::Down:
       case somfy_commands::Up:
         if(this->settings.tiltType == tilt_types::tiltmotor) { // Theoretically this should get here unless it does have a tilt motor.
