@@ -93,8 +93,8 @@ What changed in behaviour:
 Kept as it was: the fixed 1% step of a held step button in `processWaitingFrame`.
 
 Left out on purpose, since neither fixes a bug or can be reached by the native tests:
-- the four near-copy arrive-at-target blocks in `checkMovement`;
-- the six `getNext*Id`/`getMax*Order` copies in the controller.
+- the four near-copy arrive-at-target blocks in `checkMovement`. They are now in `ShadeBehaviour::tick` ([SHADE_BEHAVIOUR_PLAN.md](SHADE_BEHAVIOUR_PLAN.md)), still four copies, but pinned by native tests;
+- the six `getNext*Id`/`getMax*Order` copies in the controller. Since replaced by ModelEditor's `firstFreeId` (step 3 of [LOOP_QUEUE_PLAN.md](LOOP_QUEUE_PLAN.md)).
 
 Flash went from 1,546,797 to 1,545,717 bytes.
 
