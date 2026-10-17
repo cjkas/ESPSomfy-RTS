@@ -337,6 +337,9 @@ bool Transceiver::receive(somfy_rx_t *rx) {
     return false;
 }
 void Transceiver::emitFrame(somfy_frame_t *frame, somfy_rx_t *rx) {
+  // The largest socket event: every pulse as up to 10 digits and a comma,
+  // plus about 300 bytes of fields and framing.
+  static_assert(MAX_TIMINGS * 11 + 512 <= MAX_SOCK_RESPONSE, "remoteFrame can outgrow the socket buffer");
   if(sockEmit.activeClients(ROOM_EMIT_FRAME) > 0) {
     JsonSockEvent *json = sockEmit.beginEmit("remoteFrame");
     json->beginObject();

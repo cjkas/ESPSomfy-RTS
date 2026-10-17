@@ -48,25 +48,26 @@ Every read route builds each room, shade, group and linked shade into a 3 KB uni
 
 ## Large websocket events are dropped
 
-**Status:** open
-**Location:** [`JsonSockEvent` in src/WResp.cpp](../src/WResp.cpp), buffer `g_response[MAX_SOCK_RESPONSE]` (2048 bytes) in [src/outputs/SocketEmitter.cpp](../src/outputs/SocketEmitter.cpp).
+**Status:** fixed (fix option (c)): the buffer is 4 KB, and the largest event provably fits.
+**Location:** [`JsonSockEvent` in src/WResp.cpp](../src/WResp.cpp), buffer `g_response[MAX_SOCK_RESPONSE]` (now 4096 bytes, defined in [src/outputs/SocketEmitter.h](../src/outputs/SocketEmitter.h)).
 
 ### Summary
 
-Socket events are built into a fixed 2 KB static buffer. When a value doesn't fit, [`JsonSockEvent::_safecat`](../src/WResp.cpp) marks the event as overflowed, and `endEvent` logs an error and doesn't send it. Clients never see malformed JSON. The event is simply lost, and the client isn't told.
+Socket events are built into one static buffer. When a value doesn't fit, [`JsonSockEvent::_safecat`](../src/WResp.cpp) marks the event as overflowed, and `endEvent` logs an error and doesn't send it. Clients never see malformed JSON. The event is simply lost, and the client isn't told.
 
-Unlike the `/controller` HTTP crash, this path does **not** abort — there is no growing cbuf and no `new[]` on the send path. Per-client frame allocations inside `AsyncWebSocket` are bounded by the 2 KB buffer size and have their own overflow guard (queue drop / client disconnect).
+Unlike the `/controller` HTTP crash, this path does **not** abort: there is no growing cbuf and no `new[]` on the send path.
 
-### Concrete failure modes
+### What can be large
 
-1. A single event serializing a fully-populated shade (~1.3–1.5 KB for a shade with all `SOMFY_MAX_LINKED_REMOTES` = 7 populated) gets close to the 2 KB limit. Any additional fields or long names push it over, and that shade's state update never reaches the clients.
-2. Any event that loops over a collection (e.g. frequency-scan results in `Transceiver.cpp`, batch emits in `SomfyEvents.cpp`) can exceed 2 KB depending on size, with no indication to the client beyond the ESP-side `ESP_LOGE` line.
+- **`remoteFrame`** (the frame log) lists every pulse of a received frame: up to `MAX_TIMINGS` = 300. A pulse recorded while waiting for a sync has no upper bound, so in theory each can be 10 digits: 300 × 11 bytes plus about 300 bytes of fields is about 3.8 KB. Real frames come to 1.8–2.1 KB, which was already at the old 2 KB limit. A `static_assert` in `Transceiver.cpp` fails the build if `MAX_TIMINGS` or the buffer change so that it no longer fits.
+- **The state events are small.** `shadeState` has about 20 fields and no linked remotes, about 400 bytes. (The 1.3–1.5 KB figure this entry used to give was for a shade *with* its linked remotes, which only the read routes send.) `groupState` lists at most 32 shade ids. `frequencyScan`, `memStatus`, `fwStatus`, `ethernet` and `requestResult` have a few fixed fields each.
 
-### Fix options (pick one later)
+The 2 KB more of static RAM is the cost. The log line stays as a backstop.
 
-- **(a) Fail loud.** Send a small error event in place of the dropped one so the client knows to reload the state.
-- **(b) Split large events across frames.** Use the socket.io ack/chunk pattern to send an event in multiple frames when it wouldn't fit. Requires matching client-side reassembly.
-- **(c) Raise `MAX_SOCK_RESPONSE`.** Cheapest, but just pushes the limit — doesn't eliminate the failure mode.
+### Options that weren't taken
+
+- **(a) Fail loud:** send a small error event in place of the dropped one so the client reloads the state.
+- **(b) Split large events across frames:** the socket.io ack/chunk pattern, with matching client-side reassembly.
 
 ### Related
 
