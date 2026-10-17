@@ -128,6 +128,10 @@ enum class snapshot_doc_t : uint8_t {
 // (device, radio and firmware details) into the open top-level object.
 typedef void (*snapshot_header_t)(JsonFormatter &json, const model_snapshot_t &snap);
 
+// The buffer each room, shade, group and linked shade is formatted into on its
+// own.  test_snapshot_limits checks the largest possible item of each fits.
+#define SNAPSHOT_UNIT_SIZE 3072
+
 // Writes a document from a snapshot a piece at a time for a chunked response.
 // Each room, shade, group and linked shade is formatted into unit on its own;
 // one that doesn't fit is logged and left out so the JSON stays valid.
