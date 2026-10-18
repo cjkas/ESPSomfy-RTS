@@ -125,7 +125,6 @@ bool Web::createAPIToken(const char *payload, char *token) {
         sprintf(str, "%02x", (int)hmacResult[i]);
         strcat(token, str);
     }
-    ESP_LOGD(TAG, "Hash: %s", token);
     return true;
 }
 bool Web::createAPIToken(const IPAddress ipAddress, char *token) {

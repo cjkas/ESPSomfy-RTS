@@ -207,11 +207,11 @@
                                 <label for="fldUsername">Username</label>
                             </div>
                             <div class="field-group">
-                                <input id="fldPassword" name="password" type="password" data-bind="security.password" length=32 placeholder="Password">
+                                <input id="fldPassword" name="password" type="password" autocomplete="new-password" data-bind="security.password" length=32 placeholder="Password">
                                 <label for="fldPassword">Password</label>
                             </div>
                             <div class="field-group">
-                                <input id="fldReenterPassword" name="password" type="password" data-bind="security.repeatpassword" length=32 placeholder="Re-enter Password">
+                                <input id="fldReenterPassword" name="password" type="password" autocomplete="new-password" data-bind="security.repeatpassword" length=32 placeholder="Re-enter Password">
                                 <label for="fldRenterPassword">Re-enter Password</label>
                             </div>
                         </div>
@@ -305,7 +305,7 @@
                                     <label for="fldSsid">Network SSID</label>
                                 </div>
                                 <div class="field-group">
-                                    <input id="fldPassphrase" name="passphrase" type="password" data-bind="wifi.passphrase" length=32 placeholder="Passphrase">
+                                    <input id="fldPassphrase" name="passphrase" type="password" autocomplete="new-password" data-bind="wifi.passphrase" length=32 placeholder="Passphrase">
                                     <label for="fldPassphrase">Passphrase</label>
                                 </div>
 
@@ -412,7 +412,7 @@
                             <label for="fldMqttUsername">Username</label>
                         </div>
                         <div class="field-group">
-                            <input id="fldMqttPassword" name="mqtt-password" type="text" length=64 data-bind="mqtt.password" placeholder="Password">
+                            <input id="fldMqttPassword" name="mqtt-password" type="password" autocomplete="new-password" length=64 data-bind="mqtt.password" placeholder="Password">
                             <label for="fldMqttPassword">Password</label>
                         </div>
                         <div class="field-group">

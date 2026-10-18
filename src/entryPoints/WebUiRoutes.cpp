@@ -621,7 +621,6 @@ void registerWebUiRoutes(AsyncWebServer &server) {
     resp.beginObject();
     resp.beginObject("connected");
     resp.addElem("name", settings.WIFI.ssid);
-    resp.addElem("passphrase", settings.WIFI.passphrase);
     resp.addElem("strength", (int32_t)WiFi.RSSI());
     resp.addElem("channel", (int32_t)WiFi.channel());
     resp.endObject();
@@ -834,7 +833,8 @@ void registerWebUiRoutes(AsyncWebServer &server) {
       JsonObject obj = json.as<JsonObject>();
       ESP_LOGD(TAG, "Settings WIFI connection...");
       String ssid = "";
-      String passphrase = "";
+      // Clients never receive the stored passphrase, so an omitted one keeps it.
+      String passphrase = settings.WIFI.passphrase;
       if(!obj["ssid"].isNull()) ssid = obj["ssid"].as<String>();
       if(!obj["passphrase"].isNull()) passphrase = obj["passphrase"].as<String>();
       bool reboot = false;

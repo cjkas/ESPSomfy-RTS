@@ -1236,7 +1236,7 @@ class UIBinder {
         divCfg.style.display = 'none';
         document.getElementById('icoConfig').className = 'icss-gear';
         if (sockIsOpen) socket.send('leave:0');
-        general.setSecurityConfig({ type: 0, username: '', password: '', pin: '', permissions: 0 });
+        general.setSecurityConfig({ type: 0, username: '', permissions: 0 });
     }
     toggleConfig() {
         if (this.isConfigOpen())
@@ -1617,20 +1617,22 @@ class General {
         }
     }
     setSecurityConfig(security) {
+        // The device never returns the stored password or PIN, only whether one is set.
+        this.savedSecurity = { type: security.type, username: security.username, hasPassword: makeBool(security.hasPassword), hasPin: makeBool(security.hasPin) };
         // We need to transform the security object so that it can be set to the configuration.
         let obj = {
             security: {
-                type: security.type, username: security.username, password: security.password,
+                type: security.type, username: security.username, password: '', repeatpassword: '',
                 permissions: { configOnly: makeBool(security.permissions & 0x01) },
-                pin: {
-                    d0: security.pin[0],
-                    d1: security.pin[1],
-                    d2: security.pin[2],
-                    d3: security.pin[3]
-                }
+                pin: { d0: '', d1: '', d2: '', d3: '' }
             }
         };
-        ui.toElement(document.getElementById('divSecurityOptions'), obj);
+        let pnl = document.getElementById('divSecurityOptions');
+        ui.toElement(pnl, obj);
+        let keepHint = 'Saved (leave blank to keep)';
+        pnl.querySelector('#fldPassword').placeholder = this.savedSecurity.hasPassword ? keepHint : 'Password';
+        pnl.querySelector('#fldReenterPassword').placeholder = this.savedSecurity.hasPassword ? keepHint : 'Re-enter Password';
+        pnl.querySelector('label[for="fldPinEntry"]').innerHTML = this.savedSecurity.hasPin ? 'Enter Pin (leave blank to keep)' : 'Enter Pin';
         this.onSecurityTypeChanged();
     }
     rebootDevice() {
@@ -1674,9 +1676,17 @@ class General {
             sec.pin += security.pin[`d${i}`];
         }
         sec.permissions |= security.permissions.configOnly ? 0x01 : 0x00;
+        // Blank secret fields keep the stored value while the type (and username) stay the same.
+        let saved = this.savedSecurity || {};
+        let keepPin = security.type === 1 && sec.pin === '' && saved.hasPin && saved.type === 1;
+        let keepPassword = security.type === 2 && sec.password === '' && security.repeatpassword === '' &&
+            saved.hasPassword && saved.type === 2 && sec.username === saved.username;
+        // Only send the secret for the selected type so the other one stays stored.
+        if (security.type !== 1 || keepPin) delete sec.pin;
+        if (security.type !== 2 || keepPassword) delete sec.password;
         let confirm = '';
         console.log(sec);
-        if (security.type === 1) { // Pin Entry
+        if (security.type === 1 && !keepPin) { // Pin Entry
             // Make sure our pin is 4 digits.
             if (sec.pin.length !== 4) {
                 ui.errorMessage('Invalid Pin').querySelector('.sub-message').innerHTML = 'Pins must be exactly 4 alpha-numeric values in length.  Please enter a complete pin.';
@@ -1693,7 +1703,8 @@ class General {
                 ui.errorMessage('Invalid Username').querySelector('.sub-message').innerHTML = 'The maximum username length is 32 characters.';
                 return;
             }
-
+        }
+        if (security.type === 2 && !keepPassword) { // Password
             if (sec.password.length === 0) {
                 ui.errorMessage('No Password Provided').querySelector('.sub-message').innerHTML = 'You must provide a password for password security.';
                 return;
@@ -1803,6 +1814,11 @@ class Wifi {
                 document.getElementById('cbHardwired').checked = settings.connType >= 2;
                 document.getElementById('cbFallbackWireless').checked = settings.connType === 3;
                 ui.toElement(pnl, settings);
+                // The device never returns the stored passphrase; leave the field blank to keep it.
+                this.savedSsid = settings.wifi.ssid;
+                let fldPassphrase = document.getElementById('fldPassphrase');
+                fldPassphrase.value = '';
+                fldPassphrase.placeholder = settings.wifi.hasPassphrase ? 'Saved (leave blank to keep)' : 'Passphrase';
                 /*
                 if (settings.connType >= 2) {
                     document.getElementById('divWiFiMode').style.display = 'none';
@@ -1850,7 +1866,7 @@ class Wifi {
             //document.getElementById('btnConnectWiFi').classList.remove('disabled');
             console.log(aps);
             if (err) {
-                this.displayAPs({ connected: { name: '', passphrase: '' }, accessPoints: [] });
+                this.displayAPs({ connected: { name: '' }, accessPoints: [] });
             }
             else {
                 this.displayAPs(aps);
@@ -1955,6 +1971,7 @@ class Wifi {
     saveNetwork() {
         let pnl = document.getElementById('divNetAdapter');
         let obj = ui.fromElement(pnl);
+        if (this.keepSavedPassphrase(obj.wifi.ssid, obj.wifi.passphrase)) delete obj.wifi.passphrase;
         obj.connType = obj.ethernet.hardwired ? (obj.ethernet.wirelessFallback ? 3 : 2) : 1;
         console.log(obj);
         if (obj.connType >= 2) {
@@ -1991,6 +2008,8 @@ class Wifi {
             this.sendNetworkSettings(obj);
         }
     }
+    // A blank passphrase for the saved SSID keeps the stored one; for a new SSID it means an open network.
+    keepSavedPassphrase(ssid, passphrase) { return passphrase === '' && ssid === this.savedSsid; }
     sendNetworkSettings(obj) {
         putJSONSync('/setNetwork', obj, (err, response) => {
             if (err) {
@@ -2014,6 +2033,7 @@ class Wifi {
             ui.errorMessage('Invalid Passphrase').querySelector('.sub-message').innerHTML = 'The maximum length of the passphrase is 64 characters.';
             return;
         }
+        if (this.keepSavedPassphrase(obj.ssid, obj.passphrase)) delete obj.passphrase;
 
 
         let overlay = ui.waitMessage(document.getElementById('divNetAdapter'));
@@ -4364,12 +4384,19 @@ class MQTT {
             else {
                 console.log(settings);
                 ui.toElement(document.getElementById('divMQTT'), { mqtt: settings });
+                // The device never returns the stored password; leave the field blank to keep it.
+                this.savedUsername = settings.username;
+                let fldPassword = document.getElementById('fldMqttPassword');
+                fldPassword.value = '';
+                fldPassword.placeholder = settings.hasPassword ? 'Saved (leave blank to keep)' : 'Password';
                 document.getElementById('divDiscoveryTopic').style.display = settings.pubDisco ? '' : 'none';
             }
         });
     }
     connectMQTT() {
         let obj = ui.fromElement(document.getElementById('divMQTT'));
+        // A blank password keeps the stored one unless the username changed.
+        if (obj.mqtt.password === '' && obj.mqtt.username === this.savedUsername) delete obj.mqtt.password;
         console.log(obj);
         if (obj.mqtt.enabled) {
             if (typeof obj.mqtt.hostname !== 'string' || obj.mqtt.hostname.length === 0) {
