@@ -44,11 +44,32 @@ static void test_applySecret_prefix_of_stored_is_a_change() {
   TEST_ASSERT_TRUE(applySecret("sto", dest, sizeof(dest)));
   TEST_ASSERT_EQUAL_STRING("sto", dest);
 }
-// Sending an empty value explicitly clears it, e.g. an open WiFi network.
-static void test_applySecret_empty_value_clears_stored() {
+// An older UI sends "" for a field the device no longer fills in.
+static void test_applySecret_empty_value_keeps_stored() {
   char dest[16] = "stored";
-  TEST_ASSERT_TRUE(applySecret("", dest, sizeof(dest)));
+  TEST_ASSERT_FALSE(applySecret("", dest, sizeof(dest)));
+  TEST_ASSERT_EQUAL_STRING("stored", dest);
+}
+// A new SSID or username with an empty secret, e.g. an open WiFi network.
+static void test_applySecret_empty_value_with_new_identity_clears_stored() {
+  char dest[16] = "stored";
+  TEST_ASSERT_TRUE(applySecret("", dest, sizeof(dest), true));
   TEST_ASSERT_EQUAL_STRING("", dest);
+}
+static void test_applySecret_empty_value_with_new_identity_and_nothing_stored() {
+  char dest[16] = "";
+  TEST_ASSERT_FALSE(applySecret("", dest, sizeof(dest), true));
+  TEST_ASSERT_EQUAL_STRING("", dest);
+}
+static void test_applySecret_new_identity_still_takes_a_value() {
+  char dest[16] = "stored";
+  TEST_ASSERT_TRUE(applySecret("fresh", dest, sizeof(dest), true));
+  TEST_ASSERT_EQUAL_STRING("fresh", dest);
+}
+static void test_applySecret_absent_keeps_stored_even_with_new_identity() {
+  char dest[16] = "stored";
+  TEST_ASSERT_FALSE(applySecret(nullptr, dest, sizeof(dest), true));
+  TEST_ASSERT_EQUAL_STRING("stored", dest);
 }
 static void test_applySecret_truncates_and_terminates() {
   char storage[8];
@@ -74,7 +95,11 @@ int main(int argc, char **argv) {
   RUN_TEST(test_applySecret_new_value_replaces_stored);
   RUN_TEST(test_applySecret_same_value_is_no_change);
   RUN_TEST(test_applySecret_prefix_of_stored_is_a_change);
-  RUN_TEST(test_applySecret_empty_value_clears_stored);
+  RUN_TEST(test_applySecret_empty_value_keeps_stored);
+  RUN_TEST(test_applySecret_empty_value_with_new_identity_clears_stored);
+  RUN_TEST(test_applySecret_empty_value_with_new_identity_and_nothing_stored);
+  RUN_TEST(test_applySecret_new_identity_still_takes_a_value);
+  RUN_TEST(test_applySecret_absent_keeps_stored_even_with_new_identity);
   RUN_TEST(test_applySecret_truncates_and_terminates);
   RUN_TEST(test_applySecret_truncated_same_value_is_no_change);
   return UNITY_END();

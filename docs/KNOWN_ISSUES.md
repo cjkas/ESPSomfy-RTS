@@ -110,13 +110,21 @@ It needs a group whose flags are out of date at the moment a client reads it, fo
 
 **Status:** open. A workaround exists (below).
 **Introduced:** 2026-10-18, when the device stopped sending stored secrets back to clients.
-**Location:** `keepSavedPassphrase` in `Wifi` and `connectMQTT` in `MQTT`, both in [data-src/index.js](../data-src/index.js). The firmware side is `applySecret` in [src/Secrets.h](../src/Secrets.h).
+**Location:** `applySecret` in [src/Secrets.h](../src/Secrets.h), called from `WifiSettings::fromJSON` and `MQTTSettings::fromJSON` in [src/ConfigSettings.cpp](../src/ConfigSettings.cpp) and from `/connectwifi`. The UI side is `keepSavedPassphrase` in `Wifi` and `connectMQTT` in `MQTT`, in [data-src/index.js](../data-src/index.js).
 
 ### Summary
 
-The settings routes report only whether a secret is stored (`hasPassphrase`, `hasPassword`), so the UI loads every secret field empty. When the field is still blank on save, the UI treats it as "keep the saved value" and leaves the key out of the request, and `applySecret` keeps a value whose key is absent. Without that rule, saving any other setting on the page would wipe the secret.
+The settings routes report only whether a secret is stored (`hasPassphrase`, `hasPassword`), so the UI loads every secret field empty. The firmware decides what an empty secret in a request means, so that every UI version is safe, including one older than this change, which sends `""` for the field it can no longer fill in:
 
-The cost: a blank field can't mean "no password" while the other half of the login stays the same. That is the SSID for WiFi and the username for MQTT. When it does change, a blank field is sent as an empty value and clears the secret, so switching to a different open network works.
+| Secret | Key absent | `""` | A value |
+|---|---|---|---|
+| WiFi passphrase | keep | keep, or clear if the same request changes the SSID | replace |
+| MQTT password | keep | keep, or clear if the same request changes the username | replace |
+| Login password, PIN | keep | keep | replace |
+
+Without "empty keeps", saving any other setting from an old UI would wipe the secret: for WiFi the device would reboot and drop into AP mode.
+
+The cost: an empty value can't mean "no password" while the SSID or username stays the same. Switching to a different open network works.
 
 The login password and PIN aren't affected. Neither can be empty, and security is turned off with the type selector.
 
@@ -127,8 +135,9 @@ The login password and PIN aren't affected. Neither can be empty, and security i
 
 ### Workaround
 
-Save once with a different SSID or MQTT username, then change it back and save again with the secret field blank.
+- **MQTT:** save once with a different username, then change it back and save again with the password blank.
+- **WiFi:** there's no safe workaround. Saving a different SSID makes the device reboot and try to join that network.
 
 ### Fix options
 
-- **(a) "Clear saved password" checkbox** next to the WiFi passphrase and MQTT password fields, shown only when a value is stored. Ticking it sends an explicit empty value, which `applySecret` already treats as "clear" (covered by `test_applySecret_empty_value_clears_stored`). This is a UI-only change.
+- **(a) "Clear saved password" checkbox** next to the WiFi passphrase and MQTT password fields, shown only when a value is stored. Since `""` means keep, ticking it sends an explicit flag (`clearPassphrase` / `clearPassword`), which `fromJSON` turns into `applySecret(..., identityChanged = true)`.

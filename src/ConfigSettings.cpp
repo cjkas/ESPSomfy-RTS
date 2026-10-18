@@ -312,8 +312,11 @@ bool MQTTSettings::fromJSON(JsonObject &obj) {
   if(!obj["pubDisco"].isNull()) this->pubDisco = obj["pubDisco"];
   this->parseValueString(obj, "protocol", this->protocol, sizeof(this->protocol));
   this->parseValueString(obj, "hostname", this->hostname, sizeof(this->hostname));
+  // An empty password clears the stored one only alongside a new username.
+  const char *username = obj["username"].as<const char *>();
+  bool newUsername = username && strcmp(username, this->username) != 0;
   this->parseValueString(obj, "username", this->username, sizeof(this->username));
-  applySecret(obj["password"].as<const char *>(), this->password, sizeof(this->password));
+  applySecret(obj["password"].as<const char *>(), this->password, sizeof(this->password), newUsername);
   this->parseValueString(obj, "rootTopic", this->rootTopic, sizeof(this->rootTopic));
   this->parseValueString(obj, "discoTopic", this->discoTopic, sizeof(this->discoTopic));
   if(!obj["port"].isNull()) this->port = obj["port"];
@@ -526,8 +529,11 @@ bool WifiSettings::begin() {
   return true;
 }
 bool WifiSettings::fromJSON(JsonObject &obj) {
+  // An empty passphrase clears the stored one only alongside a new SSID (an open network).
+  const char *ssid = obj["ssid"].as<const char *>();
+  bool newSsid = ssid && strcmp(ssid, this->ssid) != 0;
   this->parseValueString(obj, "ssid", this->ssid, sizeof(this->ssid));
-  applySecret(obj["passphrase"].as<const char *>(), this->passphrase, sizeof(this->passphrase));
+  applySecret(obj["passphrase"].as<const char *>(), this->passphrase, sizeof(this->passphrase), newSsid);
   if(!obj["roaming"].isNull()) this->roaming = obj["roaming"];
   if(!obj["hidden"].isNull()) this->hidden = obj["hidden"];
   return true;
