@@ -28,6 +28,7 @@
 extern ConfigSettings settings;
 extern SSDPClass SSDP;
 extern rebootDelay_t rebootDelay;
+extern LoopStats loopStats;
 extern SomfyShadeController somfy;
 extern Web webServer;
 extern MqttConnection mqtt;
@@ -276,6 +277,10 @@ static void discoveryHeader(JsonFormatter &json, const model_snapshot_t &snap) {
   json.addElem("min", ESP.getMinFreeHeap());
   json.addElem("total", ESP.getHeapSize());
   json.addElem("uptime", (uint64_t)millis());
+  // This runs on the web server's task, so it reports the last window the
+  // loop task closed rather than reading the one it is still filling.
+  json.addElem("loopRate", loopStats.publishedRate());
+  json.addElem("loopMaxUs", loopStats.publishedMaxUs());
   json.endObject();
 }
 

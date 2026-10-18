@@ -28,6 +28,7 @@ extern MqttConnection mqtt;
 extern rebootDelay_t rebootDelay;
 extern ESPNetwork net;
 extern SomfyShadeController somfy;
+extern LoopStats loopStats;
 
 static unsigned long _lastHeapEmit = 0;
 
@@ -680,8 +681,15 @@ void ESPNetwork::emitHeap(uint8_t num) {
   json->addElem("min", minHeap);
   json->addElem("total", ESP.getHeapSize());
   json->addElem("uptime", (uint64_t)millis());
+  // The window in progress.  Only a broadcast closes it, so a client
+  // connecting doesn't wipe a slow pass before Home Assistant has seen it.
+  json->addElem("loopRate", loopStats.rate(millis()));
+  json->addElem("loopMaxUs", loopStats.maxUs());
   json->endObject();
   if(target == heap_emit_t::room) sockEmit.endEmitRoom(0);
   else sockEmit.endEmit(num);
-  if(target == heap_emit_t::broadcast) _lastHeapEmit = millis();
+  if(target == heap_emit_t::broadcast) {
+    _lastHeapEmit = millis();
+    loopStats.publish(_lastHeapEmit);
+  }
 }

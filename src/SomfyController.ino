@@ -41,6 +41,7 @@ SomfyShadeOps shadeOps;
 ShadeRequests shadeRequests(shadeOps);
 LoopQueue loopQueue;
 SnapshotSlots snapshotSlots;
+LoopStats loopStats;
 
 uint32_t oldheap = 0;
 
@@ -141,6 +142,9 @@ void setup() {
 void loop() {
   // put your main code here, to run repeatedly:
   //uint32_t heap = ESP.getFreeHeap();
+  // Times the whole pass for memStatus, including any time the loop task was
+  // pre-empted, since that delays the loop too.
+  ElapsedTimer pass;
   if(rebootDelay.reboot && millis() > rebootDelay.rebootTime) {
     ESP_LOGI(TAG, "Rebooting after %lums", rebootDelay.rebootTime);
     net.end();
@@ -180,4 +184,5 @@ void loop() {
     ESP.restart();
   }
   esp_task_wdt_reset();
+  loopStats.record(pass.us());
 }
