@@ -272,6 +272,64 @@ static void test_heapEmitTarget_broadcasts_once_per_interval() {
 static void test_heapEmitTarget_room_in_between() {
   TEST_ASSERT_TRUE(heap_emit_t::room == heapEmitTarget(255, 1000, 30000, true));
 }
+
+/*********************************************************************
+ * LoopStats
+ ********************************************************************/
+static void test_loopStats_rate_is_passes_per_second() {
+  LoopStats stats;
+  for(int i = 0; i < 4500; i++) stats.record(100);
+  TEST_ASSERT_EQUAL_UINT32(1500, stats.rate(3000));
+}
+static void test_loopStats_empty_window_has_no_rate() {
+  LoopStats stats;
+  stats.record(100);
+  TEST_ASSERT_EQUAL_UINT32(0, stats.rate(0));
+}
+static void test_loopStats_keeps_the_longest_pass() {
+  LoopStats stats;
+  stats.record(120);
+  stats.record(4800);
+  stats.record(90);
+  TEST_ASSERT_EQUAL_UINT32(4800, stats.maxUs());
+}
+static void test_loopStats_nothing_published_before_the_first_window() {
+  LoopStats stats;
+  stats.record(4800);
+  TEST_ASSERT_EQUAL_UINT32(0, stats.publishedRate());
+  TEST_ASSERT_EQUAL_UINT32(0, stats.publishedMaxUs());
+}
+static void test_loopStats_publish_keeps_the_window_and_starts_a_new_one() {
+  LoopStats stats;
+  for(int i = 0; i < 300; i++) stats.record(100);
+  stats.record(4800);
+  stats.publish(1000);
+  TEST_ASSERT_EQUAL_UINT32(301, stats.publishedRate());
+  TEST_ASSERT_EQUAL_UINT32(4800, stats.publishedMaxUs());
+  TEST_ASSERT_EQUAL_UINT32(0, stats.rate(1000));
+  TEST_ASSERT_EQUAL_UINT32(0, stats.maxUs());
+  for(int i = 0; i < 50; i++) stats.record(200);
+  // The new window started at the publish, not at boot.
+  TEST_ASSERT_EQUAL_UINT32(100, stats.rate(1500));
+  TEST_ASSERT_EQUAL_UINT32(200, stats.maxUs());
+  TEST_ASSERT_EQUAL_UINT32(301, stats.publishedRate());
+}
+static void test_loopStats_reading_does_not_reset_the_window() {
+  LoopStats stats;
+  stats.record(4800);
+  (void)stats.rate(500);
+  (void)stats.maxUs();
+  stats.record(100);
+  TEST_ASSERT_EQUAL_UINT32(4800, stats.maxUs());
+  TEST_ASSERT_EQUAL_UINT32(2, stats.rate(1000));
+}
+static void test_loopStats_window_across_millis_wrap() {
+  LoopStats stats;
+  stats.publish(0xFFFFFE00);
+  for(int i = 0; i < 1024; i++) stats.record(100);
+  // 0x200 ms before the wrap plus 0x200 after it is 1024 ms.
+  TEST_ASSERT_EQUAL_UINT32(1000, stats.rate(0x00000200));
+}
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
@@ -314,5 +372,12 @@ int main(int argc, char **argv) {
   RUN_TEST(test_heapEmitTarget_one_client_always_gets_it);
   RUN_TEST(test_heapEmitTarget_broadcasts_once_per_interval);
   RUN_TEST(test_heapEmitTarget_room_in_between);
+  RUN_TEST(test_loopStats_rate_is_passes_per_second);
+  RUN_TEST(test_loopStats_empty_window_has_no_rate);
+  RUN_TEST(test_loopStats_keeps_the_longest_pass);
+  RUN_TEST(test_loopStats_nothing_published_before_the_first_window);
+  RUN_TEST(test_loopStats_publish_keeps_the_window_and_starts_a_new_one);
+  RUN_TEST(test_loopStats_reading_does_not_reset_the_window);
+  RUN_TEST(test_loopStats_window_across_millis_wrap);
   return UNITY_END();
 }

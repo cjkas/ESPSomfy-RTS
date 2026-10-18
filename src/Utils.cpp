@@ -152,3 +152,20 @@ heap_emit_t heapEmitTarget(uint8_t num, uint32_t sinceLastMs, uint32_t intervalM
   if(sinceLastMs >= intervalMs) return heap_emit_t::broadcast;
   return roomHasClients ? heap_emit_t::room : heap_emit_t::none;
 }
+void LoopStats::record(uint32_t passUs) {
+  _passes++;
+  if(passUs > _maxUs) _maxUs = passUs;
+}
+uint32_t LoopStats::rate(uint32_t nowMs) const {
+  // The unsigned subtraction keeps the window right across a millis() wrap.
+  const uint32_t elapsedMs = nowMs - _startMs;
+  if(elapsedMs == 0) return 0;
+  return (uint32_t)((uint64_t)_passes * 1000 / elapsedMs);
+}
+void LoopStats::publish(uint32_t nowMs) {
+  _publishedRate.store(this->rate(nowMs), std::memory_order_relaxed);
+  _publishedMaxUs.store(_maxUs, std::memory_order_relaxed);
+  _passes = 0;
+  _maxUs = 0;
+  _startMs = nowMs;
+}

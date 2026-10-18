@@ -1,6 +1,7 @@
 #ifndef utils_h
 #define utils_h
 #include <Arduino.h>
+#include <atomic>
 
 
 #define DEBUG_SOMFY Serial
@@ -78,6 +79,26 @@ enum class heap_emit_t : uint8_t { none, client, broadcast, room };
 // num is the socket client asked for, 255 for everyone.  A broadcast goes out
 // every intervalMs; in between only the clients in room 0 get one.
 heap_emit_t heapEmitTarget(uint8_t num, uint32_t sinceLastMs, uint32_t intervalMs, bool roomHasClients);
+// How well loop() keeps up: the passes it made per second and its longest
+// pass, over the window since the last memStatus broadcast.  Only the loop
+// task calls record(), rate(), maxUs() and publish().  publish() closes the
+// window and keeps its figures where another task (the /discovery response)
+// can read them without seeing a half reset window.
+class LoopStats {
+  uint32_t _passes = 0;
+  uint32_t _maxUs = 0;
+  uint32_t _startMs = 0;
+  std::atomic<uint32_t> _publishedRate{0};
+  std::atomic<uint32_t> _publishedMaxUs{0};
+  public:
+    void record(uint32_t passUs);
+    // Passes per second since the window started, 0 for an empty window.
+    uint32_t rate(uint32_t nowMs) const;
+    uint32_t maxUs() const { return _maxUs; }
+    void publish(uint32_t nowMs);
+    uint32_t publishedRate() const { return _publishedRate.load(std::memory_order_relaxed); }
+    uint32_t publishedMaxUs() const { return _publishedMaxUs.load(std::memory_order_relaxed); }
+};
 
 class Timestamp {
   char _timeBuffer[128];
