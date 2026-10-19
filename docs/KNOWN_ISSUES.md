@@ -191,3 +191,82 @@ Anyone can connect to `ws://host:8080/` and join any room. Clients can't change 
 ### Summary
 
 Failed logins aren't throttled. A digits-only 4-character PIN has 10,000 options and falls to an online attack within minutes. An alphanumeric one has about 1.7 million and lasts a day or two at about 10 attempts per second.
+
+## Boot waits 5 s for the clock and then skips the time zone
+
+**Status:** open. Seen in the serial logs from 2026-10-18 and 2026-10-19.
+**Location:** `NTPSettings::apply` in [src/ConfigSettings.cpp](../src/ConfigSettings.cpp), called from `ConfigSettings::begin` in `setup()`.
+
+### Summary
+
+`apply()` calls `configTime()` and then `getLocalTime(&dt)`. Arduino's `getLocalTime` takes a timeout that defaults to 5000 ms, and polls until the year is past 2016. `setup()` calls it before the network is up, so on a boot whose clock isn't set yet it waits the full 5 s and returns false. In the logs, `File system mounted successfully` is followed 5.1 s later by `Launching web server...`. A soft reboot four hours after boot passed straight through in 90 ms, because the RTC keeps the time across a soft reset. One soft reboot two minutes after a cold boot still waited the full 5 s, presumably because SNTP hadn't set the clock yet.
+
+`apply()` returns as soon as `getLocalTime` fails, before `setenv("TZ", ...)`. Nothing else sets `TZ`. So after such a boot the configured time zone isn't applied.
+
+### Concrete failure modes
+
+1. Every cold boot is 5 s slower. The web server, WiFi and the radio all start after the wait.
+2. After a cold boot, local times are worked out without the configured time zone, as if it were UTC, until something calls `apply()` again.
+
+### Fix options
+
+- **(a) Don't wait.** Call `getLocalTime(&dt, 0)`, or skip the check, and set `TZ` whatever the result. SNTP sets the clock in the background once the network is up.
+- **(b) Use `configTzTime(posixZone, ntpServer)`.** It sets the zone and the server together and doesn't wait.
+
+## A restore reboots even when the backup fails validation
+
+**Status:** open. Seen during a restore on 2026-10-18.
+**Location:** the `restore_shades` case in `LoopQueue::drain` in [src/LoopQueue.cpp](../src/LoopQueue.cpp); `ShadeConfigFile::validate` and `restoreFile` in [src/ConfigFile.cpp](../src/ConfigFile.cpp); the `/shades.tmp` route in [src/entryPoints/WebUiRoutes.cpp](../src/entryPoints/WebUiRoutes.cpp).
+
+### Summary
+
+The uploaded backup is written to `/shades.tmp`, and `loop()` restores it with `ShadeConfigFile::restore()`. The result is ignored: the device logs `Rebooting ESP for restored settings...` and reboots whether the restore worked or not. If validation fails, the device reboots on its old settings and the user is never told.
+
+Validation is also looser than it looks. When the file size doesn't match what the header adds up to, `validate()` logs `File size is not correct` but carries on. The repeater records are walked without checking their length. The backup restored on 2026-10-18 was 6 bytes longer than its header said, and was restored anyway. Where the 6 bytes came from wasn't checked; the repeater records are the one section that could hide them.
+
+Nothing deletes `/shades.tmp` afterwards. A full copy of the backup, rolling codes included, stays in LittleFS, and `GET /shades.tmp` serves it without a login (see [Port 80 routes don't check login](#port-80-routes-dont-check-login)). PR A of [SECURITY_PLAN.md](SECURITY_PLAN.md) puts the route behind login and stops `serveStatic` serving `*.tmp`. Even then, the file has no reason to outlive the restore.
+
+### Concrete failure modes
+
+1. A corrupt or wrong-version backup is rejected, the device reboots anyway, and the UI shows the old shades with no error.
+2. A file with extra or missing bytes at the end is restored, as long as the record markers line up.
+3. Until PR A lands, anyone on the LAN can download the last restored backup long after the restore.
+
+### Fix options
+
+- Only reboot when `restore()` returns true, and send the failure to the client (a `requestResult` event, like the other queued edits).
+- Make the size mismatch fail validation, and check the repeater record length like the other record types.
+- Delete `/shades.tmp` once the restore has run, whatever the result.
+
+## A shade command holds up the main loop for about 365 ms
+
+**Status:** open. Measured in the serial logs from 2026-10-18 and 2026-10-19.
+**Location:** the `shade_request` case in `LoopQueue::drain` in [src/LoopQueue.cpp](../src/LoopQueue.cpp).
+
+### Summary
+
+Every shade command that moves a shade is followed by `Loop queue took 364-370ms` in the log. A command whose shade doesn't need to move takes no time. In a burst of 10 commands from Home Assistant, the four that came after a moving shade waited behind it, and that drain took 426 ms. Once, `Loop somfy took 855ms` came about 12 s after the last command, with no command near it.
+
+Where the time goes inside the request wasn't measured.
+
+### Concrete failure modes
+
+1. While the queue drains, `loop()` doesn't receive or handle anything else: radio frames, sockets, MQTT.
+2. A group command, or a burst of shade commands, adds up to several hundred ms per shade that moves.
+
+## A read of `/controller` took 2.4 s
+
+**Status:** seen once, not explained.
+**Location:** the `/controller` route; the warning comes from `logElapsed` in [src/Timing.h](../src/Timing.h).
+
+### Summary
+
+On 2026-10-19 the log shows `web GET /controller from 192.168.1.197 total took 2353.274ms (slow)`. That was about 30 s after Home Assistant's socket connected, and 80 s after boot. Every other `/controller` read in the logs took 100-235 ms.
+
+## Log lines that mislead or are missing
+
+**Status:** open. All cosmetic.
+
+- **A command for an unknown shade leaves no trace.** In `Web::handleShadeCommand` in [src/entryPoints/Web.cpp](../src/entryPoints/Web.cpp), the `handleShadeCommand shade=...` line is only written when the shade exists. On 2026-10-18 Home Assistant sent 10 commands to a device that had no shades yet, and the log shows only the response times.
+- **`last ping 0ms ago` means the client never pinged.** In the disconnect line in [src/outputs/SocketEmitter.cpp](../src/outputs/SocketEmitter.cpp), a client that never pinged prints 0. Browsers don't ping, so they always show it.
+- **`.gz does not exist` errors are noise.** `serveStatic` tries `<file>.gz` first. For files stored without one (`appversion`, `icon.png`), LittleFS logs an `E`-level `does not exist, no permits for creation` line on every request.
