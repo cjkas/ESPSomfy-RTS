@@ -1750,7 +1750,8 @@ class Wifi {
     { val: 1, label: 'WT32-ETH01 - Wireless Tag', clk: 0, ct: 0, addr: 1, pwr: 16, mdc: 23, mdio: 18 }
     ];
     ethClockModes = [{ val: 0, label: 'GPIO0 IN' }, { val: 1, label: 'GPIO0 OUT' }, { val: 2, label: 'GPIO16 OUT' }, { val: 3, label: 'GPIO17 OUT' }];
-    ethPhyTypes = [{ val: 0, label: 'LAN8720' }, { val: 1, label: 'TLK110' }, { val: 2, label: 'RTL8201' }, { val: 3, label: 'DP83848' }, { val: 4, label: 'DM9051' }, { val: 5, label: 'KZ8081' }];
+    // The ids the firmware stores (eth_phy_id_t in EthPhy.h).  4 is the DM9051, an SPI chip the ESP32's MAC can't drive.
+    ethPhyTypes = [{ val: 0, label: 'LAN8720' }, { val: 1, label: 'TLK110' }, { val: 2, label: 'RTL8201' }, { val: 3, label: 'DP83848' }, { val: 5, label: 'KSZ8041' }, { val: 6, label: 'KSZ8081' }];
     init() {
         document.getElementById("divNetworkStrength").innerHTML = this.displaySignal(-100);
         if (this.initialized) return;
@@ -1811,8 +1812,11 @@ class Wifi {
                 ui.serviceError(err);
             }
             else {
-                document.getElementById('cbHardwired').checked = settings.connType >= 2;
-                document.getElementById('cbFallbackWireless').checked = settings.connType === 3;
+                // Firmware older than hasEthernet always built Ethernet in.
+                let hasEthernet = settings.hasEthernet !== false;
+                document.getElementById('divHardwired').style.display = hasEthernet ? '' : 'none';
+                document.getElementById('cbHardwired').checked = hasEthernet && settings.connType >= 2;
+                document.getElementById('cbFallbackWireless').checked = hasEthernet && settings.connType === 3;
                 ui.toElement(pnl, settings);
                 // The device never returns the stored passphrase; leave the field blank to keep it.
                 this.savedSsid = settings.wifi.ssid;

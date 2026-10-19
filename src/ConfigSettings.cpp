@@ -181,7 +181,7 @@ bool ConfigSettings::begin() {
   this->Security.begin();
   this->IP.begin();
   this->WIFI.begin();
-#ifndef CONFIG_IDF_TARGET_ESP32C6
+#if HAS_ETHERNET
   this->Ethernet.begin();
 #endif
   this->NTP.begin();
@@ -255,7 +255,7 @@ void ConfigSettings::print() {
   ESP_LOGD(TAG, "Connection Type: %u", (unsigned int) this->connType);
   this->NTP.print();
   if(this->connType == conn_types_t::wifi || this->connType == conn_types_t::unset) this->WIFI.print();
-#ifndef CONFIG_IDF_TARGET_ESP32C6
+#if HAS_ETHERNET
   if(this->connType == conn_types_t::ethernet || this->connType == conn_types_t::ethernetpref) this->Ethernet.print();
 #endif
 }
@@ -601,7 +601,7 @@ bool WifiSettings::ssidExists(const char *ssid) {
   }
   return false;
 }
-#ifndef CONFIG_IDF_TARGET_ESP32C6
+#if HAS_ETHERNET
 EthernetSettings::EthernetSettings() {}
 bool EthernetSettings::begin() {
   this->load();
@@ -611,7 +611,7 @@ bool EthernetSettings::fromJSON(JsonObject &obj) {
   if(!obj["boardType"].isNull()) this->boardType = obj["boardType"];
   if(!obj["phyAddress"].isNull()) this->phyAddress = obj["phyAddress"];
   if(!obj["CLKMode"].isNull()) this->CLKMode = static_cast<eth_clock_mode_t>(obj["CLKMode"]);
-  if(!obj["phyType"].isNull()) this->phyType = static_cast<eth_phy_type_t>(obj["phyType"]);
+  if(!obj["phyType"].isNull()) this->phyType = obj["phyType"];
   if(!obj["PWRPin"].isNull()) this->PWRPin = obj["PWRPin"];
   if(!obj["MDCPin"].isNull()) this->MDCPin = obj["MDCPin"];
   if(!obj["MDIOPin"].isNull()) this->MDIOPin = obj["MDIOPin"];
@@ -621,7 +621,7 @@ bool EthernetSettings::toJSON(JsonObject &obj) {
   obj["boardType"] = this->boardType;
   obj["phyAddress"] = this->phyAddress;
   obj["CLKMode"] = static_cast<uint8_t>(this->CLKMode);
-  obj["phyType"] = static_cast<uint8_t>(this->phyType);
+  obj["phyType"] = this->phyType;
   obj["PWRPin"] = this->PWRPin;
   obj["MDCPin"] = this->MDCPin;
   obj["MDIOPin"] = this->MDIOPin;
@@ -642,7 +642,7 @@ bool EthernetSettings::save() {
   pref.clear();
   pref.putChar("boardType", this->boardType);
   pref.putChar("phyAddress", this->phyAddress);
-  pref.putChar("phyType", static_cast<uint8_t>(this->phyType));
+  pref.putChar("phyType", this->phyType);
   pref.putChar("CLKMode", static_cast<uint8_t>(this->CLKMode));
   pref.putChar("PWRPin", this->PWRPin);
   pref.putChar("MDCPin", this->MDCPin);
@@ -654,7 +654,7 @@ bool EthernetSettings::load() {
   Preferences pref;
   pref.begin("ETH");
   this->boardType = pref.getChar("boardType", this->boardType);
-  this->phyType = static_cast<eth_phy_type_t>(pref.getChar("phyType", ETH_PHY_LAN8720));
+  this->phyType = pref.getChar("phyType", this->phyType);
   this->CLKMode = static_cast<eth_clock_mode_t>(pref.getChar("CLKMode", ETH_CLOCK_GPIO0_IN));
   this->phyAddress = pref.getChar("phyAddress", this->phyAddress);
   this->PWRPin = pref.getChar("PWRPin", this->PWRPin);
@@ -667,7 +667,7 @@ void EthernetSettings::print() {
   ESP_LOGD(TAG, "Ethernet Settings Board:%d PHYType:%d CLK:%d ADDR:%d PWR:%d MDC:%d MDIO:%d",
     this->boardType, this->phyType, this->CLKMode, this->phyAddress, this->PWRPin, this->MDCPin, this->MDIOPin);
 }
-#endif // CONFIG_IDF_TARGET_ESP32C6
+#endif // HAS_ETHERNET
 void ConfigSettings::printAvailHeap() {
   ESP_LOGD(TAG, "Max Heap: %u", (unsigned int)ESP.getMaxAllocHeap());
   ESP_LOGD(TAG, "Free Heap: %u", (unsigned int)ESP.getFreeHeap());

@@ -50,7 +50,7 @@ int8_t SomfyShade::validateJSON(JsonObject &obj) {
   pin_users_t radio, ethernet, others;
   if(somfy.transceiver.config.enabled)
     radio.uses = [](uint8_t pin, void *) { return somfy.transceiver.usesPin(pin); };
-#ifndef CONFIG_IDF_TARGET_ESP32C6
+#if HAS_ETHERNET
   if(settings.connType == conn_types_t::ethernet || settings.connType == conn_types_t::ethernetpref)
     ethernet.uses = [](uint8_t pin, void *) { return settings.Ethernet.usesPin(pin); };
 #endif

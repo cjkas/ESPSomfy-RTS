@@ -802,7 +802,7 @@ void registerWebUiRoutes(AsyncWebServer &server) {
         JsonObject objEth = obj["ethernet"];
         if(settings.connType == conn_types_t::ethernet || settings.connType == conn_types_t::ethernetpref)
           reboot = true;
-#ifndef CONFIG_IDF_TARGET_ESP32C6
+#if HAS_ETHERNET
         settings.Ethernet.fromJSON(objEth);
         settings.Ethernet.save();
 #endif
@@ -886,8 +886,10 @@ void registerWebUiRoutes(AsyncWebServer &server) {
     JsonObject obj = doc.to<JsonObject>();
     settings.toJSON(obj);
     obj["fwVersion"] = settings.fwVersion.name;
+    // The web UI hides the Ethernet settings when the chip has no MAC.
+    obj["hasEthernet"] = HAS_ETHERNET == 1;
     JsonObject eth = obj.createNestedObject("ethernet");
-#ifndef CONFIG_IDF_TARGET_ESP32C6
+#if HAS_ETHERNET
     settings.Ethernet.toJSON(eth);
 #endif
     JsonObject wifi = obj.createNestedObject("wifi");
