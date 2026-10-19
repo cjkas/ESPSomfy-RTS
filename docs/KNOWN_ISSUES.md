@@ -141,3 +141,53 @@ The login password and PIN aren't affected. Neither can be empty, and security i
 ### Fix options
 
 - **(a) "Clear saved password" checkbox** next to the WiFi passphrase and MQTT password fields, shown only when a value is stored. Since `""` means keep, ticking it sends an explicit flag (`clearPassphrase` / `clearPassword`), which `fromJSON` turns into `applySecret(..., identityChanged = true)`.
+
+## Port 80 routes don't check login
+
+**Status:** open. Fix planned as PR A of [SECURITY_PLAN.md](SECURITY_PLAN.md).
+**Location:** `registerWebUiRoutes` in [src/entryPoints/WebUiRoutes.cpp](../src/entryPoints/WebUiRoutes.cpp).
+
+### Summary
+
+Only the ten port-80 routes that share a handler with port 8081 call `isAuthenticated`. The other ~60 check nothing, including every settings route, `/restore`, firmware updates, pairing and rolling codes. Logging in only hides parts of the UI. `serveStatic("/")` also serves `shades.cfg` and `shades.tmp`, which hold the rolling codes, to anyone.
+
+### Concrete failure modes
+
+1. With a PIN or password set, any LAN client can `PUT /saveSecurity` and replace them, or change the network, MQTT or radio settings.
+2. Any LAN client can download `/shades.cfg` and read every shade's remote address and rolling code.
+
+## API token key is public
+
+**Status:** open. Fix planned as PR B of [SECURITY_PLAN.md](SECURITY_PLAN.md).
+**Location:** `Web::createAPIToken` in [src/entryPoints/Web.cpp](../src/entryPoints/Web.cpp).
+
+### Summary
+
+Tokens are `HMAC(serverId, PIN-or-password + client IP)`. `serverId` is the last 3 bytes of the MAC address, and it is published in mDNS, in the retained MQTT `serverId` topic, in `/discovery` and in `/loginContext`. So the HMAC key gives no protection: whoever sees a token can try every PIN offline. Tokens never expire, and they are compared with a non-constant-time `String` comparison. `serverId` itself is an identity (HA's unique id) and stays public. Only the key is replaced.
+
+## CORS allows any origin
+
+**Status:** open. Fix planned as PR A of [SECURITY_PLAN.md](SECURITY_PLAN.md).
+**Location:** `DefaultHeaders` in `Web::begin`, [src/entryPoints/Web.cpp](../src/entryPoints/Web.cpp).
+
+### Summary
+
+Every response carries `Access-Control-Allow-Origin: *`, `Access-Control-Allow-Methods: PUT,POST,GET,OPTIONS` and `Access-Control-Allow-Headers: *`. Any website open in a browser on the LAN can call the device and read the replies. With security None it can change every setting, without the user noticing.
+
+## Websocket has no auth
+
+**Status:** open. Fix planned as PR A of [SECURITY_PLAN.md](SECURITY_PLAN.md).
+**Location:** `SocketEmitter::wsEvent` in [src/outputs/SocketEmitter.cpp](../src/outputs/SocketEmitter.cpp).
+
+### Summary
+
+Anyone can connect to `ws://host:8080/` and join any room. Clients can't change anything over it, but they receive all shade and group state, and room 0 (the frame log) carries received remote addresses and rolling codes. Browsers don't apply CORS to websockets, so a page from any origin can connect too.
+
+## `/login` has no rate limit
+
+**Status:** open. Fix planned as PR C of [SECURITY_PLAN.md](SECURITY_PLAN.md).
+**Location:** `Web::handleLogin` in [src/entryPoints/Web.cpp](../src/entryPoints/Web.cpp).
+
+### Summary
+
+Failed logins aren't throttled. A digits-only 4-character PIN has 10,000 options and falls to an online attack within minutes. An alphanumeric one has about 1.7 million and lasts a day or two at about 10 attempts per second.
