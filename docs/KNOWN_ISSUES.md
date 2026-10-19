@@ -194,65 +194,62 @@ Failed logins aren't throttled. A digits-only 4-character PIN has 10,000 options
 
 ## Boot waits 5 s for the clock and then skips the time zone
 
-**Status:** open. Seen in the serial logs from 2026-10-18 and 2026-10-19.
+**Status:** fixed (fix option (b)). `apply()` calls `configTzTime(posixZone, ntpServer)`, which sets the zone, starts SNTP and doesn't wait. `save()` calls `apply()`, so saving the NTP settings doesn't wait either.
+**Fixed:** 2026-10-19. The same change makes `/setgeneral` save a request that changes only the time zone: it checked `ntpServer` twice instead of `ntpServer` or `posixZone`.
 **Location:** `NTPSettings::apply` in [src/ConfigSettings.cpp](../src/ConfigSettings.cpp), called from `ConfigSettings::begin` in `setup()`.
 
-### Summary
+### What it was
 
-`apply()` calls `configTime()` and then `getLocalTime(&dt)`. Arduino's `getLocalTime` takes a timeout that defaults to 5000 ms, and polls until the year is past 2016. `setup()` calls it before the network is up, so on a boot whose clock isn't set yet it waits the full 5 s and returns false. In the logs, `File system mounted successfully` is followed 5.1 s later by `Launching web server...`. A soft reboot four hours after boot passed straight through in 90 ms, because the RTC keeps the time across a soft reset. One soft reboot two minutes after a cold boot still waited the full 5 s, presumably because SNTP hadn't set the clock yet.
+`apply()` called `configTime()` and then `getLocalTime(&dt)`. Arduino's `getLocalTime` takes a timeout that defaults to 5000 ms, and polls until the year is past 2016. `setup()` calls it before the network is up, so on a boot whose clock isn't set yet it waits the full 5 s and returns false. In the logs, `File system mounted successfully` is followed 5.1 s later by `Launching web server...`. A soft reboot four hours after boot passed straight through in 90 ms, because the RTC keeps the time across a soft reset. One soft reboot two minutes after a cold boot still waited the full 5 s, presumably because SNTP hadn't set the clock yet.
 
-`apply()` returns as soon as `getLocalTime` fails, before `setenv("TZ", ...)`. Nothing else sets `TZ`. So after such a boot the configured time zone isn't applied.
+`apply()` returned as soon as `getLocalTime` failed, before `setenv("TZ", ...)`, and nothing else set `TZ`. So after such a boot the configured time zone wasn't applied: every cold boot was 5 s slower, and local times were worked out as if the zone were UTC. `save()` had the same wait, on the web server task.
 
-### Concrete failure modes
+### Options that weren't taken
 
-1. Every cold boot is 5 s slower. The web server, WiFi and the radio all start after the wait.
-2. After a cold boot, local times are worked out without the configured time zone, as if it were UTC, until something calls `apply()` again.
-
-### Fix options
-
-- **(a) Don't wait.** Call `getLocalTime(&dt, 0)`, or skip the check, and set `TZ` whatever the result. SNTP sets the clock in the background once the network is up.
-- **(b) Use `configTzTime(posixZone, ntpServer)`.** It sets the zone and the server together and doesn't wait.
+- **(a) Don't wait.** `getLocalTime(&dt, 0)`, then set `TZ` whatever the result.
 
 ## A restore reboots even when the backup fails validation
 
-**Status:** open. Seen during a restore on 2026-10-18.
-**Location:** the `restore_shades` case in `LoopQueue::drain` in [src/LoopQueue.cpp](../src/LoopQueue.cpp); `ShadeConfigFile::validate` and `restoreFile` in [src/ConfigFile.cpp](../src/ConfigFile.cpp); the `/shades.tmp` route in [src/entryPoints/WebUiRoutes.cpp](../src/entryPoints/WebUiRoutes.cpp).
+**Status:** fixed, except that a size mismatch stays a warning (below).
+**Fixed:** 2026-10-19.
+**Location:** the `/restore` route in [src/entryPoints/WebUiRoutes.cpp](../src/entryPoints/WebUiRoutes.cpp); the `restore_shades` and `load_shades` cases in `LoopQueue::drain` in [src/LoopQueue.cpp](../src/LoopQueue.cpp); `ShadeConfigFile::validate` and `TRANS_REC_SIZE` in [src/ConfigFile.cpp](../src/ConfigFile.cpp).
+
+### What it was
+
+The uploaded backup is written to `/shades.tmp`, and `loop()` restored it with `ShadeConfigFile::restore()` and ignored the result. The device rebooted whether the restore worked or not, and the user was never told. Nothing deleted `/shades.tmp` afterwards, so a full copy of the backup, rolling codes included, stayed in LittleFS where `GET /shades.tmp` served it to anyone.
+
+### What changed
+
+- The `/restore` reply validates the file first. A bad one gets a `400` with a message, which the restore dialog now shows, and nothing is queued. An upload that didn't complete gets a `400` too; before, it got no reply at all.
+- `restoreFile()` only fails while it opens or validates the file, before it changes anything. So when it fails, `loop()` logs it and doesn't reboot.
+- `/shades.tmp` is deleted after every restore, and after `/updateShadeConfig` loads it.
+
+### Why the size check stays a warning
+
+The backup restored on 2026-10-18 was 6 bytes longer than its header said. Its transceiver record is 80 bytes, but the header declares 74. `TRANS_REC_SIZE` was left at 74 when `noiseDetection` was added to the record, so every backup written since then declares that record 6 bytes short. The reader copes, because `readTransRecord()` skips to the record end. `TRANS_REC_SIZE` is now 80. A strict size check would still reject every backup made before the fix, so a mismatch is only logged, and the record checks catch real damage. The sum lives in `expectedFileBytes()` in [src/ConfigHeader.h](../src/ConfigHeader.h), with tests built from that backup's header.
+
+The repeater record's length is now checked too, but also only logged: `validate()` runs on `shades.cfg` at every boot, and failing it there would start the device without its shades.
+
+## Transmitting a frame stops `loop()` for about 365 ms
+
+**Status:** open, by design for now. Measured in the serial logs from 2026-10-18 and 2026-10-19.
+**Location:** `Transceiver::sendFrame` and `startTxTask` in [src/Transceiver.cpp](../src/Transceiver.cpp).
 
 ### Summary
 
-The uploaded backup is written to `/shades.tmp`, and `loop()` restores it with `ShadeConfigFile::restore()`. The result is ignored: the device logs `Rebooting ESP for restored settings...` and reboots whether the restore worked or not. If validation fails, the device reboots on its old settings and the user is never told.
+Every shade command that moves a shade is followed by `Loop queue took 364-370ms` in the log. A command whose shade doesn't need to move takes no time. In a burst of 10 commands from Home Assistant, the four that came after a moving shade waited behind it, and that drain took 426 ms. Once, `Loop somfy took 855ms` came with no command near it.
 
-Validation is also looser than it looks. When the file size doesn't match what the header adds up to, `validate()` logs `File size is not correct` but carries on. The repeater records are walked without checking their length. The backup restored on 2026-10-18 was 6 bytes longer than its header said, and was restored anyway. Where the 6 bytes came from wasn't checked; the repeater records are the one section that could hide them.
-
-Nothing deletes `/shades.tmp` afterwards. A full copy of the backup, rolling codes included, stays in LittleFS, and `GET /shades.tmp` serves it without a login (see [Port 80 routes don't check login](#port-80-routes-dont-check-login)). PR A of [SECURITY_PLAN.md](SECURITY_PLAN.md) puts the route behind login and stops `serveStatic` serving `*.tmp`. Even then, the file has no reason to outlive the restore.
+The time isn't spent in `loop()`'s own code. The `radio_tx` task sends each frame by toggling the TX pin with `delayMicroseconds()` busy-waits: the wake-up pulse, the syncs, 56 or 80 bits at 1.28 ms each and the gap after each frame. That's about 130 ms for the first frame and about 140 ms for each repeat. The task runs at priority 5, pinned to the same core as `loop()`, which runs at priority 1, so `loop()` doesn't run until the transmission ends. The timing logged for whatever `loop()` was doing includes that wait.
 
 ### Concrete failure modes
 
-1. A corrupt or wrong-version backup is rejected, the device reboots anyway, and the UI shows the old shades with no error.
-2. A file with extra or missing bytes at the end is restored, as long as the record markers line up.
-3. Until PR A lands, anyone on the LAN can download the last restored backup long after the restore.
+1. While a frame is on air, `loop()` doesn't handle sockets, MQTT or queued commands.
+2. A group command, or a burst of shade commands, adds up to several hundred ms for each shade that moves.
 
 ### Fix options
 
-- Only reboot when `restore()` returns true, and send the failure to the client (a `requestResult` event, like the other queued edits).
-- Make the size mismatch fail validation, and check the repeater record length like the other record types.
-- Delete `/shades.tmp` once the restore has run, whatever the result.
-
-## A shade command holds up the main loop for about 365 ms
-
-**Status:** open. Measured in the serial logs from 2026-10-18 and 2026-10-19.
-**Location:** the `shade_request` case in `LoopQueue::drain` in [src/LoopQueue.cpp](../src/LoopQueue.cpp).
-
-### Summary
-
-Every shade command that moves a shade is followed by `Loop queue took 364-370ms` in the log. A command whose shade doesn't need to move takes no time. In a burst of 10 commands from Home Assistant, the four that came after a moving shade waited behind it, and that drain took 426 ms. Once, `Loop somfy took 855ms` came about 12 s after the last command, with no command near it.
-
-Where the time goes inside the request wasn't measured.
-
-### Concrete failure modes
-
-1. While the queue drains, `loop()` doesn't receive or handle anything else: radio frames, sockets, MQTT.
-2. A group command, or a burst of shade commands, adds up to several hundred ms per shade that moves.
+- **Send with the RMT peripheral.** RMT plays out the pulse train in hardware, so no task has to busy-wait. That means rewriting `sendFrame`, and testing the timing against real motors.
+- **Not taken:** a lower priority for `radio_tx` lets `loop()` cut into a frame and breaks its timing. Moving it to the other core holds up WiFi and the web server instead.
 
 ## A read of `/controller` took 2.4 s
 
@@ -265,8 +262,8 @@ On 2026-10-19 the log shows `web GET /controller from 192.168.1.197 total took 2
 
 ## Log lines that mislead or are missing
 
-**Status:** open. All cosmetic.
+**Status:** two of three fixed 2026-10-19. The `.gz` noise is still open. All cosmetic.
 
-- **A command for an unknown shade leaves no trace.** In `Web::handleShadeCommand` in [src/entryPoints/Web.cpp](../src/entryPoints/Web.cpp), the `handleShadeCommand shade=...` line is only written when the shade exists. On 2026-10-18 Home Assistant sent 10 commands to a device that had no shades yet, and the log shows only the response times.
-- **`last ping 0ms ago` means the client never pinged.** In the disconnect line in [src/outputs/SocketEmitter.cpp](../src/outputs/SocketEmitter.cpp), a client that never pinged prints 0. Browsers don't ping, so they always show it.
-- **`.gz does not exist` errors are noise.** `serveStatic` tries `<file>.gz` first. For files stored without one (`appversion`, `icon.png`), LittleFS logs an `E`-level `does not exist, no permits for creation` line on every request.
+- **Fixed: a command for an unknown shade left no trace.** `handleShadeCommand`, `handleTiltCommand` and `handleGroupCommand` in [src/entryPoints/Web.cpp](../src/entryPoints/Web.cpp) now log a `not found` warning. On 2026-10-18 Home Assistant sent 10 commands to a device that had no shades yet, and the log showed only the response times.
+- **Fixed: `last ping 0ms ago` meant the client never pinged.** The disconnect line in [src/outputs/SocketEmitter.cpp](../src/outputs/SocketEmitter.cpp) now says `never pinged`. Browsers don't ping, so they always showed it.
+- **Open: `.gz does not exist` errors are noise.** `serveStatic` tries `<file>.gz` first. For files stored without one (`appversion`, `icon.png`), LittleFS logs an `E`-level `does not exist, no permits for creation` line on every request. The fix would be for `minify.py` to gzip the plain files too. `setTryGzipFirst(false)` doesn't help: the error comes from `exists()` probing the missing variant, so it would only move the noise to the gzip-only files.

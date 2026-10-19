@@ -1,5 +1,6 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
+#include <LittleFS.h>
 #include "esp_log.h"
 #include "LoopQueue.h"
 #include "ConfigFile.h"
@@ -55,7 +56,15 @@ void LoopQueue::drain() {
         break;
       case loop_item_type_t::restore_shades: {
         restore_options_t opts = restoreOptions(item.restoreParts);
-        ShadeConfigFile::restore(&somfy, "/shades.tmp", opts);
+        const bool restored = ShadeConfigFile::restore(&somfy, "/shades.tmp", opts);
+        // It holds the whole backup, rolling codes included, and has no use now.
+        LittleFS.remove("/shades.tmp");
+        // A failed restore stops before it changes anything, so there is
+        // nothing to reboot for.
+        if(!restored) {
+          ESP_LOGE(TAG, "Restore failed, keeping the current settings");
+          break;
+        }
         ESP_LOGI(TAG, "Rebooting ESP for restored settings...");
         rebootDelay.reboot = true;
         rebootDelay.rebootTime = millis() + 1000;
@@ -63,6 +72,7 @@ void LoopQueue::drain() {
       }
       case loop_item_type_t::load_shades:
         somfy.loadShadesFile("/shades.tmp");
+        LittleFS.remove("/shades.tmp");
         break;
       case loop_item_type_t::snapshot_fill:
         snapshotSlots.fill(item.slot, fillSnapshot);
