@@ -441,7 +441,10 @@ void Web::handleShadeCommand(AsyncWebServerRequest *request, JsonVariant &json) 
     resp.endObject();
     resp.endResponse();
   }
-  else request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade with the specified id not found.\"}"));
+  else {
+    ESP_LOGW(TAG, "handleShadeCommand shade=%u not found", req.id);
+    request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade with the specified id not found.\"}"));
+  }
 }
 void Web::handleGroupCommand(AsyncWebServerRequest *request, JsonVariant &json) {
   if(request->method() == HTTP_OPTIONS) { request->send(200); return; }
@@ -474,7 +477,10 @@ void Web::handleGroupCommand(AsyncWebServerRequest *request, JsonVariant &json) 
     resp.endObject();
     resp.endResponse();
   }
-  else request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Group with the specified id not found.\"}"));
+  else {
+    ESP_LOGW(TAG, "handleGroupCommand group=%u not found", req.id);
+    request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Group with the specified id not found.\"}"));
+  }
 }
 void Web::handleTiltCommand(AsyncWebServerRequest *request, JsonVariant &json) {
   if(request->method() == HTTP_OPTIONS) { request->send(200); return; }
@@ -505,7 +511,10 @@ void Web::handleTiltCommand(AsyncWebServerRequest *request, JsonVariant &json) {
     resp.endObject();
     resp.endResponse();
   }
-  else request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade with the specified id not found.\"}"));
+  else {
+    ESP_LOGW(TAG, "handleTiltCommand shade=%u not found", req.id);
+    request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Shade with the specified id not found.\"}"));
+  }
 }
 void Web::handleRepeatCommand(AsyncWebServerRequest *request, JsonVariant &json) {
   if(request->method() == HTTP_OPTIONS) { request->send(200); return; }

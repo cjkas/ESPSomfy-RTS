@@ -13,7 +13,10 @@ static const char *TAG = "ConfigFile";
 #define SHADE_HDR_SIZE 76
 #define SHADE_REC_SIZE 276
 #define GROUP_REC_SIZE 200
-#define TRANS_REC_SIZE 74
+// writeTransRecord: enabled, 8 one-byte fields, 3 floats, txPower and noiseDetection.
+// It was left at 74 when noiseDetection was added, so files written before
+// the fix declare this record 6 bytes short.
+#define TRANS_REC_SIZE 80
 #define ROOM_REC_SIZE 29
 #define REPEATER_REC_SIZE 77
 
@@ -436,20 +439,11 @@ bool ShadeConfigFile::validate() {
     return false;
   }
   
-  // We should know the file size based upon the record information in the header
-  uint32_t fsize = this->header.length + (this->header.shadeRecordSize * this->header.shadeRecords);
-  if(this->header.version > 10) fsize += (this->header.groupRecordSize * this->header.groupRecords);
-  if(this->header.version >= 19) fsize += (this->header.roomRecordSize * this->header.roomRecords);
-  if(this->header.version > 13) {
-    fsize += (this->header.settingsRecordSize);
-    fsize += (this->header.netRecordSize);
-    fsize += (this->header.transRecordSize);
-  }
-  if(this->header.version >= 21) {
-    fsize += (this->header.repeaterRecordSize * this->header.repeaterRecords);
-  }
+  // Only a warning: older backups declare the transceiver record 6 bytes
+  // short (see TRANS_REC_SIZE), and the record checks below catch real damage.
+  const uint32_t fsize = expectedFileBytes(this->header);
   if(this->file.size() != fsize) {
-    ESP_LOGE(TAG, "File size is not correct should be %d and got %d", fsize, this->file.size());
+    ESP_LOGW(TAG, "File is %u bytes but its header adds up to %u", (unsigned)this->file.size(), (unsigned)fsize);
   }
   // Next check to see if the records match the header length.
   uint8_t recs = 0;
@@ -499,12 +493,16 @@ bool ShadeConfigFile::validate() {
   if(this->header.version >= 21) {
     recs = 0;
     while(recs < this->header.repeaterRecords) {
-      //uint32_t pos = this->file.position();
+      // Only logged: this also runs on shades.cfg at boot, and failing it
+      // there would start the device without its shades.
+      uint32_t pos = this->file.position();
       if(!this->seekChar(CFG_REC_END)) {
         ESP_LOGE(TAG, "Failed to find the repeater record end %d", recs);
       }
+      else if(this->file.position() - pos != this->header.repeaterRecordSize) {
+        ESP_LOGW(TAG, "Repeater record length is %d and should be %d", this->file.position() - pos, this->header.repeaterRecordSize);
+      }
       recs++;
-      
     }
   }
   this->file.seek(startPos, SeekSet);
@@ -518,6 +516,14 @@ bool ShadeConfigFile::load(SomfyShadeController *s, const char *filename) {
     return success;
   }
   return false;
+}
+bool ShadeConfigFile::validateFile(const char *filename) {
+  if(!LittleFS.exists(filename)) return false;
+  ShadeConfigFile file;
+  file.begin(filename, true);
+  const bool valid = file.validate();
+  file.end();
+  return valid;
 }
 bool ShadeConfigFile::restore(SomfyShadeController *s, const char *filename, restore_options_t &opts) {
   ShadeConfigFile file;

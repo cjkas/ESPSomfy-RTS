@@ -30,4 +30,16 @@ inline uint32_t shadeModelBytes(const config_header_t &header) {
     + static_cast<uint32_t>(header.shadeRecords) * header.shadeRecordSize
     + static_cast<uint32_t>(header.groupRecords) * header.groupRecordSize;
 }
+// The file size the header adds up to, counting only the records its version
+// has.  Backups written before the transceiver record's size was corrected
+// declare it 6 bytes short, so a mismatch alone doesn't make a file invalid.
+inline uint32_t expectedFileBytes(const config_header_t &header) {
+  uint32_t bytes = static_cast<uint32_t>(header.length)
+    + static_cast<uint32_t>(header.shadeRecords) * header.shadeRecordSize;
+  if(header.version > 10) bytes += static_cast<uint32_t>(header.groupRecords) * header.groupRecordSize;
+  if(header.version >= 19) bytes += static_cast<uint32_t>(header.roomRecords) * header.roomRecordSize;
+  if(header.version > 13) bytes += header.settingsRecordSize + header.netRecordSize + header.transRecordSize;
+  if(header.version >= 21) bytes += static_cast<uint32_t>(header.repeaterRecords) * header.repeaterRecordSize;
+  return bytes;
+}
 #endif

@@ -375,11 +375,7 @@ bool NTPSettings::save() {
   pref.putString("ntpServer", this->ntpServer);
   pref.putString("posixZone", this->posixZone);
   pref.end();
-  struct tm dt;
-  configTime(0, 0, this->ntpServer);
-  if(!getLocalTime(&dt)) return false;
-  setenv("TZ", this->posixZone, 1);
-  return true;
+  return this->apply();
 }
 bool NTPSettings::load() {
   Preferences pref;
@@ -402,11 +398,11 @@ bool NTPSettings::toJSON(JsonObject &obj) {
   obj["posixZone"] = this->posixZone;
   return true;
 }
-bool NTPSettings::apply() { 
-  struct tm dt;
-  configTime(0, 0, this->ntpServer);
-  if(!getLocalTime(&dt)) return false;
-  setenv("TZ", this->posixZone, 1);
+bool NTPSettings::apply() {
+  // Sets the zone and starts SNTP, which sets the clock once the network is
+  // up.  Waiting here with getLocalTime() held up boot by 5 s before the
+  // network existed, and then returned before the zone was set.
+  configTzTime(this->posixZone, this->ntpServer);
   return true;
 }
 IPSettings::IPSettings() {}

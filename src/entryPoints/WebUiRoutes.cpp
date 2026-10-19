@@ -257,6 +257,13 @@ void registerWebUiRoutes(AsyncWebServer &server) {
           ESP_LOGD(TAG, "No restore options sent.  Using defaults...");
           opts.shades = true;
         }
+        // Checked here so the client hears about a bad file.  It only reads
+        // the file; the shades are still changed on loop() alone.
+        if(!ShadeConfigFile::validateFile("/shades.tmp")) {
+          LittleFS.remove("/shades.tmp");
+          request->send(400, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"This isn't a valid backup file, so nothing was restored.\"}"));
+          return;
+        }
         // The main loop restores, since it owns the shades and their rolling
         // codes, and then reboots.
         loop_item_t item;
@@ -265,6 +272,7 @@ void registerWebUiRoutes(AsyncWebServer &server) {
         if(!queueLoopItem(request, item)) return;
         request->send(200, _encoding_json, "{\"status\":\"Success\",\"desc\":\"Restoring Shade settings\"}");
       }
+      else request->send(400, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"The upload didn't complete, so nothing was restored.\"}"));
     },
     [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
       esp_task_wdt_reset();
@@ -759,7 +767,7 @@ void registerWebUiRoutes(AsyncWebServer &server) {
         if(settings.checkForUpdate != checkForUpdate) git.emitUpdateCheck();
         if(!obj["hostname"].isNull()) net.updateHostname();
       }
-      if(!obj["ntpServer"].isNull() || !obj["ntpServer"].isNull()) {
+      if(!obj["ntpServer"].isNull() || !obj["posixZone"].isNull()) {
         settings.NTP.fromJSON(obj);
         settings.NTP.save();
       }

@@ -4956,6 +4956,12 @@ class Firmware {
             btnCancel.innerText = 'Close';
             switch (service) {
                 case '/restore':
+                    if (xhr.status < 200 || xhr.status >= 300) {
+                        let desc = 'The restore failed.';
+                        try { desc = JSON.parse(xhr.responseText).desc || desc; } catch (e) { }
+                        ui.errorMessage(el, desc);
+                        break;
+                    }
                     (async () => {
                         await somfy.init();
                         if (document.getElementById('divUploadFile')) document.getElementById('divUploadFile').remove();

@@ -200,8 +200,13 @@ void SocketEmitter::wsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client
       {
         uint8_t slot = mapClientId(asyncId);
         if(slot != 255) {
-          ESP_LOGI(TAG, "Socket [%lu] Disconnected (slot %u) after %lums, last ping %lums ago", asyncId, slot,
-            (unsigned long)(millis() - slots[slot].connectedAt), slots[slot].lastPing ? (unsigned long)(millis() - slots[slot].lastPing) : 0UL);
+          // Browsers don't ping, so "never" is normal for them.
+          if(slots[slot].lastPing)
+            ESP_LOGI(TAG, "Socket [%lu] Disconnected (slot %u) after %lums, last ping %lums ago", asyncId, slot,
+              (unsigned long)(millis() - slots[slot].connectedAt), (unsigned long)(millis() - slots[slot].lastPing));
+          else
+            ESP_LOGI(TAG, "Socket [%lu] Disconnected (slot %u) after %lums, never pinged", asyncId, slot,
+              (unsigned long)(millis() - slots[slot].connectedAt));
           for(uint8_t i = 0; i < SOCK_MAX_ROOMS; i++)
             sockEmit.rooms[i].leave(slot);
         }

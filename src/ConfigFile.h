@@ -73,6 +73,9 @@ class ShadeConfigFile : public ConfigFile {
     static bool exists();
     static bool load(SomfyShadeController *somfy, const char *filename = "/shades.cfg");
     static bool restore(SomfyShadeController *somfy, const char *filename, restore_options_t &opts);
+    // Whether the file would pass the checks restore() starts with.  Only
+    // reads the file, so any task can call it.
+    static bool validateFile(const char *filename);
     bool begin(const char *filename, bool readOnly = false);
     bool begin(bool readOnly = false);
     bool save(SomfyShadeController *somfy);
