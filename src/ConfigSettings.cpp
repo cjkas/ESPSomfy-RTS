@@ -5,6 +5,7 @@
 #include <Preferences.h>
 #include "ConfigSettings.h"
 #include "Utils.h"
+#include "Secrets.h"
 #include "esp_chip_info.h"
 #include "esp_log.h"
 
@@ -301,7 +302,7 @@ bool MQTTSettings::toJSON(JsonObject &obj) {
   obj["hostname"] = this->hostname;
   obj["port"] = this->port;
   obj["username"] = this->username;
-  obj["password"] = this->password;
+  obj["hasPassword"] = hasSecret(this->password);
   obj["rootTopic"] = this->rootTopic;
   obj["discoTopic"] = this->discoTopic;
   return true;
@@ -311,8 +312,11 @@ bool MQTTSettings::fromJSON(JsonObject &obj) {
   if(!obj["pubDisco"].isNull()) this->pubDisco = obj["pubDisco"];
   this->parseValueString(obj, "protocol", this->protocol, sizeof(this->protocol));
   this->parseValueString(obj, "hostname", this->hostname, sizeof(this->hostname));
+  // An empty password clears the stored one only alongside a new username.
+  const char *username = obj["username"].as<const char *>();
+  bool newUsername = username && strcmp(username, this->username) != 0;
   this->parseValueString(obj, "username", this->username, sizeof(this->username));
-  this->parseValueString(obj, "password", this->password, sizeof(this->password));
+  applySecret(obj["password"].as<const char *>(), this->password, sizeof(this->password), newUsername);
   this->parseValueString(obj, "rootTopic", this->rootTopic, sizeof(this->rootTopic));
   this->parseValueString(obj, "discoTopic", this->discoTopic, sizeof(this->discoTopic));
   if(!obj["port"].isNull()) this->port = obj["port"];
@@ -478,16 +482,16 @@ bool SecuritySettings::begin() {
 bool SecuritySettings::fromJSON(JsonObject &obj) {
   if(!obj["type"].isNull()) this->type = static_cast<security_types>(obj["type"].as<uint8_t>());
   this->parseValueString(obj, "username", this->username, sizeof(this->username));
-  this->parseValueString(obj, "password", this->password, sizeof(this->password));
-  this->parseValueString(obj, "pin", this->pin, sizeof(this->pin));
+  applySecret(obj["password"].as<const char *>(), this->password, sizeof(this->password));
+  applySecret(obj["pin"].as<const char *>(), this->pin, sizeof(this->pin));
   if(!obj["permissions"].isNull()) this->permissions = obj["permissions"];
   return true;
 }
 bool SecuritySettings::toJSON(JsonObject &obj) {
   obj["type"] = static_cast<uint8_t>(this->type);
   obj["username"] = this->username;
-  obj["password"] = this->password;
-  obj["pin"] = this->pin;
+  obj["hasPassword"] = hasSecret(this->password);
+  obj["hasPin"] = hasSecret(this->pin);
   obj["permissions"] = this->permissions;
   return true;  
 }
@@ -516,7 +520,7 @@ bool SecuritySettings::load() {
 }
 void SecuritySettings::print() {
   ESP_LOGD(TAG, "SECURITY   Type:%u Username:[%s] Password:[%s] Pin:[%s] Permissions:%u",
-    static_cast<uint8_t>(this->type), this->username, this->password, this->pin, this->permissions);
+    static_cast<uint8_t>(this->type), this->username, maskSecret(this->password), maskSecret(this->pin), this->permissions);
 }
 
 WifiSettings::WifiSettings() {}
@@ -525,15 +529,18 @@ bool WifiSettings::begin() {
   return true;
 }
 bool WifiSettings::fromJSON(JsonObject &obj) {
+  // An empty passphrase clears the stored one only alongside a new SSID (an open network).
+  const char *ssid = obj["ssid"].as<const char *>();
+  bool newSsid = ssid && strcmp(ssid, this->ssid) != 0;
   this->parseValueString(obj, "ssid", this->ssid, sizeof(this->ssid));
-  this->parseValueString(obj, "passphrase", this->passphrase, sizeof(this->passphrase));
+  applySecret(obj["passphrase"].as<const char *>(), this->passphrase, sizeof(this->passphrase), newSsid);
   if(!obj["roaming"].isNull()) this->roaming = obj["roaming"];
   if(!obj["hidden"].isNull()) this->hidden = obj["hidden"];
   return true;
 }
 bool WifiSettings::toJSON(JsonObject &obj) {
   obj["ssid"] = this->ssid;
-  obj["passphrase"] = this->passphrase;
+  obj["hasPassphrase"] = hasSecret(this->passphrase);
   obj["roaming"] = this->roaming;
   obj["hidden"] = this->hidden;
   return true;
@@ -579,7 +586,7 @@ String WifiSettings::mapEncryptionType(int type) {
   return "Unknown";
 }
 void WifiSettings::print() {
-  ESP_LOGD(TAG, "WIFI Settings SSID: [%s] PassPhrase: [%s]", this->ssid, this->passphrase);
+  ESP_LOGD(TAG, "WIFI Settings SSID: [%s] PassPhrase: [%s]", this->ssid, maskSecret(this->passphrase));
 }
 void WifiSettings::printNetworks() {
   int n = WiFi.scanNetworks(false, false);

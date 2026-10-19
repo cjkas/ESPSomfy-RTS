@@ -6,6 +6,7 @@
 #include "ConfigSettings.h"
 #include "ConfigFile.h"
 #include "Utils.h"
+#include "Secrets.h"
 #include "SSDP.h"
 #include "Somfy.h"
 #include "WResp.h"
@@ -621,7 +622,6 @@ void registerWebUiRoutes(AsyncWebServer &server) {
     resp.beginObject();
     resp.beginObject("connected");
     resp.addElem("name", settings.WIFI.ssid);
-    resp.addElem("passphrase", settings.WIFI.passphrase);
     resp.addElem("strength", (int32_t)WiFi.RSSI());
     resp.addElem("channel", (int32_t)WiFi.channel());
     resp.endObject();
@@ -782,16 +782,13 @@ void registerWebUiRoutes(AsyncWebServer &server) {
       }
       if(!obj["wifi"].isNull()) {
         JsonObject objWifi = obj["wifi"];
-        if(settings.connType == conn_types_t::wifi) {
-          if(!objWifi["ssid"].isNull() && objWifi["ssid"].as<String>().compareTo(settings.WIFI.ssid) != 0) {
-            if(WiFi.softAPgetStationNum() == 0) reboot = true;
-          }
-          if(!objWifi["passphrase"].isNull() && objWifi["passphrase"].as<String>().compareTo(settings.WIFI.passphrase) != 0) {
-            if(WiFi.softAPgetStationNum() == 0) reboot = true;
-          }
-        }
+        // Compared after fromJSON, which decides whether an empty passphrase keeps the stored one.
+        WifiSettings before = settings.WIFI;
         settings.WIFI.fromJSON(objWifi);
         settings.WIFI.save();
+        if(settings.connType == conn_types_t::wifi && WiFi.softAPgetStationNum() == 0 &&
+          (strcmp(before.ssid, settings.WIFI.ssid) != 0 || strcmp(before.passphrase, settings.WIFI.passphrase) != 0))
+          reboot = true;
       }
       if(!obj["ethernet"].isNull()) {
         JsonObject objEth = obj["ethernet"];
@@ -834,18 +831,19 @@ void registerWebUiRoutes(AsyncWebServer &server) {
       JsonObject obj = json.as<JsonObject>();
       ESP_LOGD(TAG, "Settings WIFI connection...");
       String ssid = "";
-      String passphrase = "";
       if(!obj["ssid"].isNull()) ssid = obj["ssid"].as<String>();
-      if(!obj["passphrase"].isNull()) passphrase = obj["passphrase"].as<String>();
-      bool reboot = false;
-      if(ssid.compareTo(settings.WIFI.ssid) != 0) reboot = true;
-      if(passphrase.compareTo(settings.WIFI.passphrase) != 0) reboot = true;
+      bool newSsid = ssid.compareTo(settings.WIFI.ssid) != 0;
+      // Clients never receive the stored passphrase: an omitted or empty one keeps it unless the SSID changes.
+      char passphrase[sizeof(settings.WIFI.passphrase)];
+      SETCHARPROP(passphrase, settings.WIFI.passphrase, sizeof(passphrase));
+      bool newPassphrase = applySecret(obj["passphrase"].as<const char *>(), passphrase, sizeof(passphrase), newSsid);
+      bool reboot = newSsid || newPassphrase;
       if(!settings.WIFI.ssidExists(ssid.c_str()) && ssid.length() > 0) {
         request->send(400, _encoding_json, "{\"status\":\"ERROR\",\"desc\":\"WiFi Network Does not exist\"}");
       }
       else {
         SETCHARPROP(settings.WIFI.ssid, ssid.c_str(), sizeof(settings.WIFI.ssid));
-        SETCHARPROP(settings.WIFI.passphrase, passphrase.c_str(), sizeof(settings.WIFI.passphrase));
+        SETCHARPROP(settings.WIFI.passphrase, passphrase, sizeof(settings.WIFI.passphrase));
         settings.WIFI.save();
         settings.WIFI.print();
         request->send(201, _encoding_json, "{\"status\":\"OK\",\"desc\":\"Successfully set server connection\"}");

@@ -105,3 +105,39 @@ It needs a group whose flags are out of date at the moment a client reads it, fo
 
 - [ADR-0002](adr/0002-loop-task-is-the-only-writer-of-the-shade-model.md): the loop task is the only writer of the shade model.
 - [Large websocket events are dropped](#large-websocket-events-are-dropped): the same `g_response` buffer.
+
+## A saved WiFi passphrase or MQTT password can't be cleared from the UI
+
+**Status:** open. A workaround exists (below).
+**Introduced:** 2026-10-18, when the device stopped sending stored secrets back to clients.
+**Location:** `applySecret` in [src/Secrets.h](../src/Secrets.h), called from `WifiSettings::fromJSON` and `MQTTSettings::fromJSON` in [src/ConfigSettings.cpp](../src/ConfigSettings.cpp) and from `/connectwifi`. The UI side is `keepSavedPassphrase` in `Wifi` and `connectMQTT` in `MQTT`, in [data-src/index.js](../data-src/index.js).
+
+### Summary
+
+The settings routes report only whether a secret is stored (`hasPassphrase`, `hasPassword`), so the UI loads every secret field empty. The firmware decides what an empty secret in a request means, so that every UI version is safe, including one older than this change, which sends `""` for the field it can no longer fill in:
+
+| Secret | Key absent | `""` | A value |
+|---|---|---|---|
+| WiFi passphrase | keep | keep, or clear if the same request changes the SSID | replace |
+| MQTT password | keep | keep, or clear if the same request changes the username | replace |
+| Login password, PIN | keep | keep | replace |
+
+Without "empty keeps", saving any other setting from an old UI would wipe the secret: for WiFi the device would reboot and drop into AP mode.
+
+The cost: an empty value can't mean "no password" while the SSID or username stays the same. Switching to a different open network works.
+
+The login password and PIN aren't affected. Neither can be empty, and security is turned off with the type selector.
+
+### Concrete failure modes
+
+1. The network the device is on is changed to open on the router, keeping its SSID. Saving the network page with a blank passphrase keeps the old one. When a passphrase is set, `WiFi.begin` won't accept anything weaker than WPA2-PSK, so the device can't join the now-open network.
+2. The MQTT broker stops requiring a password but keeps the username. The device keeps sending the old password.
+
+### Workaround
+
+- **MQTT:** save once with a different username, then change it back and save again with the password blank.
+- **WiFi:** there's no safe workaround. Saving a different SSID makes the device reboot and try to join that network.
+
+### Fix options
+
+- **(a) "Clear saved password" checkbox** next to the WiFi passphrase and MQTT password fields, shown only when a value is stored. Since `""` means keep, ticking it sends an explicit flag (`clearPassphrase` / `clearPassword`), which `fromJSON` turns into `applySecret(..., identityChanged = true)`.
