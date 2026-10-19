@@ -2,6 +2,7 @@
 #include <ETH.h>
 #endif
 #include <WiFi.h>
+#include <esp_wifi.h>
 #include <ESPmDNS.h>
 #include <esp_task_wdt.h>
 #include "esp_log.h"
@@ -174,6 +175,7 @@ bool ESPNetwork::changeAP(const uint8_t *bssid, const int32_t channel) {
   this->connType = conn_types_t::unset;
   this->_connecting = true;
   this->connectStart = millis();
+  WiFi.setScanMethod(WIFI_FAST_SCAN);
   WiFi.begin(settings.WIFI.ssid, settings.WIFI.passphrase, channel, bssid);
   this->connectStart = millis();
   return false;
@@ -460,6 +462,11 @@ bool ESPNetwork::connectWiFi(const uint8_t *bssid, const int32_t channel) {
     this->connType = conn_types_t::unset;
     ESP_LOGI(TAG, "WiFi begin...");
     this->_connecting = true;
+    // Our own scan already picked the AP.  An all-channel scan here makes the
+    // driver sweep every channel again first, about 17s, before it even
+    // authenticates.  A fast scan starts on the AP's channel and joins the
+    // first match.
+    WiFi.setScanMethod(WIFI_FAST_SCAN);
     WiFi.begin(settings.WIFI.ssid, settings.WIFI.passphrase, channel, bssid);
     this->connectStart = millis();
   }
@@ -488,11 +495,14 @@ bool ESPNetwork::connectWiFi(const uint8_t *bssid, const int32_t channel) {
     int32_t _channel = 0;
     if(!settings.WIFI.hidden && this->getStrongestAP(settings.WIFI.ssid, _bssid, &_channel)) {
       ESP_LOGD(TAG, "Found strongest AP %02X:%02X:%02X:%02X:%02X:%02X CH:%d", _bssid[0], _bssid[1], _bssid[2], _bssid[3], _bssid[4], _bssid[5], _channel);
+      WiFi.setScanMethod(WIFI_FAST_SCAN);  // The AP is known, see connectWiFi(bssid).
       WiFi.begin(settings.WIFI.ssid, settings.WIFI.passphrase, _channel, _bssid);
     }
-    else
+    else {
       // If the user has the hidden flag set just connect to whatever the AP gives us.
+      WiFi.setScanMethod(WIFI_ALL_CHANNEL_SCAN);
       WiFi.begin(settings.WIFI.ssid, settings.WIFI.passphrase);
+    }
   }
   this->connectStart = millis();
   return true;
@@ -550,8 +560,9 @@ bool ESPNetwork::getStrongestAP(const char *ssid, uint8_t *bssid, int32_t *chann
       if(connected) {
         const uint8_t *b = WiFi.BSSID(i);
         const uint8_t *cur = WiFi.BSSID();
-        ESP_LOGI(TAG, "AP %02X:%02X:%02X:%02X:%02X:%02X ch %ld %ld dBm%s", b[0], b[1], b[2], b[3], b[4], b[5],
-          (long)WiFi.channel(i), (long)WiFi.RSSI(i), (cur && memcmp(b, cur, 6) == 0) ? " (connected)" : "");
+        ESP_LOGI(TAG, "AP %02X:%02X:%02X:%02X:%02X:%02X ch %ld %ld dBm %s%s", b[0], b[1], b[2], b[3], b[4], b[5],
+          (long)WiFi.channel(i), (long)WiFi.RSSI(i), wifiAuthModeName(WiFi.encryptionType(i)),
+          (cur && memcmp(b, cur, 6) == 0) ? " (connected)" : "");
       }
       if(worthRoaming(connected, currentRssi, WiFi.RSSI(i), ROAM_MIN_GAIN_DB) && WiFi.RSSI(i) > strength) {
         strength = WiFi.RSSI(i); 
@@ -601,7 +612,15 @@ void ESPNetwork::networkEvent(WiFiEvent_t event) {
       if(settings.hostname[0] != '\0') WiFi.setHostname(settings.hostname);
       break;
     case ARDUINO_EVENT_WIFI_STA_STOP:            ESP_LOGI(TAG, "(evt) WiFi clients stopped"); break;
-    case ARDUINO_EVENT_WIFI_STA_CONNECTED:       ESP_LOGI(TAG, "(evt) Connected to WiFi STA access point"); break;
+    case ARDUINO_EVENT_WIFI_STA_CONNECTED: {
+      // How long the join took and the security the AP offers, so a slow
+      // connect shows in the log.
+      wifi_ap_record_t ap;
+      const bool haveAp = esp_wifi_sta_get_ap_info(&ap) == ESP_OK;
+      ESP_LOGI(TAG, "(evt) Connected to WiFi STA access point after %lums (%s)",
+        (unsigned long)(millis() - net.connectStart), haveAp ? wifiAuthModeName(ap.authmode) : "?");
+      break;
+    }
     case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:    
       ESP_LOGI(TAG, "(evt) Disconnected from WiFi STA access point. Connecting: %d", net.connecting());
       net.connType = conn_types_t::unset;

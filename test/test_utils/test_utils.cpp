@@ -258,6 +258,21 @@ static void test_worthRoaming_any_ap_while_disconnected() {
 }
 
 /*********************************************************************
+ * wifiAuthModeName
+ ********************************************************************/
+static void test_wifiAuthModeName_matches_the_idf_enum() {
+  TEST_ASSERT_EQUAL_STRING("OPEN", wifiAuthModeName(0));
+  TEST_ASSERT_EQUAL_STRING("WPA2", wifiAuthModeName(3));
+  TEST_ASSERT_EQUAL_STRING("WPA3", wifiAuthModeName(6));
+  TEST_ASSERT_EQUAL_STRING("WPA2/WPA3", wifiAuthModeName(7));
+  TEST_ASSERT_EQUAL_STRING("WAPI", wifiAuthModeName(8));
+}
+static void test_wifiAuthModeName_unknown_past_the_shared_values() {
+  TEST_ASSERT_EQUAL_STRING("UNKNOWN", wifiAuthModeName(9));
+  TEST_ASSERT_EQUAL_STRING("UNKNOWN", wifiAuthModeName(255));
+}
+
+/*********************************************************************
  * heapEmitTarget
  ********************************************************************/
 static void test_heapEmitTarget_one_client_always_gets_it() {
@@ -369,6 +384,8 @@ int main(int argc, char **argv) {
   RUN_TEST(test_worthRoaming_needs_the_full_gain);
   RUN_TEST(test_worthRoaming_never_to_a_weaker_ap);
   RUN_TEST(test_worthRoaming_any_ap_while_disconnected);
+  RUN_TEST(test_wifiAuthModeName_matches_the_idf_enum);
+  RUN_TEST(test_wifiAuthModeName_unknown_past_the_shared_values);
   RUN_TEST(test_heapEmitTarget_one_client_always_gets_it);
   RUN_TEST(test_heapEmitTarget_broadcasts_once_per_interval);
   RUN_TEST(test_heapEmitTarget_room_in_between);

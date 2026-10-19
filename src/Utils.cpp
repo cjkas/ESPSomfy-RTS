@@ -147,6 +147,20 @@ void RssiBroadcast::sent(bool broadcast, int rssi, int channel, uint32_t now) {
 bool worthRoaming(bool connected, int currentRssi, int apRssi, int minGain) {
   return !connected || apRssi >= currentRssi + minGain;
 }
+const char *wifiAuthModeName(uint8_t authMode) {
+  switch(authMode) {
+    case 0: return "OPEN";
+    case 1: return "WEP";
+    case 2: return "WPA";
+    case 3: return "WPA2";
+    case 4: return "WPA/WPA2";
+    case 5: return "WPA2-ENT";
+    case 6: return "WPA3";
+    case 7: return "WPA2/WPA3";
+    case 8: return "WAPI";
+    default: return "UNKNOWN";
+  }
+}
 heap_emit_t heapEmitTarget(uint8_t num, uint32_t sinceLastMs, uint32_t intervalMs, bool roomHasClients) {
   if(num != 255) return heap_emit_t::client;
   if(sinceLastMs >= intervalMs) return heap_emit_t::broadcast;

@@ -74,6 +74,9 @@ struct RssiBroadcast {
 // connected it has to be at least minGain dBm stronger than the current AP so
 // a small swing doesn't make the device hop between APs.
 bool worthRoaming(bool connected, int currentRssi, int apRssi, int minGain);
+// A short name for a wifi_auth_mode_t value, for the logs.  The values up to
+// WAPI are the same in ESP-IDF 4.4 and 5.x.
+const char *wifiAuthModeName(uint8_t authMode);
 // Who gets a memStatus event.
 enum class heap_emit_t : uint8_t { none, client, broadcast, room };
 // num is the socket client asked for, 255 for everyone.  A broadcast goes out
