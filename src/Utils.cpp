@@ -147,6 +147,9 @@ void RssiBroadcast::sent(bool broadcast, int rssi, int channel, uint32_t now) {
 bool worthRoaming(bool connected, int currentRssi, int apRssi, int minGain) {
   return !connected || apRssi >= currentRssi + minGain;
 }
+bool otaProven(bool networkUp, unsigned long uptimeMs, unsigned long minUptimeMs) {
+  return networkUp && uptimeMs >= minUptimeMs;
+}
 const char *wifiAuthModeName(uint8_t authMode) {
   switch(authMode) {
     case 0: return "OPEN";

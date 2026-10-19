@@ -396,7 +396,7 @@ bool ESPNetwork::connectWired() {
     if(!ethPhyType(settings.Ethernet.phyType, phyType))
       ESP_LOGE(TAG, "Ethernet PHY type %u is not supported", (unsigned int)settings.Ethernet.phyType);
     else
-      begun = ETH.begin(settings.Ethernet.phyAddress, settings.Ethernet.PWRPin, settings.Ethernet.MDCPin, settings.Ethernet.MDIOPin, phyType, settings.Ethernet.CLKMode);
+      begun = ETH.begin(phyType, settings.Ethernet.phyAddress, settings.Ethernet.MDCPin, settings.Ethernet.MDIOPin, settings.Ethernet.PWRPin, settings.Ethernet.CLKMode);
     if(!begun) {
       ESP_LOGE(TAG, "Ethernet Begin failed");
       this->ethStarted = false;

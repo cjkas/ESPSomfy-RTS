@@ -258,6 +258,21 @@ static void test_worthRoaming_any_ap_while_disconnected() {
 }
 
 /*********************************************************************
+ * otaProven
+ ********************************************************************/
+static void test_otaProven_after_the_minimum_uptime_with_network() {
+  TEST_ASSERT_TRUE(otaProven(true, 60000, 60000));
+  TEST_ASSERT_TRUE(otaProven(true, 3600000, 60000));
+}
+static void test_otaProven_not_before_the_minimum_uptime() {
+  TEST_ASSERT_FALSE(otaProven(true, 59999, 60000));
+}
+static void test_otaProven_not_without_network() {
+  // A firmware that can't connect would leave the device unreachable.
+  TEST_ASSERT_FALSE(otaProven(false, 3600000, 60000));
+}
+
+/*********************************************************************
  * wifiAuthModeName
  ********************************************************************/
 static void test_wifiAuthModeName_matches_the_idf_enum() {
@@ -384,6 +399,9 @@ int main(int argc, char **argv) {
   RUN_TEST(test_worthRoaming_needs_the_full_gain);
   RUN_TEST(test_worthRoaming_never_to_a_weaker_ap);
   RUN_TEST(test_worthRoaming_any_ap_while_disconnected);
+  RUN_TEST(test_otaProven_after_the_minimum_uptime_with_network);
+  RUN_TEST(test_otaProven_not_before_the_minimum_uptime);
+  RUN_TEST(test_otaProven_not_without_network);
   RUN_TEST(test_wifiAuthModeName_matches_the_idf_enum);
   RUN_TEST(test_wifiAuthModeName_unknown_past_the_shared_values);
   RUN_TEST(test_heapEmitTarget_one_client_always_gets_it);
