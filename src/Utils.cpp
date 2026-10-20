@@ -150,13 +150,8 @@ bool worthRoaming(bool connected, int currentRssi, int apRssi, int minGain) {
 bool otaProven(bool networkUp, unsigned long uptimeMs, unsigned long minUptimeMs) {
   return networkUp && uptimeMs >= minUptimeMs;
 }
-bool releaseAssetName(char *buf, size_t size, const char *kind, const char *chip) {
-  int n = snprintf(buf, size, "SomfyController.%s.%s.bin", kind, chip);
-  return n >= 0 && (size_t)n < size;
-}
-bool isFsAsset(const char *name) {
-  size_t len = strlen(name);
-  return strstr(name, ".littlefs.") && len >= 4 && strcmp(name + len - 4, ".bin") == 0;
+void releaseAssetName(char *buf, size_t size, const char *kind, const char *chipModel) {
+  snprintf(buf, size, "SomfyController.%s.esp32%s.bin", kind, chipModel);
 }
 const char *wifiAuthModeName(uint8_t authMode) {
   switch(authMode) {

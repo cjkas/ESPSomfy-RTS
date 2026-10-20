@@ -3,7 +3,6 @@
 #include <Update.h>
 #include <HTTPClient.h>
 #include <esp_task_wdt.h>
-#include <esp_chip_info.h>
 #include "esp_log.h"
 #include "ConfigSettings.h"
 #include "GitOTA.h"
@@ -43,7 +42,9 @@ void GitRelease::setReleaseProperty(const char *key, const char *val) {
 void GitRelease::setAssetProperty(const char *key, const char *val) {
   if(strcmp(key, "name") == 0) {
     //Serial.println(val);
-    if(isFsAsset(val)) this->hasFS = true;
+    char fsFile[64];
+    releaseAssetName(fsFile, sizeof(fsFile), "littlefs", settings.chipModel);
+    if(strcmp(val, fsFile) == 0) this->hasFS = true;
     else if(strstr(val, "ino.esp32.bin")) {
       if(strlen(this->hwVersions)) strcat(this->hwVersions, ",");
       strcat(this->hwVersions, "32");
@@ -353,19 +354,6 @@ void GitUpdater::emitDownloadProgress(uint8_t num, size_t total, size_t loaded, 
   sockEmit.loop();
   webServer.loop();
 }
-// The chip part of this board's release asset names.
-static const char *chipName() {
-    esp_chip_info_t ci;
-    esp_chip_info(&ci);
-    switch(ci.model) {
-      case esp_chip_model_t::CHIP_ESP32S3: return "esp32s3";
-      case esp_chip_model_t::CHIP_ESP32S2: return "esp32s2";
-      case esp_chip_model_t::CHIP_ESP32C3: return "esp32c3";
-      case esp_chip_model_t::CHIP_ESP32C6: return "esp32c6";
-      default: return "esp32";
-    }
-}
-
 bool GitUpdater::beginUpdate(const char *version) {
   ESP_LOGI(TAG, "Begin update called...");
   if(strcmp(version, "Main") == 0)  strcpy(this->baseUrl, "https://raw.githubusercontent.com/cjkas/ESPSomfy-RTS/master/");
@@ -373,14 +361,14 @@ bool GitUpdater::beginUpdate(const char *version) {
   
   strcpy(this->targetRelease, version);
   this->emitUpdateCheck();
-  releaseAssetName(this->currentFile, sizeof(this->currentFile), "ino", chipName());
+  releaseAssetName(this->currentFile, sizeof(this->currentFile), "ino", settings.chipModel);
   this->partition = U_FLASH;
   this->lockFS = this->cancelled = false;
   this->error = 0;
   this->error = this->downloadFile();
   if(this->error == 0 && !this->cancelled) {
     somfy.commit();
-    releaseAssetName(this->currentFile, sizeof(this->currentFile), "littlefs", chipName());
+    releaseAssetName(this->currentFile, sizeof(this->currentFile), "littlefs", settings.chipModel);
     this->partition = U_SPIFFS;
     this->lockFS = true;
     this->error = this->downloadFile();
@@ -400,7 +388,7 @@ bool GitUpdater::beginUpdate(const char *version) {
 }
 bool GitUpdater::recoverFilesystem() {
   sprintf(this->baseUrl, "https://github.com/cjkas/ESPSomfy-RTS/releases/download/%s/", settings.fwVersion.name);
-  releaseAssetName(this->currentFile, sizeof(this->currentFile), "littlefs", chipName());
+  releaseAssetName(this->currentFile, sizeof(this->currentFile), "littlefs", settings.chipModel);
   this->status = GIT_UPDATING;
   this->partition = U_SPIFFS;
   this->lockFS = true;
