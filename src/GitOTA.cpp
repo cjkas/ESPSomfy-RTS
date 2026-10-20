@@ -43,7 +43,7 @@ void GitRelease::setReleaseProperty(const char *key, const char *val) {
 void GitRelease::setAssetProperty(const char *key, const char *val) {
   if(strcmp(key, "name") == 0) {
     //Serial.println(val);
-    if(strstr(val, "littlefs.bin")) this->hasFS = true;
+    if(isFsAsset(val)) this->hasFS = true;
     else if(strstr(val, "ino.esp32.bin")) {
       if(strlen(this->hwVersions)) strcat(this->hwVersions, ",");
       strcat(this->hwVersions, "32");
@@ -353,22 +353,16 @@ void GitUpdater::emitDownloadProgress(uint8_t num, size_t total, size_t loaded, 
   sockEmit.loop();
   webServer.loop();
 }
-void GitUpdater::setFirmwareFile() {
+// The chip part of this board's release asset names.
+static const char *chipName() {
     esp_chip_info_t ci;
     esp_chip_info(&ci);
     switch(ci.model) {
-      case esp_chip_model_t::CHIP_ESP32S3:
-        strcpy(this->currentFile, "SomfyController.ino.esp32s3.bin");
-        break;
-      case esp_chip_model_t::CHIP_ESP32S2:
-        strcpy(this->currentFile, "SomfyController.ino.esp32s2.bin");
-        break;
-      case esp_chip_model_t::CHIP_ESP32C3:
-        strcpy(this->currentFile, "SomfyController.ino.esp32c3.bin");
-        break;
-      default:
-        strcpy(this->currentFile, "SomfyController.ino.esp32.bin");
-        break;
+      case esp_chip_model_t::CHIP_ESP32S3: return "esp32s3";
+      case esp_chip_model_t::CHIP_ESP32S2: return "esp32s2";
+      case esp_chip_model_t::CHIP_ESP32C3: return "esp32c3";
+      case esp_chip_model_t::CHIP_ESP32C6: return "esp32c6";
+      default: return "esp32";
     }
 }
 
@@ -379,14 +373,14 @@ bool GitUpdater::beginUpdate(const char *version) {
   
   strcpy(this->targetRelease, version);
   this->emitUpdateCheck();
-  this->setFirmwareFile();
+  releaseAssetName(this->currentFile, sizeof(this->currentFile), "ino", chipName());
   this->partition = U_FLASH;
   this->lockFS = this->cancelled = false;
   this->error = 0;
   this->error = this->downloadFile();
   if(this->error == 0 && !this->cancelled) {
     somfy.commit();
-    strcpy(this->currentFile, "SomfyController.littlefs.bin");
+    releaseAssetName(this->currentFile, sizeof(this->currentFile), "littlefs", chipName());
     this->partition = U_SPIFFS;
     this->lockFS = true;
     this->error = this->downloadFile();
@@ -405,8 +399,8 @@ bool GitUpdater::beginUpdate(const char *version) {
   return true;
 }
 bool GitUpdater::recoverFilesystem() {
-  sprintf(this->baseUrl, "https://github.com/rstrouse/ESPSomfy-RTS/releases/download/%s/", settings.fwVersion.name);
-  strcpy(this->currentFile, "SomfyController.littlefs.bin");
+  sprintf(this->baseUrl, "https://github.com/cjkas/ESPSomfy-RTS/releases/download/%s/", settings.fwVersion.name);
+  releaseAssetName(this->currentFile, sizeof(this->currentFile), "littlefs", chipName());
   this->status = GIT_UPDATING;
   this->partition = U_SPIFFS;
   this->lockFS = true;

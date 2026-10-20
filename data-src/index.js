@@ -4849,7 +4849,7 @@ class Firmware {
         let div = this.createFileUploader('/updateApplication');
         general.reloadApp = true;
         let inst = div.querySelector('div[id=divInstText]');
-        inst.innerHTML = '<div style="font-size:14px;">Select a binary file [SomfyController.littlefs.bin] containing the littlefs data for the application then press the Upload File button.</div>';
+        inst.innerHTML = '<div style="font-size:14px;">Select a binary file [SomfyController.littlefs.&lt;chip&gt;.bin, e.g. SomfyController.littlefs.esp32.bin] containing the littlefs data for the application then press the Upload File button.</div>';
         if (this.isMobile()) {
             inst.innerHTML += `<div style="width:100%;color:red;text-align:center;font-weight:bold;"><span style="margin-top:7px;width:100%;background:yellow;padding:3px;display:inline-block;border-radius:5px;background:white;">WARNING<span></div>`;
             inst.innerHTML += '<hr/><div style="font-size:14px;margin-bottom:10px;">This browser does not support automatic backups.  It is highly recommended that you back up your configuration using the backup button before proceeding.</div>';

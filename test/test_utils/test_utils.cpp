@@ -273,6 +273,34 @@ static void test_otaProven_not_without_network() {
 }
 
 /*********************************************************************
+ * releaseAssetName / isFsAsset
+ ********************************************************************/
+static void test_releaseAssetName_matches_the_release_workflow() {
+  // .github/workflows/build.yaml fwname and fsname.
+  char buf[64];
+  TEST_ASSERT_TRUE(releaseAssetName(buf, sizeof(buf), "ino", "esp32"));
+  TEST_ASSERT_EQUAL_STRING("SomfyController.ino.esp32.bin", buf);
+  TEST_ASSERT_TRUE(releaseAssetName(buf, sizeof(buf), "littlefs", "esp32s3"));
+  TEST_ASSERT_EQUAL_STRING("SomfyController.littlefs.esp32s3.bin", buf);
+}
+static void test_releaseAssetName_too_small_buffer() {
+  char buf[16];
+  TEST_ASSERT_FALSE(releaseAssetName(buf, sizeof(buf), "littlefs", "esp32c6"));
+  TEST_ASSERT_EQUAL(sizeof(buf) - 1, strlen(buf));
+}
+static void test_isFsAsset_per_chip_images() {
+  TEST_ASSERT_TRUE(isFsAsset("SomfyController.littlefs.esp32.bin"));
+  TEST_ASSERT_TRUE(isFsAsset("SomfyController.littlefs.esp32c6.bin"));
+  TEST_ASSERT_TRUE(isFsAsset("SomfyController.littlefs.bin"));
+}
+static void test_isFsAsset_not_the_other_assets() {
+  TEST_ASSERT_FALSE(isFsAsset("SomfyController.ino.esp32.bin"));
+  TEST_ASSERT_FALSE(isFsAsset("SomfyController.onboard.esp32.bin.zip"));
+  TEST_ASSERT_FALSE(isFsAsset("SomfyController.littlefs.bin.sha256"));
+  TEST_ASSERT_FALSE(isFsAsset(""));
+}
+
+/*********************************************************************
  * wifiAuthModeName
  ********************************************************************/
 static void test_wifiAuthModeName_matches_the_idf_enum() {
@@ -402,6 +430,10 @@ int main(int argc, char **argv) {
   RUN_TEST(test_otaProven_after_the_minimum_uptime_with_network);
   RUN_TEST(test_otaProven_not_before_the_minimum_uptime);
   RUN_TEST(test_otaProven_not_without_network);
+  RUN_TEST(test_releaseAssetName_matches_the_release_workflow);
+  RUN_TEST(test_releaseAssetName_too_small_buffer);
+  RUN_TEST(test_isFsAsset_per_chip_images);
+  RUN_TEST(test_isFsAsset_not_the_other_assets);
   RUN_TEST(test_wifiAuthModeName_matches_the_idf_enum);
   RUN_TEST(test_wifiAuthModeName_unknown_past_the_shared_values);
   RUN_TEST(test_heapEmitTarget_one_client_always_gets_it);
