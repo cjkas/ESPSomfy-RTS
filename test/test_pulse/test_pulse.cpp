@@ -8,7 +8,7 @@ void tearDown() {}
 static const uint8_t FRAME[10] = {0xA7, 0x5C, 0x13, 0xF0, 0x0F, 0x81, 0x42, 0x99, 0x3C, 0xE1};
 
 // The times between edges a receiver sees for a transmitted waveform.  Levels
-// are added the way Transceiver::sendFrame() drives the TX pin; a run of the
+// are added the way the transmitter drives the TX pin; a run of the
 // same level is one pulse.
 struct Wave {
   std::vector<uint32_t> durations;
@@ -21,8 +21,9 @@ struct Wave {
     this->run = us;
   }
 };
-// Mirrors Transceiver::sendFrame(): a wakeup pulse on the first frame (sync 2
-// or 12), sync hardware sync pulses, the software sync and the Manchester bits.
+// A wakeup pulse on the first frame (sync 2 or 12), sync hardware sync pulses,
+// the software sync and the Manchester bits, as buildWaveform() sends them.
+// test_waveform decodes buildWaveform()'s own output.
 static Wave transmit(const uint8_t *frame, uint8_t sync, uint8_t bitLength) {
   Wave w;
   if(sync == 2 || sync == 12) {
