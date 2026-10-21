@@ -273,6 +273,26 @@ static void test_otaProven_not_without_network() {
 }
 
 /*********************************************************************
+ * releaseAssetName
+ ********************************************************************/
+static void test_releaseAssetName_matches_the_release_workflow() {
+  // .github/workflows/build.yaml fwname and fsname, from ConfigSettings::chipModel.
+  char buf[64];
+  releaseAssetName(buf, sizeof(buf), "ino", "");
+  TEST_ASSERT_EQUAL_STRING("SomfyController.ino.esp32.bin", buf);
+  releaseAssetName(buf, sizeof(buf), "littlefs", "s3");
+  TEST_ASSERT_EQUAL_STRING("SomfyController.littlefs.esp32s3.bin", buf);
+  releaseAssetName(buf, sizeof(buf), "littlefs", "c6");
+  TEST_ASSERT_EQUAL_STRING("SomfyController.littlefs.esp32c6.bin", buf);
+}
+static void test_releaseAssetName_keeps_c3() {
+  // C3 is out of the IDF 5.5 builds for now (ADR 0003) but is coming back.
+  char buf[64];
+  releaseAssetName(buf, sizeof(buf), "ino", "c3");
+  TEST_ASSERT_EQUAL_STRING("SomfyController.ino.esp32c3.bin", buf);
+}
+
+/*********************************************************************
  * wifiAuthModeName
  ********************************************************************/
 static void test_wifiAuthModeName_matches_the_idf_enum() {
@@ -402,6 +422,8 @@ int main(int argc, char **argv) {
   RUN_TEST(test_otaProven_after_the_minimum_uptime_with_network);
   RUN_TEST(test_otaProven_not_before_the_minimum_uptime);
   RUN_TEST(test_otaProven_not_without_network);
+  RUN_TEST(test_releaseAssetName_matches_the_release_workflow);
+  RUN_TEST(test_releaseAssetName_keeps_c3);
   RUN_TEST(test_wifiAuthModeName_matches_the_idf_enum);
   RUN_TEST(test_wifiAuthModeName_unknown_past_the_shared_values);
   RUN_TEST(test_heapEmitTarget_one_client_always_gets_it);

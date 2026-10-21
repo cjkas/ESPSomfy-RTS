@@ -150,6 +150,9 @@ bool worthRoaming(bool connected, int currentRssi, int apRssi, int minGain) {
 bool otaProven(bool networkUp, unsigned long uptimeMs, unsigned long minUptimeMs) {
   return networkUp && uptimeMs >= minUptimeMs;
 }
+void releaseAssetName(char *buf, size_t size, const char *kind, const char *chipModel) {
+  snprintf(buf, size, "SomfyController.%s.esp32%s.bin", kind, chipModel);
+}
 const char *wifiAuthModeName(uint8_t authMode) {
   switch(authMode) {
     case 0: return "OPEN";
