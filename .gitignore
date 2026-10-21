@@ -27,9 +27,6 @@ elf_archive/
 coredump_report.txt
 coredump.bin
 
-# Project Specific / Generated Source
-src/SomfyController.ino.cpp
-
 # Ignore Somfy INO/Bin files
 SomfyController.ino.XIAO_ESP32S3.bin
 SomfyController.ino.esp32c3.bin
