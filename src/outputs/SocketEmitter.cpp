@@ -8,6 +8,7 @@
 #include "ESPNetwork.h"
 #include "GitOTA.h"
 #include "Timing.h"
+#include "Utils.h"
 
 static const char *TAG = "Sockets";
 
@@ -92,20 +93,36 @@ void SocketEmitter::startup() {
 
 }
 void SocketEmitter::begin() {
+  // Called from setup(), which runs on loop()'s task.
+  this->_owner = xTaskGetCurrentTaskHandle();
   ws.onEvent(SocketEmitter::wsEvent);
   wsServer.addHandler(&ws);
   wsServer.begin();
   ESP_LOGI(TAG, "Socket Server Started...");
 }
+bool SocketEmitter::onLoopTask() const { return emitAllowed(xTaskGetCurrentTaskHandle(), this->_owner); }
 void SocketEmitter::loop() {
+  if(!this->onLoopTask()) {
+    ESP_LOGE(TAG, "Socket loop off loop() from %s, skipped", pcTaskGetName(nullptr));
+    return;
+  }
   ws.cleanupClients();
   this->initClients();
 }
 JsonSockEvent *SocketEmitter::beginEmit(const char *evt) {
+  // Another task would overwrite the event loop() is building in g_response,
+  // and could write past its end.
+  if(!this->onLoopTask()) {
+    ESP_LOGE(TAG, "Socket emit %s off loop() from %s, dropped", evt, pcTaskGetName(nullptr));
+    this->_discard.discard();
+    return &this->_discard;
+  }
   this->json.beginEvent(&ws, evt, g_response, sizeof(g_response));
   return &this->json;
 }
 void SocketEmitter::endEmit(uint8_t num) {
+  // beginEmit() has logged it.
+  if(!this->onLoopTask()) return;
   if(num == 255) {
     this->json.endEvent(0);
   } else {
@@ -115,6 +132,7 @@ void SocketEmitter::endEmit(uint8_t num) {
   resetTaskWdt();
 }
 void SocketEmitter::endEmitRoom(uint8_t room) {
+  if(!this->onLoopTask()) return;
   if(room < SOCK_MAX_ROOMS) {
     room_t *r = &this->rooms[room];
     for(uint8_t i = 0; i < sizeof(r->clients); i++) {

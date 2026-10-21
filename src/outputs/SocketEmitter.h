@@ -22,6 +22,11 @@ class SocketEmitter {
   protected:
     uint8_t newclients = 0;
     uint8_t newClients[5] = {255,255,255,255,255};
+    // loop()'s task, recorded by begin().  Only it may send; see emitAllowed().
+    TaskHandle_t _owner = nullptr;
+    // What beginEmit() hands any other task, so the event goes nowhere.
+    JsonSockEvent _discard;
+    bool onLoopTask() const;
     void delayInit(uint8_t num);
   public:
     JsonSockEvent json;

@@ -22,8 +22,6 @@ extern ESPNetwork net;
 extern SomfyShadeController somfy;
 extern LoopStats loopStats;
 
-static unsigned long _lastHeapEmit = 0;
-
 static bool _apScanning = false;
 int connectRetries = 0;
 void ESPNetwork::end() {
@@ -144,13 +142,9 @@ void ESPNetwork::loop() {
       }
     }
   }
-  if(millis() - this->lastEmit > 1500) {
-    // Post our connection status if needed.
+  if(millis() - this->lastEmit >= STATUS_EMIT_MS) {
     this->lastEmit = millis();
-    if(this->connected()) {
-      this->emitSockets();
-      this->lastEmit = millis();
-    }
+    if(this->connected()) this->emitSockets();
     resetTaskWdt(); // Make sure we do not reboot here.
   }
   
@@ -176,15 +170,13 @@ bool ESPNetwork::changeAP(const uint8_t *bssid, const int32_t channel) {
   this->connectStart = millis();
   return false;
 }
+// The status broadcast, every STATUS_EMIT_MS from loop().  A wired link goes
+// out every time, the WiFi signal only when it really changed.
 void ESPNetwork::emitSockets() {
   this->emitHeap();
-  if(this->needsBroadcast ||
-    (this->connType == conn_types_t::wifi &&
-      this->rssiBroadcast.due(WiFi.RSSI(), WiFi.channel(), millis(), RSSI_EMIT_MIN_DBM, RSSI_EMIT_MIN_MS))) {
+  if(this->connType != conn_types_t::wifi ||
+    this->rssiBroadcast.due(WiFi.RSSI(), WiFi.channel(), RSSI_EMIT_MIN_DBM))
     this->emitSockets(255);
-    sockEmit.loop();
-    this->needsBroadcast = false;
-  }
 }
 void ESPNetwork::emitSockets(uint8_t num) {
 #if HAS_ETHERNET
@@ -208,7 +200,7 @@ void ESPNetwork::emitSockets(uint8_t num) {
         json->addElem("channel", (int32_t)this->channel);
         json->endObject();
         sockEmit.endEmit(num);
-        this->rssiBroadcast.sent(num == 255, WiFi.RSSI(), WiFi.channel(), millis());
+        this->rssiBroadcast.sent(num == 255, WiFi.RSSI(), WiFi.channel());
       }
       else {
         JsonSockEvent *json = sockEmit.beginEmit("wifiStrength");
@@ -226,12 +218,15 @@ void ESPNetwork::emitSockets(uint8_t num) {
         json->addElem("fullduplex", false);
         json->endObject();
         sockEmit.endEmit(num);
-        this->rssiBroadcast.sent(num == 255, -100, -1, millis());
+        this->rssiBroadcast.sent(num == 255, -100, -1);
       }
   }
   // A broadcast comes from emitSockets(), which has already sent memStatus.
   if(num != 255) this->emitHeap(num);
 }
+// Runs on the WiFi/Ethernet event task, so it sends nothing on the sockets.
+// loop() broadcasts the new status and a client that reconnects gets it from
+// SocketEmitter::initClients().
 void ESPNetwork::setConnected(conn_types_t connType) {
   resetTaskWdt();
   this->connType = connType;
@@ -287,15 +282,6 @@ void ESPNetwork::setConnected(conn_types_t connType) {
         settings.IP.dns1 = ETH.dnsIP(0);
         settings.IP.dns2 = ETH.dnsIP(1);
       }
-      resetTaskWdt();
-      JsonSockEvent *json = sockEmit.beginEmit("ethernet");
-      json->beginObject();
-      json->addElem("connected", this->connected());
-      json->addElem("speed", (uint32_t)ETH.linkSpeed());
-      json->addElem("fullduplex", ETH.fullDuplex());
-      json->endObject();
-      sockEmit.endEmit();
-      resetTaskWdt();
     }
 #endif
   }
@@ -347,9 +333,7 @@ void ESPNetwork::setConnected(conn_types_t connType) {
   }
   else if(SSDP.isStarted) SSDP.end();
   resetTaskWdt();
-  this->emitSockets();
   settings.printAvailHeap();
-  this->needsBroadcast = true;
 }
 #if HAS_ETHERNET
 bool ESPNetwork::connectWired() {
@@ -693,8 +677,6 @@ void ESPNetwork::emitHeap(uint8_t num) {
   uint32_t freeHeap = ESP.getFreeHeap();
   uint32_t maxHeap = ESP.getMaxAllocHeap();
   uint32_t minHeap = ESP.getMinFreeHeap();
-  const heap_emit_t target = heapEmitTarget(num, millis() - _lastHeapEmit, HEAP_EMIT_MS, sockEmit.activeClients(0) > 0);
-  if(target == heap_emit_t::none) return;
   JsonSockEvent *json = sockEmit.beginEmit("memStatus");
   json->beginObject();
   json->addElem("max", maxHeap);
@@ -707,10 +689,6 @@ void ESPNetwork::emitHeap(uint8_t num) {
   json->addElem("loopRate", loopStats.rate(millis()));
   json->addElem("loopMaxUs", loopStats.maxUs());
   json->endObject();
-  if(target == heap_emit_t::room) sockEmit.endEmitRoom(0);
-  else sockEmit.endEmit(num);
-  if(target == heap_emit_t::broadcast) {
-    _lastHeapEmit = millis();
-    loopStats.publish(_lastHeapEmit);
-  }
+  sockEmit.endEmit(num);
+  if(num == 255) loopStats.publish(millis());
 }

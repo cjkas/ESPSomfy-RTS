@@ -327,7 +327,6 @@ void Web::handleDiscovery(AsyncWebServerRequest *request) {
   if(request->method() == HTTP_POST || request->method() == HTTP_GET) {
     ESP_LOGD(TAG, "Async Discovery Requested");
     sendSnapshot(request, snapshot_doc_t::discovery, 0, discoveryHeader);
-    net.needsBroadcast = true;
   }
   else
     request->send(500, _encoding_text, "Invalid http method");

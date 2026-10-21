@@ -130,19 +130,21 @@ int Timestamp::tzOffset() {
   time(&now);
   return Timestamp::calcTZOffset(&now);
 }
-bool rssiNeedsEmit(int rssi, int lastRssi, int channel, int lastChannel, uint32_t sinceLastMs, int minDelta, uint32_t minMs) {
+bool rssiNeedsEmit(int rssi, int lastRssi, int channel, int lastChannel, int minDelta) {
   if(channel != lastChannel) return true;
   int delta = rssi > lastRssi ? rssi - lastRssi : lastRssi - rssi;
-  return delta >= minDelta && sinceLastMs >= minMs;
+  return delta >= minDelta;
 }
-bool RssiBroadcast::due(int rssi, int channel, uint32_t now, int minDelta, uint32_t minMs) const {
-  return rssiNeedsEmit(rssi, this->rssi, channel, this->channel, now - this->at, minDelta, minMs);
+bool RssiBroadcast::due(int rssi, int channel, int minDelta) const {
+  return rssiNeedsEmit(rssi, this->rssi, channel, this->channel, minDelta);
 }
-void RssiBroadcast::sent(bool broadcast, int rssi, int channel, uint32_t now) {
+void RssiBroadcast::sent(bool broadcast, int rssi, int channel) {
   if(!broadcast) return;
   this->rssi = rssi;
   this->channel = channel;
-  this->at = now;
+}
+bool emitAllowed(const void *current, const void *owner) {
+  return owner == nullptr || current == owner;
 }
 bool worthRoaming(bool connected, int currentRssi, int apRssi, int minGain) {
   return !connected || apRssi >= currentRssi + minGain;
@@ -178,11 +180,6 @@ const char *wifiAuthModeName(uint8_t authMode) {
     case 8: return "WAPI";
     default: return "UNKNOWN";
   }
-}
-heap_emit_t heapEmitTarget(uint8_t num, uint32_t sinceLastMs, uint32_t intervalMs, bool roomHasClients) {
-  if(num != 255) return heap_emit_t::client;
-  if(sinceLastMs >= intervalMs) return heap_emit_t::broadcast;
-  return roomHasClients ? heap_emit_t::room : heap_emit_t::none;
 }
 void LoopStats::record(uint32_t passUs) {
   _passes++;

@@ -181,63 +181,73 @@ static void test_parseUTCTime_ignores_local_zone() {
  * rssiNeedsEmit
  ********************************************************************/
 static void test_rssiNeedsEmit_channel_change_always_emits() {
-  TEST_ASSERT_TRUE(rssiNeedsEmit(-70, -70, 6, 11, 0, 3, 10000));
+  TEST_ASSERT_TRUE(rssiNeedsEmit(-70, -70, 6, 11, 3));
 }
 static void test_rssiNeedsEmit_small_change_is_ignored() {
-  TEST_ASSERT_FALSE(rssiNeedsEmit(-72, -70, 6, 6, 60000, 3, 10000));
+  TEST_ASSERT_FALSE(rssiNeedsEmit(-72, -70, 6, 6, 3));
 }
-static void test_rssiNeedsEmit_real_change_after_interval_emits() {
-  TEST_ASSERT_TRUE(rssiNeedsEmit(-73, -70, 6, 6, 10000, 3, 10000));
-}
-static void test_rssiNeedsEmit_real_change_too_soon_waits() {
-  TEST_ASSERT_FALSE(rssiNeedsEmit(-73, -70, 6, 6, 5000, 3, 10000));
+static void test_rssiNeedsEmit_real_change_emits() {
+  TEST_ASSERT_TRUE(rssiNeedsEmit(-73, -70, 6, 6, 3));
 }
 static void test_rssiNeedsEmit_either_direction() {
-  TEST_ASSERT_TRUE(rssiNeedsEmit(-67, -70, 6, 6, 10000, 3, 10000));
-  TEST_ASSERT_TRUE(rssiNeedsEmit(-73, -70, 6, 6, 10000, 3, 10000));
+  TEST_ASSERT_TRUE(rssiNeedsEmit(-67, -70, 6, 6, 3));
+  TEST_ASSERT_TRUE(rssiNeedsEmit(-73, -70, 6, 6, 3));
 }
 
 /*********************************************************************
  * RssiBroadcast
  ********************************************************************/
-static RssiBroadcast broadcastAt(int rssi, int channel, uint32_t at) {
+static RssiBroadcast broadcastOf(int rssi, int channel) {
   RssiBroadcast b;
-  b.sent(true, rssi, channel, at);
+  b.sent(true, rssi, channel);
   return b;
+}
+static void test_rssiBroadcast_first_status_is_due() {
+  // Nothing broadcast since boot, so the first status tick after connecting
+  // sends the signal.
+  RssiBroadcast b;
+  TEST_ASSERT_TRUE(b.due(-60, 6, 3));
 }
 static void test_rssiBroadcast_client_emit_keeps_baseline() {
   // A new client gets the current RSSI right as it drops 5 dBm.  The clients
   // already connected must still get the change.
-  RssiBroadcast b = broadcastAt(-60, 6, 0);
-  b.sent(false, -65, 6, 20000);
+  RssiBroadcast b = broadcastOf(-60, 6);
+  b.sent(false, -65, 6);
   TEST_ASSERT_EQUAL_INT(-60, b.rssi);
-  TEST_ASSERT_EQUAL_UINT32(0, b.at);
-  TEST_ASSERT_TRUE(b.due(-65, 6, 20000, 3, 10000));
+  TEST_ASSERT_TRUE(b.due(-65, 6, 3));
 }
 static void test_rssiBroadcast_broadcast_moves_baseline() {
-  RssiBroadcast b = broadcastAt(-60, 6, 0);
-  b.sent(true, -65, 6, 20000);
+  RssiBroadcast b = broadcastOf(-60, 6);
+  b.sent(true, -65, 6);
   TEST_ASSERT_EQUAL_INT(-65, b.rssi);
-  TEST_ASSERT_EQUAL_UINT32(20000, b.at);
-  // Measured from the new baseline and too soon after it.
-  TEST_ASSERT_FALSE(b.due(-66, 6, 40000, 3, 10000));
-  TEST_ASSERT_FALSE(b.due(-70, 6, 25000, 3, 10000));
-  TEST_ASSERT_TRUE(b.due(-70, 6, 30000, 3, 10000));
+  // Measured from the new baseline.
+  TEST_ASSERT_FALSE(b.due(-66, 6, 3));
+  TEST_ASSERT_TRUE(b.due(-70, 6, 3));
 }
 static void test_rssiBroadcast_channel_change_is_due() {
-  RssiBroadcast b = broadcastAt(-60, 6, 1000);
-  TEST_ASSERT_TRUE(b.due(-60, 11, 1000, 3, 10000));
+  RssiBroadcast b = broadcastOf(-60, 6);
+  TEST_ASSERT_TRUE(b.due(-60, 11, 3));
 }
 static void test_rssiBroadcast_client_emit_on_disconnect_keeps_baseline() {
-  RssiBroadcast b = broadcastAt(-60, 6, 0);
-  b.sent(false, -100, -1, 5000);
+  RssiBroadcast b = broadcastOf(-60, 6);
+  b.sent(false, -100, -1);
   TEST_ASSERT_EQUAL_INT(6, b.channel);
-  TEST_ASSERT_FALSE(b.due(-60, 6, 5000, 3, 10000));
+  TEST_ASSERT_FALSE(b.due(-60, 6, 3));
 }
-static void test_rssiBroadcast_hold_off_across_millis_wrap() {
-  RssiBroadcast b = broadcastAt(-60, 6, 0xFFFFF000u);
-  TEST_ASSERT_FALSE(b.due(-70, 6, 0x00001000u, 3, 10000));  // 8192ms later
-  TEST_ASSERT_TRUE(b.due(-70, 6, 0x00002000u, 3, 10000));   // 12288ms later
+
+/*********************************************************************
+ * emitAllowed
+ ********************************************************************/
+static int loopTask, wifiEventTask;
+static void test_emitAllowed_on_the_loop_task() {
+  TEST_ASSERT_TRUE(emitAllowed(&loopTask, &loopTask));
+}
+static void test_emitAllowed_refuses_another_task() {
+  TEST_ASSERT_FALSE(emitAllowed(&wifiEventTask, &loopTask));
+}
+static void test_emitAllowed_before_the_owner_is_known() {
+  // setup() before SocketEmitter::begin(), which is loop()'s task anyway.
+  TEST_ASSERT_TRUE(emitAllowed(&loopTask, nullptr));
 }
 
 /*********************************************************************
@@ -337,22 +347,6 @@ static void test_wifiAuthModeName_unknown_past_the_shared_values() {
 }
 
 /*********************************************************************
- * heapEmitTarget
- ********************************************************************/
-static void test_heapEmitTarget_one_client_always_gets_it() {
-  TEST_ASSERT_TRUE(heap_emit_t::client == heapEmitTarget(3, 0, 30000, false));
-  TEST_ASSERT_TRUE(heap_emit_t::client == heapEmitTarget(3, 60000, 30000, true));
-}
-static void test_heapEmitTarget_broadcasts_once_per_interval() {
-  TEST_ASSERT_TRUE(heap_emit_t::broadcast == heapEmitTarget(255, 30000, 30000, false));
-  TEST_ASSERT_TRUE(heap_emit_t::broadcast == heapEmitTarget(255, 30000, 30000, true));
-  TEST_ASSERT_TRUE(heap_emit_t::none == heapEmitTarget(255, 29999, 30000, false));
-}
-static void test_heapEmitTarget_room_in_between() {
-  TEST_ASSERT_TRUE(heap_emit_t::room == heapEmitTarget(255, 1000, 30000, true));
-}
-
-/*********************************************************************
  * LoopStats
  ********************************************************************/
 static void test_loopStats_rate_is_passes_per_second() {
@@ -437,14 +431,16 @@ int main(int argc, char **argv) {
   RUN_TEST(test_parseUTCTime_ignores_local_zone);
   RUN_TEST(test_rssiNeedsEmit_channel_change_always_emits);
   RUN_TEST(test_rssiNeedsEmit_small_change_is_ignored);
-  RUN_TEST(test_rssiNeedsEmit_real_change_after_interval_emits);
-  RUN_TEST(test_rssiNeedsEmit_real_change_too_soon_waits);
+  RUN_TEST(test_rssiNeedsEmit_real_change_emits);
   RUN_TEST(test_rssiNeedsEmit_either_direction);
+  RUN_TEST(test_rssiBroadcast_first_status_is_due);
   RUN_TEST(test_rssiBroadcast_client_emit_keeps_baseline);
   RUN_TEST(test_rssiBroadcast_broadcast_moves_baseline);
   RUN_TEST(test_rssiBroadcast_channel_change_is_due);
   RUN_TEST(test_rssiBroadcast_client_emit_on_disconnect_keeps_baseline);
-  RUN_TEST(test_rssiBroadcast_hold_off_across_millis_wrap);
+  RUN_TEST(test_emitAllowed_on_the_loop_task);
+  RUN_TEST(test_emitAllowed_refuses_another_task);
+  RUN_TEST(test_emitAllowed_before_the_owner_is_known);
   RUN_TEST(test_worthRoaming_needs_the_full_gain);
   RUN_TEST(test_worthRoaming_never_to_a_weaker_ap);
   RUN_TEST(test_worthRoaming_any_ap_while_disconnected);
@@ -458,9 +454,6 @@ int main(int argc, char **argv) {
   RUN_TEST(test_formatBacktrace_stops_when_the_buffer_is_full);
   RUN_TEST(test_wifiAuthModeName_matches_the_idf_enum);
   RUN_TEST(test_wifiAuthModeName_unknown_past_the_shared_values);
-  RUN_TEST(test_heapEmitTarget_one_client_always_gets_it);
-  RUN_TEST(test_heapEmitTarget_broadcasts_once_per_interval);
-  RUN_TEST(test_heapEmitTarget_room_in_between);
   RUN_TEST(test_loopStats_rate_is_passes_per_second);
   RUN_TEST(test_loopStats_empty_window_has_no_rate);
   RUN_TEST(test_loopStats_keeps_the_longest_pass);

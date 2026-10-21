@@ -58,30 +58,27 @@ struct rebootDelay_t {
   return def;
 }
 // Whether a wifiStrength broadcast is worth sending: always on a channel change,
-// otherwise only for an RSSI change of at least minDelta dBm and not more often
-// than every minMs.
-bool rssiNeedsEmit(int rssi, int lastRssi, int channel, int lastChannel, uint32_t sinceLastMs, int minDelta, uint32_t minMs);
+// otherwise only for an RSSI change of at least minDelta dBm.
+bool rssiNeedsEmit(int rssi, int lastRssi, int channel, int lastChannel, int minDelta);
 // What the last wifiStrength broadcast told every client.  Only broadcasts
 // move it: an emit to one new client tells the others nothing.
 struct RssiBroadcast {
   int rssi = 0;
   int channel = 0;
-  uint32_t at = 0;  // millis() of the last broadcast.
-  bool due(int rssi, int channel, uint32_t now, int minDelta, uint32_t minMs) const;
-  void sent(bool broadcast, int rssi, int channel, uint32_t now);
+  bool due(int rssi, int channel, int minDelta) const;
+  void sent(bool broadcast, int rssi, int channel);
 };
 // Whether an AP a scan found for our SSID is worth connecting to.  While
 // connected it has to be at least minGain dBm stronger than the current AP so
 // a small swing doesn't make the device hop between APs.
 bool worthRoaming(bool connected, int currentRssi, int apRssi, int minGain);
+// Whether the calling task may send socket events.  They are all formatted
+// into one shared buffer, so only loop()'s task may.  owner is that task, or
+// null before SocketEmitter::begin() has recorded it (setup() runs there too).
+bool emitAllowed(const void *current, const void *owner);
 // A short name for a wifi_auth_mode_t value, for the logs.  The values up to
 // WAPI are the same in ESP-IDF 4.4 and 5.x.
 const char *wifiAuthModeName(uint8_t authMode);
-// Who gets a memStatus event.
-enum class heap_emit_t : uint8_t { none, client, broadcast, room };
-// num is the socket client asked for, 255 for everyone.  A broadcast goes out
-// every intervalMs; in between only the clients in room 0 get one.
-heap_emit_t heapEmitTarget(uint8_t num, uint32_t sinceLastMs, uint32_t intervalMs, bool roomHasClients);
 // Whether a firmware the bootloader is holding for verification after an
 // update has proven itself: it has run for minUptimeMs and the network is
 // up.  Until then a reset rolls back to the previous firmware.
