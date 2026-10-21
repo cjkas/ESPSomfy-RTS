@@ -258,6 +258,35 @@ static void test_worthRoaming_any_ap_while_disconnected() {
 }
 
 /*********************************************************************
+ * formatBacktrace
+ ********************************************************************/
+static void test_formatBacktrace_frames_the_dump_holds() {
+  const uint32_t bt[16] = {0x40083c19, 0x4008e42d, 0x00000011};
+  char buf[256];
+  formatBacktrace(buf, sizeof(buf), bt, 16, 3);
+  TEST_ASSERT_EQUAL_STRING(" 0x40083c19 0x4008e42d 0x00000011", buf);
+}
+static void test_formatBacktrace_garbage_depth_stays_in_bounds() {
+  // A half-written dump reads back as the 0xa5 stack fill: depth 0xa5a5a5a5.
+  // setup() looped that many times and overran bt[] and its buffer.
+  struct { uint32_t bt[16]; uint32_t depth; } summary;
+  memset(&summary, 0xa5, sizeof(summary));
+  struct { char buf[256]; char guard[16]; } out;
+  memset(out.guard, 'G', sizeof(out.guard));
+  formatBacktrace(out.buf, sizeof(out.buf), summary.bt, 16, summary.depth);
+  TEST_ASSERT_EQUAL(16 * 11, strlen(out.buf));
+  for (size_t i = 0; i < sizeof(out.guard); i++) TEST_ASSERT_EQUAL_CHAR('G', out.guard[i]);
+}
+static void test_formatBacktrace_stops_when_the_buffer_is_full() {
+  const uint32_t bt[16] = {0};
+  struct { char buf[30]; char guard[16]; } out;
+  memset(out.guard, 'G', sizeof(out.guard));
+  formatBacktrace(out.buf, sizeof(out.buf), bt, 16, 16);
+  TEST_ASSERT_EQUAL(sizeof(out.buf) - 1, strlen(out.buf));
+  for (size_t i = 0; i < sizeof(out.guard); i++) TEST_ASSERT_EQUAL_CHAR('G', out.guard[i]);
+}
+
+/*********************************************************************
  * wifiAuthModeName
  ********************************************************************/
 static void test_wifiAuthModeName_matches_the_idf_enum() {
@@ -384,6 +413,9 @@ int main(int argc, char **argv) {
   RUN_TEST(test_worthRoaming_needs_the_full_gain);
   RUN_TEST(test_worthRoaming_never_to_a_weaker_ap);
   RUN_TEST(test_worthRoaming_any_ap_while_disconnected);
+  RUN_TEST(test_formatBacktrace_frames_the_dump_holds);
+  RUN_TEST(test_formatBacktrace_garbage_depth_stays_in_bounds);
+  RUN_TEST(test_formatBacktrace_stops_when_the_buffer_is_full);
   RUN_TEST(test_wifiAuthModeName_matches_the_idf_enum);
   RUN_TEST(test_wifiAuthModeName_unknown_past_the_shared_values);
   RUN_TEST(test_heapEmitTarget_one_client_always_gets_it);
