@@ -1,7 +1,5 @@
 #include <ArduinoJson.h>
-#ifndef CONFIG_IDF_TARGET_ESP32C6
-#include <ETH.h>
-#endif
+#include "EthPhy.h"
 #ifndef configsettings_h
 #define configsettings_h
 #include "WResp.h"
@@ -94,17 +92,18 @@ class WifiSettings: BaseSettings {
     void print();
     
 };
-#ifndef CONFIG_IDF_TARGET_ESP32C6
+#if HAS_ETHERNET
 class EthernetSettings: BaseSettings {
   public:
     EthernetSettings();
     uint8_t boardType = 0; // These board types are enumerated in the ui and used to set the chip settings.
-    eth_phy_type_t phyType = ETH_PHY_LAN8720;
+    uint8_t phyType = static_cast<uint8_t>(eth_phy_id_t::LAN8720); // An eth_phy_id_t, see EthPhy.h.
     eth_clock_mode_t CLKMode = ETH_CLOCK_GPIO0_IN;
-    int8_t phyAddress = ETH_PHY_ADDR;
-    int8_t PWRPin = ETH_PHY_POWER;
-    int8_t MDCPin = ETH_PHY_MDC;
-    int8_t MDIOPin = ETH_PHY_MDIO;
+    // The LAN8720 wiring Arduino 2.x defaulted to.  3.x has no defaults.
+    int8_t phyAddress = 0;
+    int8_t PWRPin = -1;
+    int8_t MDCPin = 23;
+    int8_t MDIOPin = 18;
 
     bool begin();
     bool fromJSON(JsonObject &obj);
@@ -188,7 +187,7 @@ class ConfigSettings: BaseSettings {
     uint8_t status;
     IPSettings IP;
     WifiSettings WIFI;
-#ifndef CONFIG_IDF_TARGET_ESP32C6
+#if HAS_ETHERNET
     EthernetSettings Ethernet;
 #endif
     NTPSettings NTP;

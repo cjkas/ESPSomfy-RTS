@@ -7,6 +7,9 @@
   * Backup does no longer use LITTLEFS. Only RAM is used. Storage should not wear out so quick.
   * Added uptime info in web UI
 
+## Building
+The firmware builds on [pioarduino](https://github.com/pioarduino/platform-espressif32) (Arduino 3.x on ESP-IDF 5.5), not the stock PlatformIO platform. In VS Code use the **pioarduino IDE** extension instead of PlatformIO IDE. On the command line, `pip install pioarduino` gives you `pio`. Run the unit tests with `pio test -e native`. [ADR 0003](docs/adr/0003-pioarduino-idf55.md) explains why.
+
 ## There is a partition layout modification it's just better to perform full ESP32 wipeout. Perform backup then wipeout the firmware and restore from the bkp.
   * fwname: firmware-only binary for OTA updates
   * obname: onboard image (bootloader + partitions + firmware + littlefs merged) for flashing a new chip via USB/serial

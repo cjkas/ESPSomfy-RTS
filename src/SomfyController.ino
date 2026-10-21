@@ -16,18 +16,20 @@
 #include "GitOTA.h"
 #include "esp_core_dump.h"
 #include "esp_system.h"
-#include "esp_idf_version.h"
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
 #include "esp_app_desc.h"
-#define getRunningElfSha esp_app_get_elf_sha256
-#else
 #include "esp_ota_ops.h"
-#define getRunningElfSha esp_ota_get_app_elf_sha256
-#endif
 #include "Timing.h"
 
 static const char *TAG = "Main";
 #define LOOP_SLOW_MS 100
+// How long an updated firmware has to run, and then have the network up, before
+// it is kept.  A reset before then rolls back to the previous firmware.
+#define OTA_PROVEN_MS 60000
+
+// Overrides the core's weak hook so it leaves an updated firmware unverified
+// at boot.  loop() confirms it once otaProven().
+extern "C" bool verifyRollbackLater() { return true; }
+static bool otaPending = false;
 
 ConfigSettings settings;
 Web webServer;
@@ -100,7 +102,7 @@ void setup() {
     static_assert(sizeof(crashedSha) <= sizeof(summary.app_elf_sha256), "copy would read past app_elf_sha256");
     SETCHARPROP(crashedSha, (const char *)summary.app_elf_sha256, sizeof(crashedSha));
     char runningSha[APP_ELF_SHA256_SZ] = {0};
-    getRunningElfSha(runningSha, sizeof(runningSha));
+    esp_app_get_elf_sha256(runningSha, sizeof(runningSha));
     if(strcmp(crashedSha, runningSha) == 0)
       CRASH_LOG("  Build: %s (running %s, same build)", crashedSha, runningSha);
     else
@@ -128,14 +130,15 @@ void setup() {
   net.setup();  
   somfy.begin();
   //git.checkForUpdate();
-#if ESP_ARDUINO_VERSION_MAJOR >= 3
+  // The core starts the watchdog with a 5s timeout before setup(), so
+  // esp_task_wdt_init() would fail and keep that.
   const esp_task_wdt_config_t wdt_config = { .timeout_ms = 15000, .idle_core_mask = 1, .trigger_panic = true };
-  esp_task_wdt_init(&wdt_config);
-#else
-  esp_task_wdt_init(15, true); //enable panic so ESP32 restarts
-#endif
+  esp_task_wdt_reconfigure(&wdt_config);
   esp_task_wdt_add(NULL); //add current thread to WDT watch
-
+  esp_ota_img_states_t otaState;
+  otaPending = esp_ota_get_state_partition(esp_ota_get_running_partition(), &otaState) == ESP_OK &&
+    otaState == ESP_OTA_IMG_PENDING_VERIFY;
+  if(otaPending) ESP_LOGW(TAG, "Updated firmware, keeping it once it has run %ds with the network up", OTA_PROVEN_MS / 1000);
 }
 
 void loop() {
@@ -181,6 +184,11 @@ void loop() {
   if(rebootDelay.reboot && millis() > rebootDelay.rebootTime) {
     net.end();
     ESP.restart();
+  }
+  if(otaPending && otaProven(net.connected(), millis(), OTA_PROVEN_MS)) {
+    otaPending = false;
+    if(esp_ota_mark_app_valid_cancel_rollback() == ESP_OK) ESP_LOGI(TAG, "Updated firmware confirmed, rollback cancelled");
+    else ESP_LOGE(TAG, "Unable to confirm the updated firmware");
   }
   esp_task_wdt_reset();
   loopStats.record(pass.us());

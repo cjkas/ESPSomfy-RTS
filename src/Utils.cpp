@@ -147,6 +147,12 @@ void RssiBroadcast::sent(bool broadcast, int rssi, int channel, uint32_t now) {
 bool worthRoaming(bool connected, int currentRssi, int apRssi, int minGain) {
   return !connected || apRssi >= currentRssi + minGain;
 }
+bool otaProven(bool networkUp, unsigned long uptimeMs, unsigned long minUptimeMs) {
+  return networkUp && uptimeMs >= minUptimeMs;
+}
+void releaseAssetName(char *buf, size_t size, const char *kind, const char *chipModel) {
+  snprintf(buf, size, "SomfyController.%s.esp32%s.bin", kind, chipModel);
+}
 void formatBacktrace(char *buf, size_t size, const uint32_t *bt, size_t maxFrames, uint32_t depth) {
   // depth comes from flash.  A half-written dump reads back as 0xa5a5a5a5,
   // so never trust it past bt[] or the buffer.

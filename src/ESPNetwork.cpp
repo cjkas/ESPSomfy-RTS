@@ -1,6 +1,3 @@
-#ifndef CONFIG_IDF_TARGET_ESP32C6
-#include <ETH.h>
-#endif
 #include <WiFi.h>
 #include <esp_wifi.h>
 #include <ESPmDNS.h>
@@ -65,11 +62,16 @@ conn_types_t ESPNetwork::preferredConnType() {
     case conn_types_t::unset:
     case conn_types_t::ap:
       return conn_types_t::ap;
-#ifndef CONFIG_IDF_TARGET_ESP32C6
+#if HAS_ETHERNET
     case conn_types_t::ethernetpref:
       return settings.WIFI.ssid[0] != '\0' && (!ETH.linkUp() && this->ethStarted) ? conn_types_t::wifi : conn_types_t::ethernet;
     case conn_types_t::ethernet:
       return ETH.linkUp() || !this->ethStarted ? conn_types_t::ethernet : conn_types_t::ap;
+#else
+    // Stored by a backup or an older UI on a chip without Ethernet.
+    case conn_types_t::ethernetpref:
+    case conn_types_t::ethernet:
+      return settings.WIFI.ssid[0] != '\0' ? conn_types_t::wifi : conn_types_t::ap;
 #endif
     default:
       return settings.connType; 
@@ -191,12 +193,12 @@ void ESPNetwork::emitSockets() {
   }
 }
 void ESPNetwork::emitSockets(uint8_t num) {
-#ifndef CONFIG_IDF_TARGET_ESP32C6
+#if HAS_ETHERNET
   if(this->connType == conn_types_t::ethernet) {
       JsonSockEvent *json = sockEmit.beginEmit("ethernet");
       json->beginObject();
       json->addElem("connected", this->connected());
-      json->addElem("speed", ETH.linkSpeed());
+      json->addElem("speed", (uint32_t)ETH.linkSpeed());
       json->addElem("fullduplex", ETH.fullDuplex());
       json->endObject();
       sockEmit.endEmit(num);
@@ -254,7 +256,7 @@ void ESPNetwork::setConnected(conn_types_t connType) {
     this->channel = WiFi.channel();
     this->connectAttempts++;
   }
-#ifndef CONFIG_IDF_TARGET_ESP32C6
+#if HAS_ETHERNET
   else if(this->connType == conn_types_t::ethernet) {
     if(this->softAPOpened) {
       ESP_LOGI(TAG, "Disconnecting from SoftAP");
@@ -265,7 +267,7 @@ void ESPNetwork::setConnected(conn_types_t connType) {
     this->_connecting = false;
     this->wifiFallback = false;
   }
-#endif // CONFIG_IDF_TARGET_ESP32C6
+#endif // HAS_ETHERNET
   // NET: Begin this in the startup.
   //sockEmit.begin();
   safe_wdt_reset();
@@ -281,7 +283,7 @@ void ESPNetwork::setConnected(conn_types_t connType) {
         settings.IP.dns2 = WiFi.dnsIP(1);
       }
     }
-#ifndef CONFIG_IDF_TARGET_ESP32C6
+#if HAS_ETHERNET
     else {
       ESP_LOGI(TAG, "Successfully Connected to Ethernet!!! %s%s %dMbps", ETH.localIP().toString().c_str(), ETH.fullDuplex() ? " FULL DUPLEX" : "", ETH.linkSpeed());
       if(settings.IP.dhcp) {
@@ -295,7 +297,7 @@ void ESPNetwork::setConnected(conn_types_t connType) {
       JsonSockEvent *json = sockEmit.beginEmit("ethernet");
       json->beginObject();
       json->addElem("connected", this->connected());
-      json->addElem("speed", ETH.linkSpeed());
+      json->addElem("speed", (uint32_t)ETH.linkSpeed());
       json->addElem("fullduplex", ETH.fullDuplex());
       json->endObject();
       sockEmit.endEmit();
@@ -307,7 +309,7 @@ void ESPNetwork::setConnected(conn_types_t connType) {
     if(this->connType == conn_types_t::wifi) {
       ESP_LOGI(TAG, "Reconnected after %.3fsec IP: %s %s CH:%d (%d dBm) Disconnected %d times", 1.0 * (millis() - this->connectStart)/1000, WiFi.localIP().toString().c_str(), this->mac.c_str(), this->channel, this->strength, this->connectAttempts - 1);
     }
-#ifndef CONFIG_IDF_TARGET_ESP32C6
+#if HAS_ETHERNET
     else {
       ESP_LOGI(TAG, "Reconnected after %.3fsec IP: %s%s %dMbps Disconnected %d times", 1.0 * (millis() - this->connectStart)/1000, ETH.localIP().toString().c_str(), ETH.fullDuplex() ? " FULL DUPLEX" : "", ETH.linkSpeed(), this->connectAttempts - 1);
     }
@@ -355,7 +357,7 @@ void ESPNetwork::setConnected(conn_types_t connType) {
   settings.printAvailHeap();
   this->needsBroadcast = true;
 }
-#ifndef CONFIG_IDF_TARGET_ESP32C6
+#if HAS_ETHERNET
 bool ESPNetwork::connectWired() {
   if(ETH.linkUp()) {
     // If the ethernet link is re-established then we need to shut down wifi.
@@ -389,7 +391,13 @@ bool ESPNetwork::connectWired() {
     else
       ETH.setHostname("ESPSomfy-RTS");
     ESP_LOGD(TAG, "Set hostname to: %s", ETH.getHostname());
-    if(!ETH.begin(settings.Ethernet.phyAddress, settings.Ethernet.PWRPin, settings.Ethernet.MDCPin, settings.Ethernet.MDIOPin, settings.Ethernet.phyType, settings.Ethernet.CLKMode)) {
+    eth_phy_type_t phyType;
+    bool begun = false;
+    if(!ethPhyType(settings.Ethernet.phyType, phyType))
+      ESP_LOGE(TAG, "Ethernet PHY type %u is not supported", (unsigned int)settings.Ethernet.phyType);
+    else
+      begun = ETH.begin(phyType, settings.Ethernet.phyAddress, settings.Ethernet.MDCPin, settings.Ethernet.MDIOPin, settings.Ethernet.PWRPin, settings.Ethernet.CLKMode);
+    if(!begun) {
       ESP_LOGE(TAG, "Ethernet Begin failed");
       this->ethStarted = false;
       if(settings.connType == conn_types_t::ethernetpref) {
@@ -412,10 +420,10 @@ bool ESPNetwork::connectWired() {
   this->connectStart = millis();
   return true;
 }
-#endif // CONFIG_IDF_TARGET_ESP32C6
+#endif // HAS_ETHERNET
 void ESPNetwork::updateHostname() {
   if(settings.hostname[0] != '\0' && this->connected()) {
-#ifndef CONFIG_IDF_TARGET_ESP32C6
+#if HAS_ETHERNET
     if(this->connType == conn_types_t::ethernet &&
       strcmp(settings.hostname, ETH.getHostname()) != 0) {
       ESP_LOGD(TAG, "Updating host name to %s...", settings.hostname);
@@ -511,7 +519,7 @@ bool ESPNetwork::connect(conn_types_t ctype) {
   esp_task_wdt_reset();
   if(this->connecting()) return true;
   if(this->disconnectTime == 0) this->disconnectTime = millis();
-#ifndef CONFIG_IDF_TARGET_ESP32C6
+#if HAS_ETHERNET
   if(ctype == conn_types_t::ethernet && this->connType != conn_types_t::ethernet) {
     // Here we need to call the connect to ethernet.
     this->connectWired();
@@ -588,7 +596,7 @@ bool ESPNetwork::connected() {
   if(this->connecting()) return false;
   else if(this->connType == conn_types_t::unset) return false;
   else if(this->connType == conn_types_t::wifi) return WiFi.status() == WL_CONNECTED;
-#ifndef CONFIG_IDF_TARGET_ESP32C6
+#if HAS_ETHERNET
   else if(this->connType == conn_types_t::ethernet) return ETH.linkUp();
 #endif
   else return this->connType != conn_types_t::unset;
@@ -635,7 +643,7 @@ void ESPNetwork::networkEvent(WiFiEvent_t event) {
       net.setConnected(conn_types_t::wifi);
       break;
     case ARDUINO_EVENT_WIFI_STA_LOST_IP:        ESP_LOGW(TAG, "Lost IP address and IP address is reset to 0"); break;
-#ifndef CONFIG_IDF_TARGET_ESP32C6
+#if HAS_ETHERNET
     case ARDUINO_EVENT_ETH_GOT_IP:
       // If the Wifi is connected then drop that connection
       if(WiFi.status() == WL_CONNECTED) WiFi.disconnect(true);
@@ -680,7 +688,7 @@ void ESPNetwork::networkEvent(WiFiEvent_t event) {
       net.softAPOpened = false;
       break;      
     default:
-#ifndef CONFIG_IDF_TARGET_ESP32C6
+#if HAS_ETHERNET
       if(event > ARDUINO_EVENT_ETH_START)
         ESP_LOGW(TAG, "(evt) Unknown Ethernet Event %d", event);
 #endif
