@@ -80,16 +80,15 @@ void setup() {
 #define CRASH_LOG(fmt, ...) do { if(newCrash) ESP_LOGW(TAG, fmt, ##__VA_ARGS__); else ESP_LOGI(TAG, fmt, ##__VA_ARGS__); } while(0)
     if(newCrash) ESP_LOGW(TAG, "*** Crash coredump from the last boot ***");
     else ESP_LOGI(TAG, "Stored coredump from an earlier crash");
-    CRASH_LOG("  Task: %s", summary.exc_task);
+    // exc_task isn't always terminated.
+    CRASH_LOG("  Task: %.*s", (int)sizeof(summary.exc_task), summary.exc_task);
     CRASH_LOG("  PC: 0x%08x", summary.exc_pc);
 #ifdef CONFIG_IDF_TARGET_ARCH_XTENSA
     CRASH_LOG("  Cause: %d", summary.ex_info.exc_cause);
-    char bt_buf[256] = {0};
-    int pos = 0;
-    for (int i = 0; i < summary.exc_bt_info.depth; i++) {
-      pos += snprintf(bt_buf + pos, sizeof(bt_buf) - pos, " 0x%08x", summary.exc_bt_info.bt[i]);
-    }
-    CRASH_LOG("  Backtrace:%s", bt_buf);
+    char bt_buf[256];
+    formatBacktrace(bt_buf, sizeof(bt_buf), summary.exc_bt_info.bt,
+      sizeof(summary.exc_bt_info.bt) / sizeof(summary.exc_bt_info.bt[0]), summary.exc_bt_info.depth);
+    CRASH_LOG("  Backtrace:%s%s", bt_buf, summary.exc_bt_info.corrupted ? " (corrupted)" : "");
 #elif CONFIG_IDF_TARGET_ARCH_RISCV
     CRASH_LOG("  Cause: %d", summary.ex_info.mcause);
     CRASH_LOG("  MTVAL: 0x%08x  RA: 0x%08x  SP: 0x%08x",

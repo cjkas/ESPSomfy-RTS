@@ -90,6 +90,9 @@ bool otaProven(bool networkUp, unsigned long uptimeMs, unsigned long minUptimeMs
 // "ino" for the firmware or "littlefs" for the web UI image, chipModel as in
 // ConfigSettings ("" for the ESP32, "s3", "c3", "c6").
 void releaseAssetName(char *buf, size_t size, const char *kind, const char *chipModel);
+// A coredump backtrace as " 0x%08x" per frame.  bt holds maxFrames entries and
+// depth is how many the dump claims are valid.
+void formatBacktrace(char *buf, size_t size, const uint32_t *bt, size_t maxFrames, uint32_t depth);
 // How well loop() keeps up: the passes it made per second and its longest
 // pass, over the window since the last memStatus broadcast.  Only the loop
 // task calls record(), rate(), maxUs() and publish().  publish() closes the
