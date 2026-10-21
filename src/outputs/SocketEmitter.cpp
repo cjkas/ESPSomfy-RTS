@@ -210,7 +210,12 @@ void SocketEmitter::wsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client
         slots[slot].connectedAt = millis();
         slots[slot].lastPing = 0;
         client->text("Connected");
-        client->setCloseClientOnQueueFull(false);
+        // A client that stops reading (a frozen browser tab) keeps its TCP link
+        // up, so nothing else ever closes it, and every message dropped for it
+        // logged a warning that held up loop() for ~10ms.  Closing it frees the
+        // queue; the page and Home Assistant reconnect and get the full state
+        // again from delayInit().
+        client->setCloseClientOnQueueFull(true);
         sockEmit.delayInit(slot);
       }
       break;
