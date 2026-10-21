@@ -1,14 +1,8 @@
 #include <WiFi.h>
 #include <esp_wifi.h>
 #include <ESPmDNS.h>
-#include <esp_task_wdt.h>
+#include "TaskWdt.h"
 #include "esp_log.h"
-
-// Only reset the WDT if the current task is actually subscribed.
-// setConnected() is called from the WiFi event task which is not registered.
-static inline void safe_wdt_reset() {
-  if (esp_task_wdt_status(NULL) == ESP_OK) esp_task_wdt_reset();
-}
 #include "ConfigSettings.h"
 #include "ESPNetwork.h"
 #include "entryPoints/Web.h"
@@ -157,7 +151,7 @@ void ESPNetwork::loop() {
       this->emitSockets();
       this->lastEmit = millis();
     }
-    esp_task_wdt_reset(); // Make sure we do not reboot here.
+    resetTaskWdt(); // Make sure we do not reboot here.
   }
   
   sockEmit.loop();
@@ -169,7 +163,7 @@ void ESPNetwork::loop() {
   else if(!settings.ssdpBroadcast && SSDP.isStarted) SSDP.end();
 }
 bool ESPNetwork::changeAP(const uint8_t *bssid, const int32_t channel) {
-  esp_task_wdt_reset(); // Make sure we do not reboot here.
+  resetTaskWdt(); // Make sure we do not reboot here.
   if(SSDP.isStarted) SSDP.end();
   mqtt.disconnect();
   //sockEmit.end();
@@ -239,7 +233,7 @@ void ESPNetwork::emitSockets(uint8_t num) {
   if(num != 255) this->emitHeap(num);
 }
 void ESPNetwork::setConnected(conn_types_t connType) {
-  safe_wdt_reset();
+  resetTaskWdt();
   this->connType = connType;
   this->connectTime = millis();
   connectRetries = 0;
@@ -270,7 +264,7 @@ void ESPNetwork::setConnected(conn_types_t connType) {
 #endif // HAS_ETHERNET
   // NET: Begin this in the startup.
   //sockEmit.begin();
-  safe_wdt_reset();
+  resetTaskWdt();
 
   if(this->connectAttempts == 1) {
     if(this->connType == conn_types_t::wifi) {
@@ -293,7 +287,7 @@ void ESPNetwork::setConnected(conn_types_t connType) {
         settings.IP.dns1 = ETH.dnsIP(0);
         settings.IP.dns2 = ETH.dnsIP(1);
       }
-      safe_wdt_reset();
+      resetTaskWdt();
       JsonSockEvent *json = sockEmit.beginEmit("ethernet");
       json->beginObject();
       json->addElem("connected", this->connected());
@@ -301,7 +295,7 @@ void ESPNetwork::setConnected(conn_types_t connType) {
       json->addElem("fullduplex", ETH.fullDuplex());
       json->endObject();
       sockEmit.endEmit();
-      safe_wdt_reset();
+      resetTaskWdt();
     }
 #endif
   }
@@ -335,7 +329,7 @@ void ESPNetwork::setConnected(conn_types_t connType) {
   SSDP.setManufacturerURL(0, "https://github.com/rstrouse");
   SSDP.setURL(0, "/");
   SSDP.setActive(0, true);
-  safe_wdt_reset();
+  resetTaskWdt();
   if(MDNS.begin(settings.hostname)) {
     ESP_LOGI(TAG, "MDNS Responder Started: serverId=%s", settings.serverId);
     MDNS.addService("http", "tcp", 80);
@@ -348,11 +342,11 @@ void ESPNetwork::setConnected(conn_types_t connType) {
     MDNS.addServiceTxt("espsomfy_rts", "tcp", "version", String(settings.fwVersion.name));
   }
   if(settings.ssdpBroadcast) {
-    safe_wdt_reset();
+    resetTaskWdt();
     SSDP.begin();
   }
   else if(SSDP.isStarted) SSDP.end();
-  safe_wdt_reset();
+  resetTaskWdt();
   this->emitSockets();
   settings.printAvailHeap();
   this->needsBroadcast = true;
@@ -516,7 +510,7 @@ bool ESPNetwork::connectWiFi(const uint8_t *bssid, const int32_t channel) {
   return true;
 }
 bool ESPNetwork::connect(conn_types_t ctype) {
-  esp_task_wdt_reset();
+  resetTaskWdt();
   if(this->connecting()) return true;
   if(this->disconnectTime == 0) this->disconnectTime = millis();
 #if HAS_ETHERNET
@@ -557,10 +551,10 @@ bool ESPNetwork::getStrongestAP(const char *ssid, uint8_t *bssid, int32_t *chann
   int32_t strength = -127;
   int32_t chan = -1;
   memset(bssid, 0x00, 6);
-  esp_task_wdt_delete(NULL);
+  const bool wdtPaused = pauseTaskWdt();
   int16_t n = WiFi.scanComplete();
   //int16_t n = this->connected() ? WiFi.scanComplete() : WiFi.scanNetworks(false, false, false, 300, 0, ssid);
-  esp_task_wdt_add(NULL);
+  resumeTaskWdt(wdtPaused);
   for(int16_t i = 0; i < n; i++) {
     if(WiFi.SSID(i).compareTo(ssid) == 0) {
       // Only on the roaming scans, so the log shows whether a better AP is
@@ -587,7 +581,7 @@ bool ESPNetwork::openSoftAP() {
   if(this->connected()) WiFi.disconnect(false);
   this->openingSoftAP = true;
   ESP_LOGI(TAG, "Turning the HotSpot On");
-  esp_task_wdt_reset(); // Make sure we do not reboot here.
+  resetTaskWdt(); // Make sure we do not reboot here.
   WiFi.softAP(strlen(settings.hostname) > 0 ? settings.hostname : "ESPSomfy RTS", "");
   delay(200);
   return true;
