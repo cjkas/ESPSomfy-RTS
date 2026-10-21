@@ -1,7 +1,7 @@
 #include <WiFi.h>
 #include <LittleFS.h>
 #include <Update.h>
-#include <esp_task_wdt.h>
+#include "TaskWdt.h"
 #include "esp_log.h"
 #include "ConfigSettings.h"
 #include "ConfigFile.h"
@@ -275,7 +275,7 @@ void registerWebUiRoutes(AsyncWebServer &server) {
       else request->send(400, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"The upload didn't complete, so nothing was restored.\"}"));
     },
     [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
-      esp_task_wdt_reset();
+      resetTaskWdt();
       if(index == 0) {
         webServer.uploadSuccess = false;
         ESP_LOGD(TAG, "Restore: %s", filename.c_str());
@@ -544,7 +544,7 @@ void registerWebUiRoutes(AsyncWebServer &server) {
           ESP_LOGE(TAG, "Update end failed");
         }
       }
-      esp_task_wdt_reset();
+      resetTaskWdt();
     });
 
   // updateShadeConfig - file upload
@@ -615,15 +615,14 @@ void registerWebUiRoutes(AsyncWebServer &server) {
           ESP_LOGE(TAG, "Update end failed");
         }
       }
-      esp_task_wdt_reset();
+      resetTaskWdt();
     });
 
   server.on("/scanaps", HTTP_GET, [](AsyncWebServerRequest *request) {
-    esp_task_wdt_reset();
-    esp_task_wdt_delete(NULL);
+    const bool wdtPaused = pauseTaskWdt();
     if(net.softAPOpened) WiFi.disconnect(false);
     int n = WiFi.scanNetworks(false, true);
-    esp_task_wdt_add(NULL);
+    resumeTaskWdt(wdtPaused);
     ESP_LOGI(TAG, "Scanned %d networks", n);
     AsyncJsonResp resp;
     resp.beginResponse(request, g_async_content, sizeof(g_async_content));

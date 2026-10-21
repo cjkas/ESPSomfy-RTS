@@ -1,5 +1,5 @@
 #include <Preferences.h>
-#include <esp_task_wdt.h>
+#include "TaskWdt.h"
 #include "esp_log.h"
 #include "ConfigSettings.h"
 #include "Somfy.h"
@@ -78,7 +78,7 @@ bool SomfyShadeController::begin() {
 }
 void SomfyShadeController::commit() {
   if(git.lockFS) return;
-  esp_task_wdt_reset(); // Make sure we don't reset inadvertently.
+  resetTaskWdt(); // Make sure we don't reset inadvertently.
   ShadeConfigFile file;
   file.begin();
   file.save(this);
@@ -88,7 +88,7 @@ void SomfyShadeController::commit() {
 }
 void SomfyShadeController::writeBackup() {
   if(git.lockFS) return;
-  esp_task_wdt_reset(); // Make sure we don't reset inadvertently.
+  resetTaskWdt(); // Make sure we don't reset inadvertently.
   this->backupData = "";
   this->backupData.reserve(16384);
   ShadeConfigFile file;

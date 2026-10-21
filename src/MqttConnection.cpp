@@ -1,7 +1,7 @@
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
-#include <esp_task_wdt.h>
+#include "TaskWdt.h"
 #include "esp_log.h"
 #include "ConfigSettings.h"
 #include "MqttConnection.h"
@@ -42,15 +42,15 @@ void MqttConnection::reset() {
 }
 bool MqttConnection::loop() {
   if(settings.MQTT.enabled && !rebootDelay.reboot && !this->suspended && !mqttClient.connected()) {
-    esp_task_wdt_reset();
+    resetTaskWdt();
     if(!this->connected() && net.connected()) this->connect();
   }
-  esp_task_wdt_reset();
+  resetTaskWdt();
   if(settings.MQTT.enabled) mqttClient.loop();
   return true;
 }
 void MqttConnection::receive(const char *topic, byte*payload, uint32_t length) {
-  esp_task_wdt_reset(); // Make sure we do not reboot here.
+  resetTaskWdt(); // Make sure we do not reboot here.
   ESP_LOGD(TAG, "MQTT Topic:%s payload:%.*s", topic, (int)length, (const char *)payload);
   // This already runs on loop(), but going through the loop queue keeps MQTT
   // and web requests in order and holds them while the radio is full.
@@ -62,7 +62,7 @@ void MqttConnection::receive(const char *topic, byte*payload, uint32_t length) {
   loopQueue.submit(item);
 }
 bool MqttConnection::connect() {
-  esp_task_wdt_reset(); // Make sure we do not reboot here.
+  resetTaskWdt(); // Make sure we do not reboot here.
   if(mqttClient.connected()) {
     if(!settings.MQTT.enabled || this->suspended)
       return this->disconnect();
@@ -78,7 +78,7 @@ bool MqttConnection::connect() {
       char lwtTopic[128] = "status";
       if(strlen(settings.MQTT.rootTopic) > 0)
         snprintf(lwtTopic, sizeof(lwtTopic), "%s/status", settings.MQTT.rootTopic);
-      esp_task_wdt_reset();
+      resetTaskWdt();
       if(mqttClient.connect(this->clientId, settings.MQTT.username, settings.MQTT.password, lwtTopic, 0, true, "offline")) {
         ESP_LOGI(TAG, "Successfully connected MQTT client %s", this->clientId);
         this->publish("status", "online", true);
@@ -91,7 +91,7 @@ bool MqttConnection::connect() {
         for(const char *topic : MQTT_COMMAND_TOPICS) this->subscribe(topic);
         mqttClient.setCallback(MqttConnection::receive);
         ESP_LOGI(TAG, "MQTT Startup Completed");
-        esp_task_wdt_reset();
+        resetTaskWdt();
         this->lastConnect = millis();
         return true;
       }
@@ -127,7 +127,7 @@ bool MqttConnection::unsubscribe(const char *topic) {
 }
 bool MqttConnection::subscribe(const char *topic) {
   if(mqttClient.connected()) {
-    esp_task_wdt_reset(); // Make sure we do not reboot here.
+    resetTaskWdt(); // Make sure we do not reboot here.
     char top[128];
     if(strlen(settings.MQTT.rootTopic) > 0)
       snprintf(top, sizeof(top), "%s/%s", settings.MQTT.rootTopic, topic);
@@ -145,7 +145,7 @@ bool MqttConnection::publish(const char *topic, const char *payload, bool retain
       snprintf(top, sizeof(top), "%s/%s", settings.MQTT.rootTopic, topic);
     else
       strlcpy(top, topic, sizeof(top));
-    esp_task_wdt_reset(); // Make sure we do not reboot here.
+    resetTaskWdt(); // Make sure we do not reboot here.
     mqttClient.publish(top, payload, retain);
     return true;
   }
@@ -162,7 +162,7 @@ bool MqttConnection::unpublish(const char *topic) {
       snprintf(top, sizeof(top), "%s/%s", settings.MQTT.rootTopic, topic);
     else
       strlcpy(top, topic, sizeof(top));
-    esp_task_wdt_reset(); // Make sure we do not reboot here.
+    resetTaskWdt(); // Make sure we do not reboot here.
     mqttClient.publish(top, (const uint8_t *)"", 0, true);
     return true;
   }
@@ -177,7 +177,7 @@ bool MqttConnection::publishBuffer(const char *topic, uint8_t *data, uint16_t le
   uint16_t offset = 0;
   uint16_t to_write = len;
   uint16_t buff_len;
-  esp_task_wdt_reset(); // Make sure we do not reboot here.
+  resetTaskWdt(); // Make sure we do not reboot here.
   mqttClient.beginPublish(topic, len, retain);
   do { 
     buff_len = to_write;

@@ -1,6 +1,6 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
-#include <esp_task_wdt.h>
+#include "TaskWdt.h"
 #include "esp_log.h"
 #include "SocketEmitter.h"
 #include "ConfigSettings.h"
@@ -112,7 +112,7 @@ void SocketEmitter::endEmit(uint8_t num) {
     uint32_t asyncId = getAsyncId(num);
     this->json.endEvent(asyncId);
   }
-  esp_task_wdt_reset();
+  resetTaskWdt();
 }
 void SocketEmitter::endEmitRoom(uint8_t room) {
   if(room < SOCK_MAX_ROOMS) {
@@ -136,7 +136,7 @@ void SocketEmitter::initClients() {
       uint32_t asyncId = getAsyncId(slot);
       if(asyncId != 0 && ws.hasClient(asyncId)) {
         ESP_LOGD(TAG, "Initializing Socket Client %u (asyncId=%lu)", slot, asyncId);
-        esp_task_wdt_reset();
+        resetTaskWdt();
         ElapsedTimer total, step;
         settings.emitSockets(slot);
         logElapsed(TAG, "Socket init settings", step.lap());
@@ -150,7 +150,7 @@ void SocketEmitter::initClients() {
         net.emitSockets(slot);
         logElapsed(TAG, "Socket init network", step.lap());
         logElapsed(TAG, "Socket init total", total.us());
-        esp_task_wdt_reset();
+        resetTaskWdt();
       }
       this->newClients[i] = 255;
     }

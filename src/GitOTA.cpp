@@ -2,7 +2,7 @@
 #include <WiFiClientSecure.h>
 #include <Update.h>
 #include <HTTPClient.h>
-#include <esp_task_wdt.h>
+#include "TaskWdt.h"
 #include "esp_log.h"
 #include "ConfigSettings.h"
 #include "GitOTA.h"
@@ -96,7 +96,7 @@ int16_t GitRepo::getReleases(uint8_t num) {
   HTTPClient https;
   https.setReuse(false);
   if(https.begin(sclient, url)) {
-    esp_task_wdt_reset();
+    resetTaskWdt();
     int httpCode = https.GET();
     ESP_LOGD(TAG, "[HTTPS] GET... code: %d", httpCode);
     if(httpCode > 0) {
@@ -117,7 +117,7 @@ int16_t GitRepo::getReleases(uint8_t num) {
         while(https.connected() && (len > 0 || len == -1) && ndx < count) {
           size_t size = stream->available();
           if(size) {
-            esp_task_wdt_reset();
+            resetTaskWdt();
             int c = stream->readBytes(buff, ((size > sizeof(buff)) ? sizeof(buff) : size));
             //Serial.write(buff, c);
             if(len > 0) len -= c;
@@ -308,15 +308,15 @@ int GitUpdater::checkInternet() {
   WiFiClientSecure sclient;
   sclient.setInsecure();
   sclient.setHandshakeTimeout(3);
-  esp_task_wdt_reset();
+  resetTaskWdt();
   HTTPClient https;
   https.setReuse(false);
   if(https.begin(sclient, "https://github.com/cjkas/ESPSomfy-RTS")) {
     https.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
     https.setTimeout(3000);
-    esp_task_wdt_reset();
+    resetTaskWdt();
     int httpCode = https.sendRequest("HEAD");
-    esp_task_wdt_reset();
+    resetTaskWdt();
     if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY || httpCode == HTTP_CODE_FOUND) {
       err = 0;
       ESP_LOGI(TAG, "Internet is Available: %ldms", millis() - t);
@@ -330,7 +330,7 @@ int GitUpdater::checkInternet() {
     https.end();
     sclient.stop();
   }
-  esp_task_wdt_reset();
+  resetTaskWdt();
   return err;
 }
 void GitUpdater::emitDownloadProgress(size_t total, size_t loaded, const char *evt) { this->emitDownloadProgress(255, total, loaded, evt); }
@@ -413,7 +413,7 @@ int8_t GitUpdater::downloadFile() {
   char url[196];
   sprintf(url, "%s%s", this->baseUrl, this->currentFile);
   ESP_LOGD(TAG, "%s", url);
-  esp_task_wdt_reset();
+  resetTaskWdt();
   if(https.begin(sclient, url)) {
     https.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
     ESP_LOGD(TAG, "[HTTPS] GET...");
@@ -436,7 +436,7 @@ int8_t GitUpdater::downloadFile() {
           int timeouts = 0;
           while(https.connected() && (len > 0 || len == -1) && total < len) {
             size_t size = stream->available();
-            esp_task_wdt_reset();
+            resetTaskWdt();
             if(size) {
               timeouts = 0;
               if(this->cancelled && !this->lockFS) {
@@ -515,6 +515,6 @@ int8_t GitUpdater::downloadFile() {
     sclient.stop(); 
     ESP_LOGI(TAG, "End update %s", this->currentFile);
   }
-  esp_task_wdt_reset();
+  resetTaskWdt();
   return 0;
 }
