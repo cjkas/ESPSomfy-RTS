@@ -214,7 +214,8 @@ void transceiver_config_t::fromJSON(JsonObject& obj) {
 /*********************************************************************
  * ModelEditor on the device (SomfyEditor.h).  Here rather than in a file of
  * its own because every file that uses ArduinoJson carries its own copy of the
- * library's helpers (docs/SOMFY_SPLIT_PLAN.md).
+ * library's helpers and assert strings (moving the radio's fromJSON here saved
+ * 2.8 KB of flash).
  ********************************************************************/
 static std::atomic<bool> editBusy(false);
 static std::atomic<uint32_t> lastRequestId(0);

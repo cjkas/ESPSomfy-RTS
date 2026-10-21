@@ -4,7 +4,7 @@
 
 // Scenario tests pinning what ShadeBehaviour does today, moved unchanged from
 // SomfyShade.  Where the copies of a rule disagree the test says "today:" so
-// a later reconcile shows up as a test change (SHADE_BEHAVIOUR_PLAN.md).
+// a later reconcile shows up as a test change (the one left is #85).
 
 #define ASSERT_POS(expected, actual) TEST_ASSERT_FLOAT_WITHIN(0.5f, (expected), (actual))
 #define ASSERT_CMD(expected, actual) TEST_ASSERT_EQUAL_HEX8(static_cast<uint8_t>(expected), static_cast<uint8_t>(actual))
