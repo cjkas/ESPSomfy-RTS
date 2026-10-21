@@ -22,6 +22,10 @@
 
 static const char *TAG = "Main";
 #define LOOP_SLOW_MS 100
+// platformio.ini can set its own, along with a matching monitor_speed.
+#ifndef SERIAL_BAUD
+#define SERIAL_BAUD 115200
+#endif
 // How long an updated firmware has to run, and then have the network up, before
 // it is kept.  A reset before then rolls back to the previous firmware.
 #define OTA_PROVEN_MS 60000
@@ -67,7 +71,7 @@ void listDir(const char *dirname, uint8_t levels) {
 }
 
 void setup() {  
-  Serial.begin(115200);
+  Serial.begin(SERIAL_BAUD);
   ESP_LOGI(TAG, "Startup/Boot....");
   esp_core_dump_summary_t summary;
   if (esp_core_dump_get_summary(&summary) == ESP_OK) {
