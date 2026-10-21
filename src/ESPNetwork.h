@@ -10,12 +10,13 @@
 #define CONNECT_TIMEOUT 20000
 #define SSID_SCAN_INTERVAL 600000
 // A weak signal moves a dBm or two all the time, so only broadcast real
-// changes and not more often than this.
+// changes.
 #define RSSI_EMIT_MIN_DBM 3
-#define RSSI_EMIT_MIN_MS 10000
-// How often memStatus is broadcast.  It is also the one event that is always
-// sent, so it must stay well under Home Assistant's 60s receive timeout.
-#define HEAP_EMIT_MS 30000
+// How often loop() broadcasts the status: memStatus, then wifiStrength or
+// ethernet.  memStatus is the one event that is always sent, so this must stay
+// well under Home Assistant's 60s receive timeout.  A client that connects gets
+// all of it straight away from SocketEmitter::initClients().
+#define STATUS_EMIT_MS 30000
 // A roaming scan only moves to another AP at least this much stronger.
 #define ROAM_MIN_GAIN_DB 6
 class ESPNetwork {
@@ -31,7 +32,6 @@ class ESPNetwork {
     bool wifiFallback = false;
     bool softAPOpened = false;
     bool openingSoftAP = false;
-    bool needsBroadcast = true;
     conn_types_t connType = conn_types_t::unset;
     conn_types_t connTarget = conn_types_t::unset;
     bool connected();

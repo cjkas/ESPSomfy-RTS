@@ -24,6 +24,9 @@ class JsonFormatter {
     void _appendNumber(const char *name);
   public:
     bool overflowed() const { return _overflow; }
+    // Drops whatever is written until a buffer is set again.  Nothing is
+    // written anywhere, so tasks can share one discarding formatter.
+    void discard();
     // Writes c as it must appear inside a JSON string (out needs 7 bytes) and
     // returns its length.
     static size_t escapeChar(char c, char *out);

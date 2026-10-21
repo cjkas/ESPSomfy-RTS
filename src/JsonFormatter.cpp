@@ -16,6 +16,17 @@ void BufferedJsonFormatter::setBuffer(char *b, size_t sz) {
 size_t BufferedJsonFormatter::length() const {
   return this->_len;
 }
+void JsonFormatter::discard() {
+  // With no room every _safecat() takes the overflow path, and as it has
+  // already overflowed that doesn't log either.
+  this->buff = nullptr;
+  this->buffSize = 0;
+  this->_len = 0;
+  this->_nocomma = true;
+  this->_overflow = true;
+  this->_objects = 0;
+  this->_arrays = 0;
+}
 void JsonFormatter::beginObject(const char *name) {
   if(name && strlen(name) > 0) this->appendElem(name);
   else if(!this->_nocomma) this->_safecat(",");

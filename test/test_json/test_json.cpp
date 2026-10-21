@@ -195,6 +195,39 @@ static void test_setBuffer_resets_length() {
   TEST_ASSERT_EQUAL_STRING("", storage);
 }
 
+/*********************************************************************
+ * discard
+ ********************************************************************/
+static void test_discard_writes_nothing() {
+  // What a socket event built off loop() goes into.  The buffer the formatter
+  // had before must not see a byte of it.
+  fmt.beginObject();
+  fmt.addElem("kept", true);
+  char before[STORAGE_SIZE];
+  memcpy(before, storage, sizeof(before));
+  fmt.discard();
+  fmt.beginObject();
+  fmt.addElem("ssid", "Home \"WiFi\"");
+  fmt.addElem("strength", (int32_t)-70);
+  fmt.beginArray("pulses");
+  fmt.addElem((uint32_t)2416);
+  fmt.endArray();
+  fmt.addElem("big", (uint64_t)18446744073709551615ULL);
+  fmt.endObject();
+  TEST_ASSERT_EQUAL_MEMORY(before, storage, sizeof(before));
+  TEST_ASSERT_EQUAL_UINT32(0, fmt.length());
+  TEST_ASSERT_TRUE(fmt.overflowed());
+}
+static void test_setBuffer_after_discard_writes_again() {
+  fmt.discard();
+  fmt.addElem("dropped");
+  useBuffer(BUFF_SIZE);
+  fmt.beginObject();
+  fmt.endObject();
+  TEST_ASSERT_FALSE(fmt.overflowed());
+  TEST_ASSERT_EQUAL_STRING("{}", storage);
+}
+
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
@@ -216,5 +249,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_length_matches_what_was_written);
   RUN_TEST(test_refused_append_leaves_length_alone);
   RUN_TEST(test_setBuffer_resets_length);
+  RUN_TEST(test_discard_writes_nothing);
+  RUN_TEST(test_setBuffer_after_discard_writes_again);
   return UNITY_END();
 }
