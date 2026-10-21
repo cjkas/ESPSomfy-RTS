@@ -15,5 +15,9 @@ The shade model (rooms, shades, groups and repeaters) is changed only from `loop
 
 - async_tcp must still never wait for `loop()`, so a model edit's HTTP reply can't block until the change is made. The reply only says the request was accepted; the result reaches clients as a WebSocket event once `loop()` has made the change. We chose that over a chunked HTTP response that `loop()` completes, because pushing results to clients is what the WebSocket is for and it needs no pool of pending responses.
 - A read has to reply with data, so it does wait, without blocking: its chunked response sends nothing until `loop()` has filled the read's ModelSnapshot.
-- MQTT commands already run on `loop()` (`mqtt.loop()` is called from it).
+- MQTT commands already run on `loop()` (`mqtt.loop()` is called from it), but they go through the LoopQueue too. That gives them the radio back-pressure web commands have (`holdWebCommand`): while the radio is full they wait instead of being refused, and they run in the order they arrived with web requests.
+- The LoopQueue is one FIFO, and no item jumps it, model edits included.
+- Requests that hold heap are capped, so a burst can't exhaust it: at most one model edit (a copy of its body, up to 4 KB; a larger one gets 413) and two reads (a ModelSnapshot of about 5.6 KB each) at a time. One more gets 503 "Busy", and the web UI retries it.
+- The web UI waits about 5 s for an edit's `requestResult`. If none comes, it says the change wasn't confirmed and offers to reload.
+- The UI and the firmware change together, because the UI is served from LittleFS. An older UI against firmware with this rule waits for edit reply bodies that no longer come.
 - With one writer, the domain modules are plain single-threaded code and can be tested natively without threads.
