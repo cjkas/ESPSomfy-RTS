@@ -147,6 +147,18 @@ void RssiBroadcast::sent(bool broadcast, int rssi, int channel, uint32_t now) {
 bool worthRoaming(bool connected, int currentRssi, int apRssi, int minGain) {
   return !connected || apRssi >= currentRssi + minGain;
 }
+void formatBacktrace(char *buf, size_t size, const uint32_t *bt, size_t maxFrames, uint32_t depth) {
+  // depth comes from flash.  A half-written dump reads back as 0xa5a5a5a5,
+  // so never trust it past bt[] or the buffer.
+  buf[0] = '\0';
+  size_t pos = 0;
+  size_t frames = depth < maxFrames ? depth : maxFrames;
+  for (size_t i = 0; i < frames && pos < size - 1; i++) {
+    int n = snprintf(buf + pos, size - pos, " 0x%08x", (unsigned int)bt[i]);
+    if (n < 0) break;
+    pos += (size_t)n;
+  }
+}
 const char *wifiAuthModeName(uint8_t authMode) {
   switch(authMode) {
     case 0: return "OPEN";
