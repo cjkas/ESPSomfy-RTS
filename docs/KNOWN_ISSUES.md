@@ -267,3 +267,10 @@ On 2026-10-19 the log shows `web GET /controller from 192.168.1.197 total took 2
 - **Fixed: a command for an unknown shade left no trace.** `handleShadeCommand`, `handleTiltCommand` and `handleGroupCommand` in [src/entryPoints/Web.cpp](../src/entryPoints/Web.cpp) now log a `not found` warning. On 2026-10-18 Home Assistant sent 10 commands to a device that had no shades yet, and the log showed only the response times.
 - **Fixed: `last ping 0ms ago` meant the client never pinged.** The disconnect line in [src/outputs/SocketEmitter.cpp](../src/outputs/SocketEmitter.cpp) now says `never pinged`. Browsers don't ping, so they always showed it.
 - **Open: `.gz does not exist` errors are noise.** `serveStatic` tries `<file>.gz` first. For files stored without one (`appversion`, `icon.png`), LittleFS logs an `E`-level `does not exist, no permits for creation` line on every request. The fix would be for `minify.py` to gzip the plain files too. `setTryGzipFirst(false)` doesn't help: the error comes from `exists()` probing the missing variant, so it would only move the noise to the gzip-only files.
+
+## Installing "Main" from the update dialog always fails
+
+**Status:** open. Found 2026-10-20 while reviewing PR #72.
+**Location:** `GitUpdater::beginUpdate` in [src/GitOTA.cpp](../src/GitOTA.cpp).
+
+The update dialog offers a "Main" entry next to the releases. For it, the updater downloads from `https://raw.githubusercontent.com/cjkas/ESPSomfy-RTS/master/`, but the repository holds no `.bin` files, so the firmware download 404s. Nothing is written and the device keeps running, so it does no harm, but the option can't work. Either drop the entry or point it at a build that publishes per-chip images.

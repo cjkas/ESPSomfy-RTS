@@ -18,7 +18,6 @@
 // progress (see LogLockPolicy.h).
 #include <Arduino.h>
 #include <stdarg.h>
-#include "esp_idf_version.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -41,19 +40,12 @@ static volatile TaskHandle_t logOwner = nullptr;
 // line takes about 20ms at 115200 baud.
 #define LOG_LOCK_WAIT_MS 20
 
-#if ESP_IDF_VERSION_MAJOR >= 5
-#define taskOnCore(core) xTaskGetCurrentTaskHandleForCore(core)
-#define taskCore(task) xTaskGetCoreID(task)
-#else
-#define taskOnCore(core) xTaskGetCurrentTaskHandleForCPU(core)
-#define taskCore(task) xTaskGetAffinity(task)
-#endif
 static LogHolder logHolder(TaskHandle_t owner) {
   if(!owner) return LogHolder::unknown;
   for(BaseType_t core = 0; core < portNUM_PROCESSORS; core++)
-    if(taskOnCore(core) == owner) return LogHolder::running;
+    if(xTaskGetCurrentTaskHandleForCore(core) == owner) return LogHolder::running;
   // A task pinned elsewhere only runs once whatever preempted it there is done.
-  const BaseType_t core = taskCore(owner);
+  const BaseType_t core = xTaskGetCoreID(owner);
   if(core == tskNO_AFFINITY || core == xPortGetCoreID()) return LogHolder::preemptedHere;
   return LogHolder::preemptedElsewhere;
 }

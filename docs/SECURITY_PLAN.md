@@ -107,5 +107,6 @@ Everything else is checked with the `esp32devdbg` build, plus curl and websocket
 ## Not in this plan
 
 - TLS.
+- Checking GitHub's certificate in `GitOTA`. It calls `setInsecure()`, so anyone who can intercept the update download can serve their own firmware. ESP-IDF 5.5 ([ADR 0003](adr/0003-pioarduino-idf55.md)) ships a certificate bundle, so this is possible now. It needs its own change: the full bundle costs more flash than the ESP32 build has spare, and pinning GitHub's root certificates might fit.
 - Session tokens with expiry.
 - Contents of the binary backup file (it holds no passwords, but it does hold rolling codes; `/backup` becomes a config route).
