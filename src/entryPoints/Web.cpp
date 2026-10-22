@@ -16,6 +16,7 @@
 #include "SomfyEditor.h"
 #include "Web.h"
 #include "WebRoutes.h"
+#include "outputs/ProtoSocket.h"
 #include "MqttConnection.h"
 #include "ESPNetwork.h"
 #include "Timing.h"
@@ -747,6 +748,8 @@ void Web::begin() {
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Methods", "PUT,POST,GET,OPTIONS");
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Headers", "*");
   registerApiRoutes(asyncApiServer);
+  // Before the routes, so serveStatic never answers /ws.
+  protoSocket.begin(asyncServer);
   registerWebUiRoutes(asyncServer);
   asyncServer.begin();
 }

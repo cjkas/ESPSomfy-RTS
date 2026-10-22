@@ -22,14 +22,19 @@ enum : uint16_t {
   SHADE_CHANGED_SUNNY          = 0x0400,
   SHADE_CHANGED_WINDY          = 0x0800,
   // Something only the socket's shadeState carries changed.
-  SHADE_CHANGED_STATE          = 0x1000
+  SHADE_CHANGED_STATE          = 0x1000,
+  // A setting changed (an edit, pairing, its room).  Protocol 2 clients get the
+  // whole shade rather than its state.
+  SHADE_CHANGED_CONFIG         = 0x2000
 };
 // The bits that have an MQTT topic.
 #define SHADE_CHANGED_TOPICS 0x0FFF
 // The same for a group: its direction topic, and groupState for the socket.
 enum : uint8_t {
   GROUP_CHANGED_DIRECTION = 0x01,
-  GROUP_CHANGED_STATE     = 0x02
+  GROUP_CHANGED_STATE     = 0x02,
+  // A setting or its shades changed: protocol 2 clients get the whole group.
+  GROUP_CHANGED_CONFIG    = 0x04
 };
 
 // Publishes one MQTT topic: its name under shades/<id>/, its value and whether

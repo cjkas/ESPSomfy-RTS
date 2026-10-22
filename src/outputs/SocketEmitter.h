@@ -9,6 +9,9 @@
 // fit is logged and not sent, so the largest one has to fit: see remoteFrame
 // in Transceiver.cpp.
 #define MAX_SOCK_RESPONSE 4096
+// That buffer, which protocol 2 events and sync frames are formatted into too.
+// loop() only, and only between an event's start and its send.
+char *socketFrameBuffer();
 
 struct room_t {
   uint8_t clients[5] = {255, 255, 255, 255, 255};

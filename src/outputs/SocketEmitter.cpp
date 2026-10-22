@@ -49,6 +49,7 @@ static void removeClient(uint32_t asyncId) {
 }
 
 static char g_response[MAX_SOCK_RESPONSE];
+char *socketFrameBuffer() { return g_response; }
 
 bool room_t::isJoined(uint8_t num) {
   for(uint8_t i = 0; i < sizeof(this->clients); i++) {

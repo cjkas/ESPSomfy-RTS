@@ -4,6 +4,8 @@
 #include <atomic>
 #include "ModelEditor.h"
 #include "SomfyEditor.h"
+#include "ShadeChanges.h"
+#include "outputs/ProtoSocket.h"
 
 static const char *TAG = "Somfy";
 
@@ -226,9 +228,53 @@ void cancelModelEdit(model_edit_t *edit) {
   delete edit;
   editBusy.store(false);
 }
+// What protocol 2 clients get after an edit: the whole item it changed, by its
+// config bit for shades and groups, so the change fan-out sends it once.
+// Deletes send their removal from the controller as they happen.
+static void markEdited(const model_edit_t &edit, const edit_result_t &result) {
+  auto shade = [](uint8_t id) {
+    SomfyShade *s = somfy.getShadeById(id);
+    if(s) s->changed |= SHADE_CHANGED_CONFIG;
+  };
+  auto group = [](uint8_t id) {
+    SomfyGroup *g = somfy.getGroupById(id);
+    if(g) g->changed |= GROUP_CHANGED_CONFIG;
+  };
+  switch(edit.type) {
+    case model_edit_type_t::add_shade:
+    case model_edit_type_t::save_shade:
+    case model_edit_type_t::set_paired:
+    case model_edit_type_t::link_remote:
+    case model_edit_type_t::unlink_remote:
+      shade(result.id);
+      break;
+    case model_edit_type_t::add_group:
+    case model_edit_type_t::save_group:
+      group(result.id);
+      break;
+    case model_edit_type_t::link_to_group:
+    case model_edit_type_t::unlink_from_group:
+      group(result.id);
+      shade(edit.doc["shadeId"] | (uint8_t)0);
+      break;
+    case model_edit_type_t::add_room:
+    case model_edit_type_t::save_room: {
+      SomfyRoom *room = somfy.getRoomById(result.id);
+      if(room) protoSocket.room(*room);
+      break;
+    }
+    case model_edit_type_t::room_order: protoSocket.order(proto_type_t::roomOrder); break;
+    case model_edit_type_t::shade_order: protoSocket.order(proto_type_t::shadeOrder); break;
+    case model_edit_type_t::group_order: protoSocket.order(proto_type_t::groupOrder); break;
+    case model_edit_type_t::link_repeater:
+    case model_edit_type_t::unlink_repeater: protoSocket.repeaters(); break;
+    default: break;
+  }
+}
 void runModelEdit(model_edit_t *edit) {
   const edit_result_t result = applyModelEdit(*edit);
   if(!result.ok) ESP_LOGW(TAG, "Edit %u refused: %s", static_cast<uint8_t>(edit->type), result.desc);
+  else markEdited(*edit, result);
   emitRequestResult(edit->requestId, result);
   cancelModelEdit(edit);
 }

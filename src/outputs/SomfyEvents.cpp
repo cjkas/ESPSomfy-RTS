@@ -2,6 +2,7 @@
 #include "Somfy.h"
 #include "SomfyEditor.h"
 #include "SocketEmitter.h"
+#include "ProtoSocket.h"
 #include "MqttConnection.h"
 
 extern SomfyShadeController somfy;
@@ -49,6 +50,7 @@ void SomfyShade::emitCommand(uint8_t num, somfy_commands cmd, const char *source
   json->addElem("sourceAddress", (uint32_t)sourceAddress);
   json->endObject();
   sockEmit.endEmit(num);
+  if(num == 255) protoSocket.shadeCommand(*this, translateSomfyCommand(cmd).c_str(), source, sourceAddress);
   if(mqtt.connected()) {
     this->publish("cmdSource", source);
     this->publish("cmdAddress", sourceAddress);
@@ -114,6 +116,8 @@ void SomfyShadeController::sendChanges() {
     if(!changed || shade.getShadeId() == 255) continue;
     if(changed & SHADE_CHANGED_TOPICS) shade.publishTopics(changed);
     shade.emitState(255, "shadeState");
+    if(changed & SHADE_CHANGED_CONFIG) protoSocket.shade(shade);
+    else protoSocket.shadeState(shade);
   }
   for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++) {
     SomfyGroup &group = this->groups[i];
@@ -122,6 +126,8 @@ void SomfyShadeController::sendChanges() {
     if(!changed || group.getGroupId() == 255) continue;
     if(changed & GROUP_CHANGED_DIRECTION) group.publish("direction", group.direction);
     group.emitState(255, "groupState");
+    if(changed & GROUP_CHANGED_CONFIG) protoSocket.group(group);
+    else protoSocket.groupState(group);
   }
 }
 void SomfyShadeController::emitState(uint8_t num) {

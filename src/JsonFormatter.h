@@ -2,6 +2,15 @@
 #define json_formatter_h
 #include <Arduino.h>
 
+// Where a formatter's output stands, to go back to when what follows doesn't
+// fit (JsonFormatter::mark()).
+struct json_mark_t {
+  size_t len;
+  uint8_t objects;
+  uint8_t arrays;
+  bool nocomma;
+};
+
 // Streams JSON into a fixed buffer.  Free of the web server so it can be unit
 // tested on the PC (pio test -e native).
 class JsonFormatter {
@@ -16,6 +25,8 @@ class JsonFormatter {
     bool _nocomma = true;
     // Something didn't fit and was left out so the JSON is incomplete.
     bool _overflow = false;
+    // Whether running out of room is logged.
+    bool _logOverflow = true;
     char _numbuff[25] = {0};
     virtual void _safecat(const char *val, bool escape = false);
     // Appends val at buff + _len.  vlen is what it takes, including the quotes
@@ -24,6 +35,12 @@ class JsonFormatter {
     void _appendNumber(const char *name);
   public:
     bool overflowed() const { return _overflow; }
+    json_mark_t mark() const { return {_len, _objects, _arrays, _nocomma}; }
+    // Drops everything written since m, an overflow included.
+    void rollback(const json_mark_t &m);
+    // A writer that tries an item and rolls back when it doesn't fit turns the
+    // overflow log off, as running out of room is expected there.
+    void logOverflow(bool on) { _logOverflow = on; }
     // Drops whatever is written until a buffer is set again.  Nothing is
     // written anywhere, so tasks can share one discarding formatter.
     void discard();

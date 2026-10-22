@@ -11,6 +11,7 @@
 #include "ConfigSettings.h"
 #include "Somfy.h"
 #include "outputs/SocketEmitter.h"
+#include "outputs/ProtoSocket.h"
 
 static const char *TAG = "Somfy";
 
@@ -319,6 +320,15 @@ void Transceiver::emitFrequencyScan(uint8_t num) {
   json->addElem("RSSI", (int32_t)markRSSI);
   json->endObject();
   sockEmit.endEmit(num);
+  if(num == 255 && protoSocket.subscribed(proto_feed_t::frequencyScan)) {
+    ProtoWriter w = protoSocket.beginFeed(proto_type_t::frequencyScan);
+    w.add(pf::scanning, rxmode == 3);
+    w.add(pf::testFreq, currFreq);
+    w.add(pf::testRssi, (int32_t)currRSSI);
+    w.add(pf::frequency, markFreq);
+    w.add(pf::rssi, (int32_t)markRSSI);
+    protoSocket.endFeed(proto_feed_t::frequencyScan);
+  }
 }
 bool Transceiver::receive(somfy_rx_t *rx) {
     // Check to see if there is anything in the buffer
@@ -364,6 +374,26 @@ void Transceiver::emitFrame(somfy_frame_t *frame, somfy_rx_t *rx) {
     json->endArray();
     json->endObject();
     sockEmit.endEmitRoom(ROOM_EMIT_FRAME);
+  }
+  if(protoSocket.subscribed(proto_feed_t::frames)) {
+    ProtoWriter w = protoSocket.beginFeed(proto_type_t::frame);
+    w.add(pf::encKey, frame->encKey);
+    w.add(pf::remoteAddress, (uint32_t)frame->remoteAddress);
+    w.add(pf::lastRollingCode, (uint32_t)frame->rollingCode);
+    w.add(pf::command, translateSomfyCommand(frame->cmd).c_str());
+    w.add(pf::rawCmd, frame->rawCmd);
+    w.add(pf::rssi, (int32_t)frame->rssi);
+    w.add(pf::bits, rx ? rx->bit_length : (uint8_t)0);
+    w.add(pf::proto, static_cast<uint8_t>(frame->proto));
+    w.add(pf::valid, frame->valid);
+    w.add(pf::hwsync, frame->hwsync);
+    if(frame->cmd == somfy_commands::StepUp || frame->cmd == somfy_commands::StepDown) w.add(pf::stepSize, frame->stepSize);
+    if(rx && rx->pulseCount) {
+      w.beginList(pf::pulses);
+      for(uint16_t i = 0; i < rx->pulseCount; i++) w.item(rx->pulses[i]);
+      w.endList();
+    }
+    protoSocket.endFeed(proto_feed_t::frames);
   }
 }
 void Transceiver::clearReceived(void) {

@@ -6,6 +6,7 @@
 #include "ESPNetwork.h"
 #include "entryPoints/Web.h"
 #include "outputs/SocketEmitter.h"
+#include "outputs/ProtoSocket.h"
 #include "Utils.h"
 #include "Somfy.h"
 #include "MqttConnection.h"
@@ -187,6 +188,7 @@ void loop() {
     logIfSlow(TAG, "Loop web server", timing.lap(), LOOP_SLOW_MS);
     esp_task_wdt_reset();
     sockEmit.loop();
+    protoSocket.loop();
     logIfSlow(TAG, "Loop sockets", timing.lap(), LOOP_SLOW_MS);
     esp_task_wdt_reset();
   }
