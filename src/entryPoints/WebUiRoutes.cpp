@@ -16,7 +16,6 @@
 #include "Web.h"
 #include "WebRoutes.h"
 #include "MqttConnection.h"
-#include "GitOTA.h"
 #include "ESPNetwork.h"
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
@@ -31,7 +30,6 @@ extern rebootDelay_t rebootDelay;
 extern SomfyShadeController somfy;
 extern Web webServer;
 extern MqttConnection mqtt;
-extern GitUpdater git;
 extern ESPNetwork net;
 extern LoopQueue loopQueue;
 
@@ -187,50 +185,6 @@ void registerWebUiRoutes(AsyncWebServer &server) {
   });
   server.on("/shades.tmp", HTTP_GET, [](AsyncWebServerRequest *request) {
     request->send(LittleFS, "/shades.tmp", _encoding_text);
-  });
-
-  server.on("/getReleases", HTTP_GET, [](AsyncWebServerRequest *request) {
-    GitRepo repo;
-    repo.getReleases();
-    git.setCurrentRelease(repo);
-    AsyncJsonResp resp;
-    resp.beginResponse(request, g_async_content, sizeof(g_async_content));
-    resp.beginObject();
-    // Inline GitRepo::toJSON
-    resp.beginObject("fwVersion");
-    serializeAppVersion(resp, settings.fwVersion);
-    resp.endObject();
-    resp.beginObject("appVersion");
-    serializeAppVersion(resp, settings.appVersion);
-    resp.endObject();
-    resp.beginArray("releases");
-    for(uint8_t i = 0; i < GIT_MAX_RELEASES + 1; i++) {
-      if(repo.releases[i].id == 0) continue;
-      resp.beginObject();
-      serializeGitRelease(&repo.releases[i], resp);
-      resp.endObject();
-    }
-    resp.endArray();
-    resp.endObject();
-    resp.endResponse();
-  });
-
-  server.on("/downloadFirmware", HTTP_GET, [](AsyncWebServerRequest *request) { webServer.handleDownloadFirmware(request); });
-
-  server.on("/cancelFirmware", HTTP_GET, [](AsyncWebServerRequest *request) {
-    if(!git.lockFS) {
-      git.status = GIT_UPDATE_CANCELLING;
-      AsyncJsonResp resp;
-      resp.beginResponse(request, g_async_content, sizeof(g_async_content));
-      resp.beginObject();
-      serializeGitVersion(resp);
-      resp.endObject();
-      resp.endResponse();
-      git.cancelled = true;
-    }
-    else {
-      request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Cannot cancel during filesystem update.\"}"));
-    }
   });
 
   server.on("/backup", HTTP_GET, [](AsyncWebServerRequest *request) { webServer.handleBackup(request); });
@@ -550,10 +504,6 @@ void registerWebUiRoutes(AsyncWebServer &server) {
   // updateShadeConfig - file upload
   server.on("/updateShadeConfig", HTTP_POST,
     [](AsyncWebServerRequest *request) {
-      if(git.lockFS) {
-        request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Filesystem update in progress\"}"));
-        return;
-      }
       request->send(200, _encoding_json, "{\"status\":\"ERROR\",\"desc\":\"Updating Shade Config: \"}");
     },
     [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
@@ -759,11 +709,9 @@ void registerWebUiRoutes(AsyncWebServer &server) {
         return;
       }
       JsonObject obj = json.as<JsonObject>();
-      if(!obj["hostname"].isNull() || !obj["ssdpBroadcast"].isNull() || !obj["checkForUpdate"].isNull()) {
-        bool checkForUpdate = settings.checkForUpdate;
+      if(!obj["hostname"].isNull() || !obj["ssdpBroadcast"].isNull()) {
         settings.fromJSON(obj);
         settings.save();
-        if(settings.checkForUpdate != checkForUpdate) git.emitUpdateCheck();
         if(!obj["hostname"].isNull()) net.updateHostname();
       }
       if(!obj["ntpServer"].isNull() || !obj["posixZone"].isNull()) {
@@ -872,7 +820,6 @@ void registerWebUiRoutes(AsyncWebServer &server) {
     resp.addElem("hostname", settings.hostname);
     resp.addElem("connType", static_cast<uint8_t>(settings.connType));
     resp.addElem("chipModel", settings.chipModel);
-    resp.addElem("checkForUpdate", settings.checkForUpdate);
     resp.addElem("ntpServer", settings.NTP.ntpServer);
     resp.addElem("posixZone", settings.NTP.posixZone);
     resp.endObject();
@@ -950,17 +897,6 @@ void registerWebUiRoutes(AsyncWebServer &server) {
     serializeTransceiverConfig(resp);
     resp.endObject();
     resp.endResponse();
-  });
-
-  server.on("/recoverFilesystem", WebRequestMethodComposite(HTTP_GET) | HTTP_POST, [](AsyncWebServerRequest *request) {
-    if(git.status == GIT_UPDATING)
-      request->send(200, "application/json", "{\"status\":\"OK\",\"desc\":\"Filesystem is updating.  Please wait!!!\"}");
-    else if(git.status != GIT_STATUS_READY)
-      request->send(200, "application/json", "{\"status\":\"ERROR\",\"desc\":\"Cannot recover file system at this time.\"}");
-    else {
-      git.recoverFilesystem();
-      request->send(200, "application/json", "{\"status\":\"OK\",\"desc\":\"Recovering filesystem from github please wait!!!\"}");
-    }
   });
 
   server.onNotFound([](AsyncWebServerRequest *r) {

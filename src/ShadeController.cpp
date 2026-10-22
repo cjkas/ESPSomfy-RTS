@@ -4,14 +4,12 @@
 #include "ConfigSettings.h"
 #include "Somfy.h"
 #include "ConfigFile.h"
-#include "GitOTA.h"
 #include "ModelEditor.h"
 
 static const char *TAG = "Somfy";
 
 extern SomfyShadeController somfy;
 extern ConfigSettings settings;
-extern GitUpdater git;
 
 void SomfyShadeController::end() { this->transceiver.disableReceive(); }
 SomfyShadeController::SomfyShadeController() {
@@ -77,7 +75,6 @@ bool SomfyShadeController::begin() {
   return true;
 }
 void SomfyShadeController::commit() {
-  if(git.lockFS) return;
   resetTaskWdt(); // Make sure we don't reset inadvertently.
   ShadeConfigFile file;
   file.begin();
@@ -87,7 +84,6 @@ void SomfyShadeController::commit() {
   this->lastCommit = millis();
 }
 void SomfyShadeController::writeBackup() {
-  if(git.lockFS) return;
   resetTaskWdt(); // Make sure we don't reset inadvertently.
   this->backupData = "";
   this->backupData.reserve(16384);

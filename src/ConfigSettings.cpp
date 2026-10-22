@@ -239,7 +239,6 @@ bool ConfigSettings::toJSON(JsonObject &obj) {
   obj["hostname"] = this->hostname;
   obj["connType"] = static_cast<uint8_t>(this->connType);
   obj["chipModel"] = this->chipModel;
-  obj["checkForUpdate"] = this->checkForUpdate;
   return true;
 }
 bool ConfigSettings::requiresAuth() { return this->Security.type != security_types::None; }
@@ -247,7 +246,6 @@ bool ConfigSettings::fromJSON(JsonObject &obj) {
     if(!obj["ssdpBroadcast"].isNull()) this->ssdpBroadcast = obj["ssdpBroadcast"];
     if(!obj["hostname"].isNull()) this->parseValueString(obj, "hostname", this->hostname, sizeof(this->hostname));
     if(!obj["connType"].isNull()) this->connType = static_cast<conn_types_t>(obj["connType"].as<uint8_t>());
-    if(!obj["checkForUpdate"].isNull()) this->checkForUpdate = obj["checkForUpdate"];
     return true;
 }
 void ConfigSettings::print() {

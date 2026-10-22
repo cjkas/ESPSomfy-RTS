@@ -33,7 +33,6 @@ class Web {
     void handleRepeatCommand(AsyncWebServerRequest *request, JsonVariant &json);
     void handleSetPositions(AsyncWebServerRequest *request, JsonVariant &json);
     void handleSetSensor(AsyncWebServerRequest *request, JsonVariant &json);
-    void handleDownloadFirmware(AsyncWebServerRequest *request);
     void handleBackup(AsyncWebServerRequest *request);
     void handleReboot(AsyncWebServerRequest *request);
     void handleNotFound(AsyncWebServerRequest *request);
