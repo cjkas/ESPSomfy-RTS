@@ -1,0 +1,124 @@
+"""hello, the schema and the sync (docs/PROTOCOL.md)."""
+import json
+import os
+
+from proto_client import Schema, http_json, run_sync
+
+FIXTURES = os.path.join(os.path.dirname(__file__), "..", "fixtures", "proto2")
+
+
+def items(frames, schema, section):
+    key = schema.keys[section]
+    out = []
+    for f in frames:
+        v = f["d"].get(key)
+        if isinstance(v, list):
+            out.extend(v)
+        elif v is not None:
+            out.append(v)
+    return out
+
+
+def test_hello_names_the_firmware_and_schema(connect):
+    c = connect()
+    assert c.status == 101
+    hello = c.recv()
+    assert hello["v"] == 2
+    assert hello["t"] == 1
+    assert hello["d"]["fw"]
+    assert len(hello["d"]["sh"]) == 8
+
+
+def test_first_sync_carries_the_schema(connect):
+    c = connect()
+    schema = Schema()
+    hello, frames, _ = run_sync(c, schema)
+    assert schema.complete()
+    assert schema.type_numbers["hello"] == 1
+    assert schema.keys["shadeId"] == "s"
+    for f in frames:
+        assert len(json.dumps(f, separators=(",", ":"))) < 4096
+
+
+def test_a_client_with_the_schema_gets_none(connect, schema):
+    c = connect(schema=schema.hash)
+    _, frames, _ = run_sync(c)
+    for f in frames:
+        for k in ("T", "F", "E", "Q"):
+            assert k not in f["d"]
+
+
+def test_an_old_schema_hash_gets_the_schema_again(connect):
+    c = connect(schema="00000000")
+    schema = Schema()
+    run_sync(c, schema)
+    assert schema.complete()
+
+
+def test_sync_holds_the_same_model_as_controller(connect, schema, host, token):
+    c = connect(schema=schema.hash)
+    _, frames, _ = run_sync(c)
+    headers = {"apikey": token} if token else {}
+    controller = http_json(host, "/controller", headers=headers)
+    shades = [schema.expand(s) for s in items(frames, schema, "shades")]
+    groups = [schema.expand(g) for g in items(frames, schema, "groups")]
+    rooms = items(frames, schema, "rooms")
+    assert sorted(s["shadeId"] for s in shades) == sorted(s["shadeId"] for s in controller["shades"])
+    assert sorted(g["groupId"] for g in groups) == sorted(g["groupId"] for g in controller["groups"])
+    assert len(rooms) == len(controller["rooms"])
+    by_id = {s["shadeId"]: s for s in controller["shades"]}
+    for s in shades:
+        assert s.get("name", "") == by_id[s["shadeId"]]["name"]
+        assert s.get("remoteAddress", 0) == by_id[s["shadeId"]]["remoteAddress"]
+    for g in groups:
+        linked = sorted(x["shadeId"] for x in next(cg for cg in controller["groups"] if cg["groupId"] == g["groupId"])["linkedShades"])
+        assert sorted(g.get("linkedShades", [])) == linked
+    assert len(items(frames, schema, "header")) == 1
+    assert len(items(frames, schema, "status")) == 1
+
+
+def test_sync_waits_for_next(connect):
+    c = connect()
+    c.recv()  # hello
+    first = c.recv()
+    assert first["t"] == 4
+    # Without next nothing more comes, unless the whole sync fit one frame.
+    try:
+        more = c.recv(timeout=2)
+    except TimeoutError:
+        return
+    assert more["t"] == 5, "a second sync frame came without next"
+
+
+def test_resync_sends_it_all_again(connect, schema):
+    c = connect(schema=schema.hash)
+    _, first, _ = run_sync(c)
+    c.send(schema.type_numbers["sync"])
+    _, again, _ = run_sync(c, hello=False)
+    assert len(items(again, schema, "shades")) == len(items(first, schema, "shades"))
+    for f in again:
+        assert "T" not in f["d"]
+
+
+def test_record_fixtures(connect, recording):
+    """With --record, saves hello and a whole first sync for the other suites."""
+    if not recording:
+        return
+    c = connect()
+    schema = Schema()
+    run_sync(c, schema)
+    os.makedirs(FIXTURES, exist_ok=True)
+    hello = json.loads(c.raw[0])
+    with open(os.path.join(FIXTURES, "hello.json"), "w", encoding="utf-8") as f:
+        json.dump(hello, f, indent=1)
+    with open(os.path.join(FIXTURES, "sync.json"), "w", encoding="utf-8") as f:
+        json.dump([json.loads(r) for r in c.raw[1:]], f, indent=1)
+    expanded = {
+        "hash": hello["d"]["sh"],
+        "types": {str(k): v for k, v in sorted(schema.types.items())},
+        "fields": {k: {"name": n, "kind": kind, "default": d} for k, (n, kind, d) in sorted(schema.fields.items())},
+        "errors": {str(k): v for k, v in sorted(schema.errors.items())},
+        "feeds": {str(k): v for k, v in sorted(schema.feeds.items())},
+    }
+    with open(os.path.join(FIXTURES, "schema.json"), "w", encoding="utf-8") as f:
+        json.dump(expanded, f, indent=1)
