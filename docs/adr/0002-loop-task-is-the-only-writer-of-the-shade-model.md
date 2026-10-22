@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: accepted, amended by ADR-0005
 ---
 
 # The loop task is the only writer of the shade model
@@ -12,6 +12,8 @@ The shade model (rooms, shades, groups and repeaters) is changed only from `loop
 - **Keep the mix.** Shade commands were already queued while model edits and reads ran on async_tcp. Rejected because the races above stay.
 
 ## Consequences
+
+> **Amended by [ADR 0005](0005-one-websocket-protocol.md) (socket protocol 2).** The rule above stands. These consequences are replaced: model edits no longer answer "accepted" and report through `requestResult`, because every socket op gets one reply from `loop()`. Reads no longer go through a ModelSnapshot, because `loop()` formats a sync from the live model. The caps on reads and the UI's 5 s `requestResult` wait go with them.
 
 - async_tcp must still never wait for `loop()`, so a model edit's HTTP reply can't block until the change is made. The reply only says the request was accepted; the result reaches clients as a WebSocket event once `loop()` has made the change. We chose that over a chunked HTTP response that `loop()` completes, because pushing results to clients is what the WebSocket is for and it needs no pool of pending responses.
 - A read has to reply with data, so it does wait, without blocking: its chunked response sends nothing until `loop()` has filled the read's ModelSnapshot.
