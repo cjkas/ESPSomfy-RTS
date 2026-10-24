@@ -63,6 +63,9 @@ uint32_t freeRemoteAddress(uint32_t candidate, const uint32_t *used, size_t coun
   }
   return candidate;
 }
+uint32_t offeredRemoteAddress(uint32_t startingAddress, uint8_t id, const uint32_t *used, size_t count) {
+  return freeRemoteAddress(startingAddress + id, used, count);
+}
 
 template<typename T>
 static bool addTo(T *list, size_t size, T item) {

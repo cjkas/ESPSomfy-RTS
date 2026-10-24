@@ -15,66 +15,67 @@
 
 // Message types: 1-15 control, 16-127 client ops, 128-255 device events.  A
 // number is never reused; a retired type stays reserved.
-// TYPE(name, number, sender): sender is 'c' client, 'd' device, 'b' both.
+// TYPE(name, number, sender, op): sender is 'c' client, 'd' device, 'b' both;
+// op is what becomes of a client op (proto_op_t), '-' for the rest.
 #define PROTO_TYPES(TYPE) \
-  TYPE(hello, 1, 'd') \
-  TYPE(reply, 2, 'd') \
-  TYPE(next, 3, 'c') \
-  TYPE(sync, 4, 'b') \
-  TYPE(syncEnd, 5, 'd') \
-  TYPE(subscribe, 6, 'c') \
-  TYPE(unsubscribe, 7, 'c') \
-  TYPE(shadeCommand, 16, 'c') \
-  TYPE(groupCommand, 17, 'c') \
-  TYPE(tiltCommand, 18, 'c') \
-  TYPE(repeatCommand, 19, 'c') \
-  TYPE(setPositions, 20, 'c') \
-  TYPE(setSensor, 21, 'c') \
-  TYPE(setMyPosition, 22, 'c') \
-  TYPE(unpairShade, 23, 'c') \
-  TYPE(setRollingCode, 24, 'c') \
-  TYPE(sendRemoteCommand, 25, 'c') \
-  TYPE(addRoom, 26, 'c') \
-  TYPE(addShade, 27, 'c') \
-  TYPE(addGroup, 28, 'c') \
-  TYPE(saveRoom, 29, 'c') \
-  TYPE(saveShade, 30, 'c') \
-  TYPE(saveGroup, 31, 'c') \
-  TYPE(deleteRoom, 32, 'c') \
-  TYPE(deleteShade, 33, 'c') \
-  TYPE(deleteGroup, 34, 'c') \
-  TYPE(linkRemote, 35, 'c') \
-  TYPE(unlinkRemote, 36, 'c') \
-  TYPE(linkToGroup, 37, 'c') \
-  TYPE(unlinkFromGroup, 38, 'c') \
-  TYPE(linkRepeater, 39, 'c') \
-  TYPE(unlinkRepeater, 40, 'c') \
-  TYPE(setPaired, 41, 'c') \
-  TYPE(roomSortOrder, 42, 'c') \
-  TYPE(shadeSortOrder, 43, 'c') \
-  TYPE(groupSortOrder, 44, 'c') \
-  TYPE(getNextRoom, 45, 'c') \
-  TYPE(getNextShade, 46, 'c') \
-  TYPE(getNextGroup, 47, 'c') \
-  TYPE(groupOptions, 48, 'c') \
-  TYPE(shadeState, 128, 'd') \
-  TYPE(shade, 129, 'd') \
-  TYPE(shadeRemoved, 130, 'd') \
-  TYPE(group, 131, 'd') \
-  TYPE(groupState, 132, 'd') \
-  TYPE(groupRemoved, 133, 'd') \
-  TYPE(room, 134, 'd') \
-  TYPE(roomRemoved, 135, 'd') \
-  TYPE(roomOrder, 136, 'd') \
-  TYPE(shadeOrder, 137, 'd') \
-  TYPE(groupOrder, 138, 'd') \
-  TYPE(shadeCommanded, 139, 'd') \
-  TYPE(memory, 140, 'd') \
-  TYPE(wifi, 141, 'd') \
-  TYPE(ethernet, 142, 'd') \
-  TYPE(frame, 143, 'd') \
-  TYPE(frequencyScan, 144, 'd') \
-  TYPE(repeaters, 145, 'd')
+  TYPE(hello, 1, 'd', '-') \
+  TYPE(reply, 2, 'd', '-') \
+  TYPE(next, 3, 'c', '-') \
+  TYPE(sync, 4, 'b', '-') \
+  TYPE(syncEnd, 5, 'd', '-') \
+  TYPE(subscribe, 6, 'c', '-') \
+  TYPE(unsubscribe, 7, 'c', '-') \
+  TYPE(shadeCommand, 16, 'c', 'q') \
+  TYPE(groupCommand, 17, 'c', 'q') \
+  TYPE(tiltCommand, 18, 'c', 'q') \
+  TYPE(repeatCommand, 19, 'c', 'q') \
+  TYPE(setPositions, 20, 'c', 'q') \
+  TYPE(setSensor, 21, 'c', 'q') \
+  TYPE(setMyPosition, 22, 'c', 'q') \
+  TYPE(unpairShade, 23, 'c', 'q') \
+  TYPE(setRollingCode, 24, 'c', 'q') \
+  TYPE(sendRemoteCommand, 25, 'c', 'f') \
+  TYPE(addRoom, 26, 'c', 'e') \
+  TYPE(addShade, 27, 'c', 'e') \
+  TYPE(addGroup, 28, 'c', 'e') \
+  TYPE(saveRoom, 29, 'c', 'e') \
+  TYPE(saveShade, 30, 'c', 'e') \
+  TYPE(saveGroup, 31, 'c', 'e') \
+  TYPE(deleteRoom, 32, 'c', 'e') \
+  TYPE(deleteShade, 33, 'c', 'e') \
+  TYPE(deleteGroup, 34, 'c', 'e') \
+  TYPE(linkRemote, 35, 'c', 'e') \
+  TYPE(unlinkRemote, 36, 'c', 'e') \
+  TYPE(linkToGroup, 37, 'c', 'e') \
+  TYPE(unlinkFromGroup, 38, 'c', 'e') \
+  TYPE(linkRepeater, 39, 'c', 'e') \
+  TYPE(unlinkRepeater, 40, 'c', 'e') \
+  TYPE(setPaired, 41, 'c', 'e') \
+  TYPE(roomSortOrder, 42, 'c', 'e') \
+  TYPE(shadeSortOrder, 43, 'c', 'e') \
+  TYPE(groupSortOrder, 44, 'c', 'e') \
+  TYPE(getNextRoom, 45, 'c', 'r') \
+  TYPE(getNextShade, 46, 'c', 'r') \
+  TYPE(getNextGroup, 47, 'c', 'r') \
+  TYPE(groupOptions, 48, 'c', 'r') \
+  TYPE(shadeState, 128, 'd', '-') \
+  TYPE(shade, 129, 'd', '-') \
+  TYPE(shadeRemoved, 130, 'd', '-') \
+  TYPE(group, 131, 'd', '-') \
+  TYPE(groupState, 132, 'd', '-') \
+  TYPE(groupRemoved, 133, 'd', '-') \
+  TYPE(room, 134, 'd', '-') \
+  TYPE(roomRemoved, 135, 'd', '-') \
+  TYPE(roomOrder, 136, 'd', '-') \
+  TYPE(shadeOrder, 137, 'd', '-') \
+  TYPE(groupOrder, 138, 'd', '-') \
+  TYPE(shadeCommanded, 139, 'd', '-') \
+  TYPE(memory, 140, 'd', '-') \
+  TYPE(wifi, 141, 'd', '-') \
+  TYPE(ethernet, 142, 'd', '-') \
+  TYPE(frame, 143, 'd', '-') \
+  TYPE(frequencyScan, 144, 'd', '-') \
+  TYPE(repeaters, 145, 'd', '-')
 
 // Fields, in one dictionary for every type.  FIELD(name, key, kind, default):
 // kind is b bool (sent as 1/0), i integer, n number with a fraction, s string,
@@ -222,9 +223,20 @@ struct proto_named_t {
   uint8_t number;
   const char *name;
   char sender;  // types only
+  char op;      // types only
+};
+// What becomes of a client op, from the TYPE table.
+enum class proto_op_t : char {
+  none = '-',          // not an op
+  shadeRequest = 'q',  // a command: a shade request loop() runs
+  remoteFrame = 'f',   // sendRemoteCommand: a frame that goes to the radio at once
+  edit = 'e',          // an edit loop() applies
+  read = 'r'           // a read loop() answers from the shade model
 };
 const proto_field_info_t &protoField(proto_field_t field);
 const proto_field_info_t *protoFieldByKey(const char *key);
+// The field with that key; false when there is none.
+bool protoFieldOfKey(const char *key, proto_field_t &out);
 // The tables as the schema lists them, in declaration order.
 uint8_t protoTypeCount();
 const proto_named_t &protoTypeAt(uint8_t index);
@@ -235,6 +247,7 @@ const proto_named_t &protoFeedAt(uint8_t index);
 const char *protoTypeName(uint8_t number);
 // What a client may send: control messages it sends and the ops.
 bool protoClientMaySend(uint8_t type);
+proto_op_t protoOpKind(uint8_t type);
 // Hex FNV-1a of every row of the schema: 8 characters and a terminator.
 const char *protoSchemaHash();
 

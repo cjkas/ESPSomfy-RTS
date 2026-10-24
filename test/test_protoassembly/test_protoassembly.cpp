@@ -1,4 +1,5 @@
 #include <unity.h>
+#include <stdlib.h>
 #include <string.h>
 #include "ProtoAssembly.h"
 
@@ -18,26 +19,32 @@ static proto_piece_t piece(uint32_t client, const char *text, bool first, bool l
   p.len = strlen(text);
   return p;
 }
+// Takes the complete message and checks it.
+static void assertTaken(MessageAssembler &a, const char *expected) {
+  size_t len = 0;
+  char *message = a.take(len);
+  TEST_ASSERT_EQUAL_STRING(expected, message);
+  TEST_ASSERT_EQUAL_UINT32(strlen(expected), len);
+  free(message);
+}
 
 static void test_pieces_make_the_message() {
   MessageAssembler a(64);
   TEST_ASSERT_EQUAL(assembly_t::more, a.add(piece(1, "{\"v\":2,", true, false), 0));
   TEST_ASSERT_EQUAL(assembly_t::more, a.add(piece(1, "\"t\":3", false, false), 0));
   TEST_ASSERT_EQUAL(assembly_t::complete, a.add(piece(1, "}", false, true), 0));
-  TEST_ASSERT_EQUAL_STRING("{\"v\":2,\"t\":3}", a.text());
-  TEST_ASSERT_EQUAL_UINT32(13, a.length());
-  a.done();
-  TEST_ASSERT_FALSE(a.holding());
+  assertTaken(a, "{\"v\":2,\"t\":3}");
 }
-static void test_nothing_is_held_between_messages() {
+static void test_nothing_is_held_once_the_message_is_taken() {
   MessageAssembler a(64);
   TEST_ASSERT_FALSE(a.holding());
   a.add(piece(1, "ab", true, false), 0);
   TEST_ASSERT_TRUE(a.holding());
   a.add(piece(1, "c", false, true), 0);
-  a.done();
+  assertTaken(a, "abc");
   TEST_ASSERT_FALSE(a.holding());
-  TEST_ASSERT_NULL(a.text());
+  // A client leaving now can't free what was taken.
+  a.drop(1);
 }
 static void test_another_clients_message_waits() {
   MessageAssembler a(64);
@@ -46,7 +53,7 @@ static void test_another_clients_message_waits() {
   TEST_ASSERT_EQUAL(assembly_t::busy, a.add(piece(2, "xy", true, false), 10));
   TEST_ASSERT_EQUAL(assembly_t::ignored, a.add(piece(2, "z", false, true), 10));
   TEST_ASSERT_EQUAL(assembly_t::complete, a.add(piece(1, "c", false, true), 20));
-  TEST_ASSERT_EQUAL_STRING("abc", a.text());
+  assertTaken(a, "abc");
 }
 static void test_too_large_is_said_once() {
   MessageAssembler a(4);
@@ -60,28 +67,40 @@ static void test_a_binary_message_is_refused_once() {
   TEST_ASSERT_EQUAL(assembly_t::notText, a.add(piece(1, "ab", true, false, false), 0));
   TEST_ASSERT_EQUAL(assembly_t::ignored, a.add(piece(1, "c", false, true, false), 0));
 }
-static void test_a_stalled_message_gives_the_buffer_up() {
+static void test_a_binary_message_leaves_another_clients_alone() {
   MessageAssembler a(64);
   a.add(piece(1, "ab", true, false), 0);
-  TEST_ASSERT_EQUAL(assembly_t::busy, a.add(piece(2, "x", true, true), PROTO_ASSEMBLY_TIMEOUT_MS - 1));
-  TEST_ASSERT_EQUAL(assembly_t::complete, a.add(piece(2, "x", true, true), PROTO_ASSEMBLY_TIMEOUT_MS));
-  a.done();
-  // The stalled client is told once, when its next piece comes.
-  TEST_ASSERT_EQUAL(assembly_t::timedOut, a.add(piece(1, "c", false, false), PROTO_ASSEMBLY_TIMEOUT_MS + 1));
-  TEST_ASSERT_EQUAL(assembly_t::ignored, a.add(piece(1, "d", false, true), PROTO_ASSEMBLY_TIMEOUT_MS + 1));
+  TEST_ASSERT_EQUAL(assembly_t::notText, a.add(piece(2, "x", true, true, false), 0));
+  TEST_ASSERT_EQUAL(assembly_t::complete, a.add(piece(1, "c", false, true), 0));
+  assertTaken(a, "abc");
+}
+static void test_a_stalled_message_expires_and_its_client_is_owed_a_reply() {
+  MessageAssembler a(64);
+  a.add(piece(1, "ab", true, false), 0);
+  TEST_ASSERT_EQUAL_UINT32(0, a.expire(PROTO_ASSEMBLY_TIMEOUT_MS - 1));
+  TEST_ASSERT_TRUE(a.holding());
+  TEST_ASSERT_EQUAL_UINT32(1, a.expire(PROTO_ASSEMBLY_TIMEOUT_MS));
+  TEST_ASSERT_FALSE(a.holding());
+  TEST_ASSERT_EQUAL_UINT32(0, a.expire(2 * PROTO_ASSEMBLY_TIMEOUT_MS));
+  // Its late pieces were answered by the expiry.
+  TEST_ASSERT_EQUAL(assembly_t::ignored, a.add(piece(1, "c", false, true), PROTO_ASSEMBLY_TIMEOUT_MS + 1));
+  // And the buffer is free for anyone.
+  TEST_ASSERT_EQUAL(assembly_t::complete, a.add(piece(2, "xy", true, true), PROTO_ASSEMBLY_TIMEOUT_MS + 1));
+  assertTaken(a, "xy");
 }
 static void test_a_client_that_leaves_lets_go() {
   MessageAssembler a(64);
   a.add(piece(1, "ab", true, false), 0);
   a.drop(1);
   TEST_ASSERT_FALSE(a.holding());
+  TEST_ASSERT_EQUAL_UINT32(0, a.expire(PROTO_ASSEMBLY_TIMEOUT_MS));
   TEST_ASSERT_EQUAL(assembly_t::complete, a.add(piece(2, "xy", true, true), 1));
+  assertTaken(a, "xy");
 }
 static void test_a_message_of_one_piece_is_whole() {
-  // A whole binary frame, or one piece too large for the rest of the code.
   MessageAssembler a(64);
   TEST_ASSERT_EQUAL(assembly_t::complete, a.add(piece(1, "{}", true, true), 0));
-  TEST_ASSERT_EQUAL_STRING("{}", a.text());
+  assertTaken(a, "{}");
 }
 
 int main(int argc, char **argv) {
@@ -89,11 +108,12 @@ int main(int argc, char **argv) {
   (void)argv;
   UNITY_BEGIN();
   RUN_TEST(test_pieces_make_the_message);
-  RUN_TEST(test_nothing_is_held_between_messages);
+  RUN_TEST(test_nothing_is_held_once_the_message_is_taken);
   RUN_TEST(test_another_clients_message_waits);
   RUN_TEST(test_too_large_is_said_once);
   RUN_TEST(test_a_binary_message_is_refused_once);
-  RUN_TEST(test_a_stalled_message_gives_the_buffer_up);
+  RUN_TEST(test_a_binary_message_leaves_another_clients_alone);
+  RUN_TEST(test_a_stalled_message_expires_and_its_client_is_owed_a_reply);
   RUN_TEST(test_a_client_that_leaves_lets_go);
   RUN_TEST(test_a_message_of_one_piece_is_whole);
   return UNITY_END();

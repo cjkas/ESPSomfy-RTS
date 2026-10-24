@@ -55,7 +55,7 @@ void LoopQueue::drain() {
         const shade_request_result_t result = shadeRequests.run(item.request);
         if(result == shade_request_result_t::radio_refused)
           ESP_LOGW(TAG, "Radio didn't take shade request %u", static_cast<uint8_t>(item.request.type));
-        if(item.replyClient) protoSocket.replyRequest(item.replyClient, item.replyId, item.request, result);
+        if(item.replyTo.client) protoSocket.replyRequest(item.replyTo, item.request, result);
         break;
       }
       case loop_item_type_t::restore_shades: {
@@ -85,7 +85,7 @@ void LoopQueue::drain() {
         runModelEdit(item.edit);
         break;
       case loop_item_type_t::proto_read:
-        protoSocket.replyRead(item.replyClient, item.replyId, item.readOp, item.readId);
+        protoSocket.replyRead(item.replyTo, item.readOp, item.groupId);
         break;
     }
   }

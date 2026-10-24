@@ -91,6 +91,26 @@ static void test_values_are_checked_against_their_kind() {
 static void test_an_unknown_key_is_refused() {
   TEST_ASSERT_EQUAL_STRING("Unknown field zz", expand(model_edit_type_t::save_room, R"({"r":1,"zz":5})"));
 }
+static void test_a_field_the_route_would_ignore_is_refused() {
+  // In the sync, but not something a save sets.
+  TEST_ASSERT_EQUAL_STRING("linkedRemotes can't be set by this edit", expand(model_edit_type_t::save_shade, R"({"s":3,"lk":[1]})"));
+  TEST_ASSERT_EQUAL_STRING("paired can't be set by this edit", expand(model_edit_type_t::save_shade, R"({"s":3,"i":1})"));
+  TEST_ASSERT_EQUAL_STRING("shadeId can't be set by this edit", expand(model_edit_type_t::add_shade, R"({"s":3})"));
+  TEST_ASSERT_EQUAL_STRING("upTime can't be set by this edit", expand(model_edit_type_t::save_group, R"({"g":1,"U":5})"));
+  TEST_ASSERT_EQUAL_STRING("name can't be set by this edit", expand(model_edit_type_t::delete_room, R"({"r":1,"n":"x"})"));
+}
+static void test_link_remote_takes_the_routes_rolling_code() {
+  TEST_ASSERT_GOOD(expand(model_edit_type_t::link_remote, R"({"s":3,"a":1193046,"c":12})"));
+  TEST_ASSERT_EQUAL_STRING(R"({"shadeId":3,"remoteAddress":1193046,"rollingCode":12})", written().c_str());
+  TEST_ASSERT_EQUAL_STRING("lastRollingCode can't be set by this edit", expand(model_edit_type_t::unlink_remote, R"({"s":3,"a":5,"c":12})"));
+}
+static void test_a_sort_order_takes_only_ids() {
+  TEST_ASSERT_EQUAL_STRING("A sort order takes only ids", expand(model_edit_type_t::room_order, R"({"is":[1],"r":2})"));
+}
+static void test_a_shade_save_takes_what_the_form_sends() {
+  TEST_ASSERT_GOOD(expand(model_edit_type_t::save_shade,
+    R"({"s":3,"n":"Office","r":1,"a":5,"st":1,"y":2,"bl":80,"pr":1,"U":1,"D":2,"Y":3,"z":5,"fc":1,"fp":0,"ss":1,"li":0,"sm":1,"rp":2,"gu":4,"gd":5,"gm":6,"gl":1})"));
+}
 
 int main(int argc, char **argv) {
   (void)argc;
@@ -105,5 +125,9 @@ int main(int argc, char **argv) {
   RUN_TEST(test_a_sort_order_is_its_list_of_ids);
   RUN_TEST(test_values_are_checked_against_their_kind);
   RUN_TEST(test_an_unknown_key_is_refused);
+  RUN_TEST(test_a_field_the_route_would_ignore_is_refused);
+  RUN_TEST(test_link_remote_takes_the_routes_rolling_code);
+  RUN_TEST(test_a_sort_order_takes_only_ids);
+  RUN_TEST(test_a_shade_save_takes_what_the_form_sends);
   return UNITY_END();
 }

@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <string.h>
 #include "ProtoEdits.h"
 
 struct edit_op_t {
@@ -34,15 +35,65 @@ bool protoEditType(uint8_t type, model_edit_type_t &out) {
   }
   return false;
 }
-bool protoIsReadOp(uint8_t type) {
-  switch(static_cast<proto_type_t>(type)) {
-    case proto_type_t::getNextRoom:
-    case proto_type_t::getNextShade:
-    case proto_type_t::getNextGroup:
-    case proto_type_t::groupOptions:
-      return true;
-    default:
-      return false;
+bool protoIsReadOp(uint8_t type) { return protoOpKind(type) == proto_op_t::read; }
+
+// The fields each edit's route reads, so a field it would ignore is refused
+// rather than dropped without a word.
+static const proto_field_t ROOM_FIELDS[] = {proto_field_t::name, proto_field_t::sortOrder};
+static const proto_field_t SHADE_FIELDS[] = {
+  proto_field_t::name, proto_field_t::roomId, proto_field_t::remoteAddress, proto_field_t::shadeType,
+  proto_field_t::tiltType, proto_field_t::bitLength, proto_field_t::proto, proto_field_t::upTime,
+  proto_field_t::downTime, proto_field_t::tiltTime, proto_field_t::stepSize, proto_field_t::flipCommands,
+  proto_field_t::flipPosition, proto_field_t::sunSensor, proto_field_t::light, proto_field_t::simMy,
+  proto_field_t::repeats, proto_field_t::gpioUp, proto_field_t::gpioDown, proto_field_t::gpioMy,
+  proto_field_t::gpioLLTrigger
+};
+static const proto_field_t GROUP_FIELDS[] = {
+  proto_field_t::name, proto_field_t::roomId, proto_field_t::remoteAddress, proto_field_t::bitLength,
+  proto_field_t::proto, proto_field_t::flipCommands, proto_field_t::sunSensor, proto_field_t::repeats
+};
+template<size_t N>
+static bool in(proto_field_t field, const proto_field_t (&fields)[N]) {
+  for(proto_field_t f : fields)
+    if(f == field) return true;
+  return false;
+}
+static bool takes(model_edit_type_t type, proto_field_t f) {
+  switch(type) {
+    case model_edit_type_t::add_room: return in(f, ROOM_FIELDS);
+    case model_edit_type_t::save_room: return f == proto_field_t::roomId || in(f, ROOM_FIELDS);
+    case model_edit_type_t::add_shade: return in(f, SHADE_FIELDS);
+    case model_edit_type_t::save_shade: return f == proto_field_t::shadeId || in(f, SHADE_FIELDS);
+    case model_edit_type_t::add_group: return in(f, GROUP_FIELDS);
+    case model_edit_type_t::save_group: return f == proto_field_t::groupId || in(f, GROUP_FIELDS);
+    case model_edit_type_t::delete_room: return f == proto_field_t::roomId;
+    case model_edit_type_t::delete_shade: return f == proto_field_t::shadeId;
+    case model_edit_type_t::delete_group: return f == proto_field_t::groupId;
+    case model_edit_type_t::link_remote:
+      return f == proto_field_t::shadeId || f == proto_field_t::remoteAddress || f == proto_field_t::lastRollingCode;
+    case model_edit_type_t::unlink_remote: return f == proto_field_t::shadeId || f == proto_field_t::remoteAddress;
+    case model_edit_type_t::link_to_group:
+    case model_edit_type_t::unlink_from_group: return f == proto_field_t::groupId || f == proto_field_t::shadeId;
+    case model_edit_type_t::link_repeater:
+    case model_edit_type_t::unlink_repeater: return f == proto_field_t::remoteAddress;
+    case model_edit_type_t::set_paired: return f == proto_field_t::shadeId || f == proto_field_t::paired;
+    default: return false;
+  }
+}
+// The name a field has in the edit route's request.  Only linkRemote's rolling
+// code is named apart from the dictionary.
+static const char *routeName(model_edit_type_t type, proto_field_t f) {
+  if(type == model_edit_type_t::link_remote && f == proto_field_t::lastRollingCode) return "rollingCode";
+  return protoField(f).name;
+}
+static const char *kindName(char kind) {
+  switch(kind) {
+    case 'b': return "boolean (1 or 0)";
+    case 'i': return "whole number";
+    case 'n': return "number";
+    case 's': return "string";
+    case 'l': return "list";
+    default: return "object";
   }
 }
 
@@ -66,9 +117,6 @@ static bool expandValue(const proto_field_info_t &f, JsonVariantConst v, JsonVar
     case 's':
       if(v.is<const char *>()) return out.set(v);
       return false;
-    case 'l':
-      if(v.is<JsonArrayConst>()) return out.set(v);
-      return false;
     default:
       return false;
   }
@@ -80,6 +128,11 @@ const char *expandEditPayload(model_edit_type_t type, JsonObjectConst d, JsonDoc
     case model_edit_type_t::shade_order:
     case model_edit_type_t::group_order: {
       // The route takes the ids on their own, in their new order.
+      for(JsonPairConst kv : d) {
+        if(strcmp(kv.key().c_str(), protoField(proto_field_t::ids).key) == 0) continue;
+        snprintf(why, sizeof(why), "A sort order takes only ids");
+        return why;
+      }
       JsonVariantConst ids = d[protoField(proto_field_t::ids).key];
       if(!ids.is<JsonArrayConst>()) return "ids is missing";
       for(JsonVariantConst id : ids.as<JsonArrayConst>())
@@ -92,15 +145,18 @@ const char *expandEditPayload(model_edit_type_t type, JsonObjectConst d, JsonDoc
   }
   JsonObject obj = doc.to<JsonObject>();
   for(JsonPairConst kv : d) {
-    const proto_field_info_t *f = protoFieldByKey(kv.key().c_str());
-    if(!f) {
+    proto_field_t field;
+    if(!protoFieldOfKey(kv.key().c_str(), field)) {
       snprintf(why, sizeof(why), "Unknown field %s", kv.key().c_str());
       return why;
     }
-    if(!expandValue(*f, kv.value(), obj[f->name].to<JsonVariant>())) {
-      snprintf(why, sizeof(why), "%s is not a %s", f->name,
-        f->kind == 'b' ? "boolean (1 or 0)" : f->kind == 'i' ? "whole number" : f->kind == 'n' ? "number" :
-        f->kind == 's' ? "string" : "list");
+    const proto_field_info_t &f = protoField(field);
+    if(!takes(type, field)) {
+      snprintf(why, sizeof(why), "%s can't be set by this edit", f.name);
+      return why;
+    }
+    if(!expandValue(f, kv.value(), obj[routeName(type, field)].to<JsonVariant>())) {
+      snprintf(why, sizeof(why), "%s is not a %s", f.name, kindName(f.kind));
       return why;
     }
   }

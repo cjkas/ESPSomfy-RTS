@@ -2,6 +2,7 @@
 #define LOOP_QUEUE_H
 #include <stdint.h>
 #include "ShadeRequests.h"
+#include "ProtoFrame.h"
 
 // The one queue through which other tasks hand work to loop(), which alone
 // changes the shade model (docs/adr/0002-loop-task-is-the-only-writer-of-the-shade-model.md).
@@ -34,12 +35,11 @@ struct loop_item_t {
   uint8_t restoreParts = 0;       // restore_shades: RESTORE_* bits
   uint8_t slot = 0;               // snapshot_fill: the SnapshotSlots slot
   model_edit_t *edit = nullptr;   // model_edit: loop() runs and frees it
-  // shade_request and proto_read from a protocol 2 client: loop() replies to
-  // this socket client with replyId once it has run.  0 for no reply.
-  uint32_t replyClient = 0;
-  uint32_t replyId = 0;
+  // shade_request and proto_read from a protocol 2 client: loop() replies
+  // once it has run.
+  proto_reply_to_t replyTo;
   uint8_t readOp = 0;             // proto_read: the op's type
-  uint8_t readId = 0;             // proto_read: the group, for groupOptions
+  uint8_t groupId = 0;            // proto_read: groupOptions' group
 };
 
 // Whether the item sends anything on air.

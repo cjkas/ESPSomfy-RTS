@@ -75,15 +75,27 @@ def test_an_edit_of_a_missing_shade_says_why(connect, schema):
     """Refused by the edit itself on loop(), as its route would be."""
     c, shades, _ = synced_model(connect, schema)
     reply = op(c, schema, "saveShade", {"shadeId": unused(shades, "shadeId"), "name": "x"})
-    assert error_name(schema, reply) == "badRequest"
+    assert error_name(schema, reply) == "notFound"
     assert reply["d"][schema.keys["desc"]] == "Shade Id not found."
+
+
+def test_a_field_an_edit_doesnt_take_is_refused(connect, schema):
+    c, shades, _ = synced_model(connect, schema)
+    reply = op(c, schema, "saveShade", {"shadeId": unused(shades, "shadeId"), "paired": 1})
+    assert error_name(schema, reply) == "badRequest"
+    assert reply["d"][schema.keys["desc"]] == "paired can't be set by this edit"
 
 
 def test_a_sort_order_set_to_what_it_is(connect, schema):
     c, shades, _ = synced_model(connect, schema)
     if not shades:
         pytest.skip("the device has no shades")
-    ids = [s["shadeId"] for s in sorted(shades, key=lambda s: s.get("sortOrder", 0))]
+    ordered = sorted(shades, key=lambda s: s.get("sortOrder", 0))
+    # A sort order numbers the shades 0, 1, 2...: only a list already numbered
+    # so stays as it is.
+    if [s.get("sortOrder", 0) for s in ordered] != list(range(len(ordered))):
+        pytest.skip("the shades' sort orders have gaps or repeats, which a sort order would renumber")
+    ids = [s["shadeId"] for s in ordered]
     reply = op(c, schema, "shadeSortOrder", {"ids": ids})
     assert is_ok(schema, reply)
     order = c.recv_until(lambda f: f["t"] == schema.type_numbers["shadeOrder"])[-1]

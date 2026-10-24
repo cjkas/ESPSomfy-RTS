@@ -183,7 +183,7 @@ uint32_t SomfyShadeController::getNextRemoteAddress(uint8_t id) {
     if(this->shades[i].getShadeId() != 255) used[count++] = this->shades[i].getRemoteAddress();
   for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++)
     if(this->groups[i].getGroupId() != 255) used[count++] = this->groups[i].getRemoteAddress();
-  return freeRemoteAddress(this->startingAddress + id, used, count);
+  return offeredRemoteAddress(this->startingAddress, id, used, count);
 }
 uint8_t SomfyShadeController::getNextRoomId() {
   uint8_t ids[SOMFY_MAX_ROOMS];

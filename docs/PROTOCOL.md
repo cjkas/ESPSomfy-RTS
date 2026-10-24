@@ -9,7 +9,7 @@ Why the protocol looks like this: [ADR 0005](adr/0005-one-websocket-protocol.md)
 - `ws://host/ws` on port 80. Under Secured the upgrade needs `?apikey=<token>` from `/login`; without a valid one it is refused with 401 ([ADR 0006](adr/0006-two-security-modes-eleven-http-routes.md)).
 - Optional `?schema=<hash>`: the client already has the schema with that hash and doesn't need it again.
 - At most 5 clients. A sixth is closed as soon as it connects.
-- Text messages of at most 4 KB. A message may be sent as several frames, and a frame larger than one TCP segment (about 1.4 KB) reaches the device in pieces anyway; the device puts it back together. It does that for one message at a time across all clients: while it is, another client's long message is answered with busy, and the client sends it again. A message that takes over 10 s to arrive may lose its place to another. These refusals have no `id`, since the message couldn't be read. A binary encoding, if one comes, would be asked for at the upgrade (for example `?enc=bin`) and use binary frames.
+- Text messages of at most 4 KB. A message may be sent as several frames, and a frame larger than one TCP segment (about 1.4 KB) reaches the device in pieces anyway; the device puts it back together. It does that for one message at a time across all clients: while it is, another client's long message is answered with busy, and the client sends it again. A message that hasn't arrived in full within 10 s is given up, and its client is told with a bad request. These refusals have no `id`, since the message couldn't be read. A binary encoding, if one comes, would be asked for at the upgrade (for example `?enc=bin`) and use binary frames.
 
 ## Envelope
 
@@ -107,9 +107,9 @@ Every op carries an `id` and gets one reply. The ops do what the HTTP routes of 
 Each edit op is the edit route of the same name: `addRoom`, `addShade`, `addGroup`, `saveRoom`, `saveShade`, `saveGroup`, `deleteRoom`, `deleteShade`, `deleteGroup`, `linkRemote`, `unlinkRemote`, `linkToGroup`, `unlinkFromGroup`, `linkRepeater`, `unlinkRepeater`, `setPaired`, `roomSortOrder`, `shadeSortOrder`, `groupSortOrder`.
 
 - The payload holds what the route's request does, under the dictionary's keys: a room's, shade's or group's fields as in the sync, and its id to save, delete or link it. `linkRemote` takes `remoteAddress` and `lastRollingCode`; `linkRepeater` takes `remoteAddress`. A sort order takes `ids`, the ids in their new order.
-- As with the commands, only the fields that were sent are applied. A key that isn't in the dictionary, or a value of the wrong kind, is a bad request before anything is queued.
+- As with the commands, only the fields that were sent are applied. A key that isn't in the dictionary, a field the edit doesn't set (a save doesn't set `paired` or `linkedRemotes`, for one), or a value of the wrong kind, is a bad request before anything is queued.
 - One edit runs at a time, whichever client or route sent it: while one is waiting, another gets busy.
-- The reply comes once the edit is applied and saved. An add's reply carries the new item's id (`roomId`, `shadeId` or `groupId`). A refused edit is a bad request with the route's reason in `desc`, and for a shade whose settings don't add up, the reason's number in `validation`.
+- The reply comes once the edit is applied and saved. An add's reply carries the new item's id (`roomId`, `shadeId` or `groupId`). A refused edit has the route's reason in `desc`: not found for an id that doesn't exist, otherwise a bad request, with the reason's number in `validation` for a shade whose settings don't add up.
 - The edit's events follow: the whole item for an add or save, `*Removed` for a delete, the new order for a sort order, `repeaters` for a repeater.
 
 ## Reads

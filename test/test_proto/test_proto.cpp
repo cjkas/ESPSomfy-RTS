@@ -50,6 +50,26 @@ static void test_type_names_are_unique() {
   std::set<std::string> names;
   for(uint8_t i = 0; i < protoTypeCount(); i++) TEST_ASSERT_TRUE_MESSAGE(names.insert(protoTypeAt(i).name).second, protoTypeAt(i).name);
 }
+static void test_every_op_says_what_becomes_of_it() {
+  for(uint8_t i = 0; i < protoTypeCount(); i++) {
+    const proto_named_t &t = protoTypeAt(i);
+    const bool op = t.number >= 16 && t.number <= 127;
+    TEST_ASSERT_EQUAL_MESSAGE(op, protoOpKind(t.number) != proto_op_t::none, t.name);
+  }
+  TEST_ASSERT_EQUAL(proto_op_t::shadeRequest, protoOpKind(static_cast<uint8_t>(proto_type_t::shadeCommand)));
+  TEST_ASSERT_EQUAL(proto_op_t::remoteFrame, protoOpKind(static_cast<uint8_t>(proto_type_t::sendRemoteCommand)));
+  TEST_ASSERT_EQUAL(proto_op_t::edit, protoOpKind(static_cast<uint8_t>(proto_type_t::saveShade)));
+  TEST_ASSERT_EQUAL(proto_op_t::read, protoOpKind(static_cast<uint8_t>(proto_type_t::groupOptions)));
+  TEST_ASSERT_EQUAL(proto_op_t::none, protoOpKind(250));
+}
+static void test_a_field_by_its_key() {
+  proto_field_t f;
+  TEST_ASSERT_TRUE(protoFieldOfKey("s", f));
+  TEST_ASSERT_EQUAL(proto_field_t::shadeId, f);
+  TEST_ASSERT_TRUE(protoFieldOfKey("vc", f));
+  TEST_ASSERT_EQUAL(proto_field_t::validation, f);
+  TEST_ASSERT_FALSE(protoFieldOfKey("zz", f));
+}
 static void test_error_and_feed_numbers_are_unique() {
   std::set<uint8_t> errors, feeds;
   for(uint8_t i = 0; i < protoErrorCount(); i++) TEST_ASSERT_TRUE(errors.insert(protoErrorAt(i).number).second);
@@ -386,6 +406,8 @@ int main(int argc, char **argv) {
   RUN_TEST(test_every_field_has_a_known_kind);
   RUN_TEST(test_type_numbers_are_unique_and_in_their_sender_range);
   RUN_TEST(test_type_names_are_unique);
+  RUN_TEST(test_every_op_says_what_becomes_of_it);
+  RUN_TEST(test_a_field_by_its_key);
   RUN_TEST(test_error_and_feed_numbers_are_unique);
   RUN_TEST(test_bootstrap_keys_are_fixed);
   RUN_TEST(test_schema_hash_is_eight_hex_digits_and_stable);
