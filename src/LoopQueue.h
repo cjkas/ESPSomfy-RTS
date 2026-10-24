@@ -33,6 +33,10 @@ struct loop_item_t {
   uint8_t restoreParts = 0;       // restore_shades: RESTORE_* bits
   uint8_t slot = 0;               // snapshot_fill: the SnapshotSlots slot
   model_edit_t *edit = nullptr;   // model_edit: loop() runs and frees it
+  // shade_request from a protocol 2 client: loop() replies to this socket
+  // client with replyId once the request has run.  0 for no reply.
+  uint32_t replyClient = 0;
+  uint32_t replyId = 0;
 };
 
 // Whether the item sends anything on air.

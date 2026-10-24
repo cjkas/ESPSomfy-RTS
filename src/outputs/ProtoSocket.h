@@ -3,6 +3,7 @@
 #include <ESPAsyncWebServer.h>
 #include "ProtoSchema.h"
 #include "ModelEditor.h"
+#include "ShadeRequests.h"
 
 class SomfyShade;
 class SomfyGroup;
@@ -23,6 +24,8 @@ class ProtoSocket {
     // Moves each client's sync on.  loop() only.
     void loop();
     bool hasClients() const;
+    // The reply to a command op once loop() has run its shade request.
+    void replyRequest(uint32_t client, uint32_t id, const shade_request_t &req, shade_request_result_t result);
     // Events, loop() only.
     void shadeState(SomfyShade &shade);
     void shade(SomfyShade &shade);
@@ -35,7 +38,7 @@ class ProtoSocket {
     // roomOrder, shadeOrder or groupOrder: the list's ids, in sort order.
     void order(sort_list_t list);
     void repeaters();
-    void shadeCommand(SomfyShade &shade, const char *command, const char *source, uint32_t sourceAddress);
+    void shadeCommanded(SomfyShade &shade, const char *command, const char *source, uint32_t sourceAddress);
     void memory();
     void wifi();
     void ethernet();

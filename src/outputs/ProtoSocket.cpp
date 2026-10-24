@@ -7,6 +7,8 @@
 #include "ProtoFrame.h"
 #include "ProtoParse.h"
 #include "ProtoSlots.h"
+#include "ProtoOps.h"
+#include "LoopQueue.h"
 #include "SomfySnapshot.h"
 #include "Somfy.h"
 #include "ConfigSettings.h"
@@ -26,6 +28,7 @@ extern ESPNetwork net;
 extern Web webServer;
 extern LoopStats loopStats;
 extern SocketEmitter sockEmit;
+extern LoopQueue loopQueue;
 
 ProtoSocket protoSocket;
 static AsyncWebSocket ws("/ws");
@@ -144,6 +147,34 @@ static void replyOk(AsyncWebSocketClient *client, uint32_t id) {
   if(id == 0) return;
   sendFixed(client, [](JsonFormatter &json, void *ctx) { writeOkReply(json, *static_cast<uint32_t *>(ctx)); }, &id);
 }
+// A command op that becomes a shade request: loop() runs it and replies.
+static void queueShadeOp(AsyncWebSocketClient *client, const proto_message_t &req, JsonObjectConst d) {
+  loop_item_t item;
+  const char *bad = parseShadeOp(req.type, d, item.request);
+  if(bad) { replyError(client, req.id, proto_error_t::badRequest, bad); return; }
+  // Nothing goes on air during a frequency scan, so say so now rather than
+  // once it reaches the radio.
+  if(loopItemUsesRadio(item) && somfy.transceiver.txSuspended()) {
+    replyError(client, req.id, proto_error_t::radioUnavailable, "The radio is paused");
+    return;
+  }
+  item.replyClient = client->id();
+  item.replyId = req.id;
+  if(!loopQueue.submit(item)) replyError(client, req.id, proto_error_t::busy, "Command queue full");
+}
+// A frame as a remote that isn't one of the shades.  It touches nothing of the
+// shade model and the radio takes jobs from any task, so it goes from here.
+static void sendRemoteCommand(AsyncWebSocketClient *client, const proto_message_t &req, JsonObjectConst d) {
+  somfy_frame_t frame;
+  uint8_t repeats;
+  const char *bad = parseRemoteCommandOp(d, frame, repeats);
+  if(bad) { replyError(client, req.id, proto_error_t::badRequest, bad); return; }
+  if(!somfy.sendFrame(frame, repeats)) {
+    replyError(client, req.id, proto_error_t::radioUnavailable, "The radio didn't take the command");
+    return;
+  }
+  replyOk(client, req.id);
+}
 static bool authorized(AsyncWebServerRequest *request) {
   if(settings.Security.type == security_types::None) return true;
   const AsyncWebParameter *key = request->getParam("apikey");
@@ -210,8 +241,15 @@ static void onFrame(AsyncWebSocketClient *client, AwsFrameInfo *info, uint8_t *d
       replyOk(client, msg.id);
       return;
     }
+    case proto_type_t::sendRemoteCommand:
+      sendRemoteCommand(client, msg, doc["d"]);
+      return;
     default:
-      // The ops arrive with the protocol core's later PRs.
+      if(protoIsShadeOp(msg.type)) {
+        queueShadeOp(client, msg, doc["d"]);
+        return;
+      }
+      // The edit and settings ops arrive with the protocol core's later PRs.
       replyError(client, msg.id, proto_error_t::unknownOp, "Unknown message type");
       return;
   }
@@ -269,6 +307,18 @@ void ProtoSocket::loop() {
     }
   }
   ws.cleanupClients(PROTO_MAX_CLIENTS);
+}
+
+void ProtoSocket::replyRequest(uint32_t client, uint32_t id, const shade_request_t &req, shade_request_result_t result) {
+  if(!sockEmit.onLoopTask() || id == 0) return;
+  char buf[192];
+  BufferedJsonFormatter json;
+  json.setBuffer(buf, sizeof(buf));
+  const proto_error_t code = protoRequestError(result);
+  if(code == proto_error_t::none) writeOkReply(json, id);
+  else writeErrorReply(json, id, code, protoRequestErrorDesc(req, result));
+  // A client that has gone is skipped.
+  if(!json.overflowed()) ws.text(client, buf, json.length());
 }
 
 /*********************************************************************
@@ -373,9 +423,9 @@ void ProtoSocket::repeaters() {
   w.endList();
   sendEvent();
 }
-void ProtoSocket::shadeCommand(SomfyShade &shade, const char *command, const char *source, uint32_t sourceAddress) {
+void ProtoSocket::shadeCommanded(SomfyShade &shade, const char *command, const char *source, uint32_t sourceAddress) {
   if(!this->sending()) return;
-  ProtoWriter w(beginEvent(proto_type_t::shadeCommand));
+  ProtoWriter w(beginEvent(proto_type_t::shadeCommanded));
   w.add(proto_field_t::shadeId, shade.getShadeId());
   w.add(proto_field_t::remoteAddress, shade.getRemoteAddress());
   w.add(proto_field_t::command, command);

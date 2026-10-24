@@ -85,16 +85,20 @@ class ShadeOps {
     virtual bool sendGroupSensorCommand(uint8_t groupId, int8_t windy, int8_t sunny, uint8_t repeat) = 0;
 };
 
+// How a request went.  One with nothing in range to do is done.
+enum class shade_request_result_t : uint8_t {
+  done,
+  not_found,      // no shade or group with that id; nothing was done
+  radio_refused   // the radio didn't take a command it sent
+};
+
 // Carries out shade requests, whichever entry point they came from: finds
 // the shade or group, turns client positions into stored ones, checks
 // ranges and fills in default repeats.  Runs on loop() only.
 class ShadeRequests {
   public:
     explicit ShadeRequests(ShadeOps &ops) : ops(ops) {}
-    // False when the radio refused a command it sent.  A request for a shade
-    // or group that doesn't exist, or with nothing in range to do, is dropped
-    // and returns true.
-    bool run(const shade_request_t &req);
+    shade_request_result_t run(const shade_request_t &req);
   private:
     ShadeOps &ops;
 };
