@@ -134,6 +134,66 @@ static void test_255_means_no_pin() {
   TEST_ASSERT_EQUAL_INT8(0, conflict(shade_types::roller, radio_proto::GP_Remote, 255, 26, 255));
 }
 
+/*********************************************************************
+ * What protocol 2 clients are sent after an edit
+ ********************************************************************/
+static edit_result_t resultFor(uint8_t id, uint8_t shadeId = 0) {
+  edit_result_t r;
+  r.id = id;
+  r.shadeId = shadeId;
+  return r;
+}
+static void test_a_shade_edit_sends_the_whole_shade() {
+  const model_edit_type_t types[] = {
+    model_edit_type_t::add_shade, model_edit_type_t::save_shade, model_edit_type_t::set_paired,
+    model_edit_type_t::link_remote, model_edit_type_t::unlink_remote
+  };
+  for(model_edit_type_t t : types) {
+    const edit_changes_t c = editChanges(t, resultFor(7));
+    TEST_ASSERT_EQUAL_UINT8(7, c.shadeId);
+    TEST_ASSERT_EQUAL_UINT8(0, c.groupId);
+    TEST_ASSERT_EQUAL_UINT8(0, c.roomId);
+  }
+}
+static void test_a_group_edit_sends_the_whole_group() {
+  TEST_ASSERT_EQUAL_UINT8(3, editChanges(model_edit_type_t::add_group, resultFor(3)).groupId);
+  TEST_ASSERT_EQUAL_UINT8(3, editChanges(model_edit_type_t::save_group, resultFor(3)).groupId);
+}
+static void test_linking_a_shade_to_a_group_sends_both() {
+  // The shade's inGroup changes with the group's shades.
+  for(model_edit_type_t t : {model_edit_type_t::link_to_group, model_edit_type_t::unlink_from_group}) {
+    const edit_changes_t c = editChanges(t, resultFor(3, 9));
+    TEST_ASSERT_EQUAL_UINT8(3, c.groupId);
+    TEST_ASSERT_EQUAL_UINT8(9, c.shadeId);
+  }
+}
+static void test_a_room_edit_sends_the_room() {
+  TEST_ASSERT_EQUAL_UINT8(2, editChanges(model_edit_type_t::add_room, resultFor(2)).roomId);
+  TEST_ASSERT_EQUAL_UINT8(2, editChanges(model_edit_type_t::save_room, resultFor(2)).roomId);
+}
+static void test_a_sort_edit_sends_its_list() {
+  TEST_ASSERT_EQUAL(sort_list_t::rooms, editChanges(model_edit_type_t::room_order, resultFor(0)).order);
+  TEST_ASSERT_EQUAL(sort_list_t::shades, editChanges(model_edit_type_t::shade_order, resultFor(0)).order);
+  TEST_ASSERT_EQUAL(sort_list_t::groups, editChanges(model_edit_type_t::group_order, resultFor(0)).order);
+  TEST_ASSERT_EQUAL(sort_list_t::none, editChanges(model_edit_type_t::save_shade, resultFor(1)).order);
+}
+static void test_a_repeater_edit_sends_the_repeaters() {
+  TEST_ASSERT_TRUE(editChanges(model_edit_type_t::link_repeater, resultFor(0)).repeaters);
+  TEST_ASSERT_TRUE(editChanges(model_edit_type_t::unlink_repeater, resultFor(0)).repeaters);
+  TEST_ASSERT_FALSE(editChanges(model_edit_type_t::save_room, resultFor(1)).repeaters);
+}
+static void test_deletes_send_nothing_more() {
+  // Their removals go out as they happen.
+  for(model_edit_type_t t : {model_edit_type_t::delete_room, model_edit_type_t::delete_shade, model_edit_type_t::delete_group}) {
+    const edit_changes_t c = editChanges(t, resultFor(4));
+    TEST_ASSERT_EQUAL_UINT8(0, c.shadeId);
+    TEST_ASSERT_EQUAL_UINT8(0, c.groupId);
+    TEST_ASSERT_EQUAL_UINT8(0, c.roomId);
+    TEST_ASSERT_EQUAL(sort_list_t::none, c.order);
+    TEST_ASSERT_FALSE(c.repeaters);
+  }
+}
+
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
@@ -157,5 +217,12 @@ int main(int argc, char **argv) {
   RUN_TEST(test_a_pin_another_shade_uses);
   RUN_TEST(test_only_the_pins_a_shade_drives_are_checked);
   RUN_TEST(test_255_means_no_pin);
+  RUN_TEST(test_a_shade_edit_sends_the_whole_shade);
+  RUN_TEST(test_a_group_edit_sends_the_whole_group);
+  RUN_TEST(test_linking_a_shade_to_a_group_sends_both);
+  RUN_TEST(test_a_room_edit_sends_the_room);
+  RUN_TEST(test_a_sort_edit_sends_its_list);
+  RUN_TEST(test_a_repeater_edit_sends_the_repeaters);
+  RUN_TEST(test_deletes_send_nothing_more);
   return UNITY_END();
 }

@@ -74,12 +74,15 @@ Protocol 2 lands as one PR per step, and `main` keeps working throughout because
 
 | # | Repo | Scope |
 |---|---|---|
-| 1 | firmware | protocol core next to the existing HTTP: `hello`, socket auth, ops through the LoopQueue, sync, events, schema; the e2e suite starts |
+| 1a | firmware | protocol core next to the existing HTTP: `hello`, socket auth, sync, events, feeds, schema; the e2e suite starts |
+| 1b | firmware | command ops through the LoopQueue, with replies from `loop()` |
+| 1c | firmware | model edit ops, replacing `requestResult`; messages reassembled from their pieces |
+| 1d | firmware | settings ops (`getSettings`/`saveSettings` by section), the WiFi and frequency scans, reboot |
 | 2 | firmware | web UI on ops; the CSS files bundled; token in `sessionStorage`; banner on a version mismatch |
 | 3 | HA | protocol 2 with the old-firmware fallback; `/loginContext` setup; runtime login and reauth |
-| 4 | firmware | removals: the old routes, ports 8081 and 8080, `/discovery`, ModelSnapshot, the GitHub update, "Secure Config Only"; static serving limited to web assets; CORS headers; Origin check |
+| 4 | firmware | removals: the old routes, ports 8081 and 8080, `/discovery`, ModelSnapshot, "Secure Config Only"; static serving limited to web assets; CORS headers; Origin check |
 
-PR B (token key) and PR C (login backoff) are separate firmware PRs that can land at any point.
+PR B (token key) and PR C (login backoff) are separate firmware PRs that can land at any point. The GitHub update was removed ahead of the rest ([ADR 0007](adr/0007-no-github-update.md)), as protocol 2 didn't fit beside it.
 
 ## Tests
 

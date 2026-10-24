@@ -21,6 +21,8 @@ struct room_t {
   bool leave(uint8_t num);
   void clear();
 };
+// The old socket on port 8080.  It goes with step 4 of docs/SECURITY_PLAN.md,
+// and with it every sockEmit call that sits next to a protoSocket one.
 class SocketEmitter {
   protected:
     uint8_t newclients = 0;
@@ -29,9 +31,11 @@ class SocketEmitter {
     TaskHandle_t _owner = nullptr;
     // What beginEmit() hands any other task, so the event goes nowhere.
     JsonSockEvent _discard;
-    bool onLoopTask() const;
     void delayInit(uint8_t num);
   public:
+    // Whether this runs on loop()'s task, the only one that may send socket
+    // events: this socket's and protocol 2's.
+    bool onLoopTask() const;
     JsonSockEvent json;
     room_t rooms[SOCK_MAX_ROOMS];
     uint8_t activeClients(uint8_t room);

@@ -48,7 +48,7 @@ void SomfyShadeOps::setUnpaired(uint8_t shadeId) {
   SomfyShade *shade = somfy.getShadeById(shadeId);
   shade->paired = false;
   shade->save();
-  shade->changed |= SHADE_CHANGED_CONFIG;
+  shade->configChanged();
 }
 void SomfyShadeOps::setRollingCode(uint8_t shadeId, uint16_t code) { somfy.getShadeById(shadeId)->setRollingCode(code); }
 bool SomfyShadeOps::sendGroupCommand(uint8_t groupId, somfy_commands cmd, uint8_t repeat, uint8_t stepSize) {

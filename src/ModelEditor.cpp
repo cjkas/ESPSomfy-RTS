@@ -1,5 +1,44 @@
 #include "ModelEditor.h"
 
+edit_changes_t editChanges(model_edit_type_t type, const edit_result_t &result) {
+  edit_changes_t c;
+  switch(type) {
+    case model_edit_type_t::add_shade:
+    case model_edit_type_t::save_shade:
+    case model_edit_type_t::set_paired:
+    case model_edit_type_t::link_remote:
+    case model_edit_type_t::unlink_remote:
+      c.shadeId = result.id;
+      break;
+    case model_edit_type_t::add_group:
+    case model_edit_type_t::save_group:
+      c.groupId = result.id;
+      break;
+    // The shade's inGroup goes with it.
+    case model_edit_type_t::link_to_group:
+    case model_edit_type_t::unlink_from_group:
+      c.groupId = result.id;
+      c.shadeId = result.shadeId;
+      break;
+    case model_edit_type_t::add_room:
+    case model_edit_type_t::save_room:
+      c.roomId = result.id;
+      break;
+    case model_edit_type_t::room_order: c.order = sort_list_t::rooms; break;
+    case model_edit_type_t::shade_order: c.order = sort_list_t::shades; break;
+    case model_edit_type_t::group_order: c.order = sort_list_t::groups; break;
+    case model_edit_type_t::link_repeater:
+    case model_edit_type_t::unlink_repeater:
+      c.repeaters = true;
+      break;
+    case model_edit_type_t::delete_room:
+    case model_edit_type_t::delete_shade:
+    case model_edit_type_t::delete_group:
+      break;
+  }
+  return c;
+}
+
 uint8_t firstFreeId(const uint8_t *usedIds, size_t count, uint8_t lastId) {
   for(uint16_t id = 1; id <= lastId; id++) {
     bool used = false;

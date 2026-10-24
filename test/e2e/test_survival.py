@@ -16,13 +16,17 @@ MAX_CLIENTS = 5
 
 @pytest.fixture
 def watch_heap(host):
-    """Fails the test when the device rebooted or its heap fell under the floor."""
+    """Fails the test when the device rebooted or its heap fell under the floor.
+
+    The device reports its lowest heap since it booted, so a dip under the
+    floor only shows while that low is still above it."""
     before = heap(host)
+    if before["min"] < HEAP_FLOOR:
+        pytest.skip("the heap has been down to %u bytes since boot: reboot the device to check the floor" % before["min"])
     yield before
     after = heap(host)
     assert after["uptime"] > before["uptime"], "the device rebooted"
-    assert after["min"] >= HEAP_FLOOR or after["min"] == before["min"], (
-        "the heap fell to %u bytes (floor %u)" % (after["min"], HEAP_FLOOR))
+    assert after["min"] >= HEAP_FLOOR, "the heap fell to %u bytes (floor %u)" % (after["min"], HEAP_FLOOR)
 
 
 def test_every_client_reconnecting_at_once(connect, schema, watch_heap):

@@ -9,7 +9,7 @@ Why the protocol looks like this: [ADR 0005](adr/0005-one-websocket-protocol.md)
 - `ws://host/ws` on port 80. Under Secured the upgrade needs `?apikey=<token>` from `/login`; without a valid one it is refused with 401 ([ADR 0006](adr/0006-two-security-modes-eleven-http-routes.md)).
 - Optional `?schema=<hash>`: the client already has the schema with that hash and doesn't need it again.
 - At most 5 clients. A sixth is closed as soon as it connects.
-- Text frames only, and each message in one frame: a fragmented message is answered with a bad request. A binary encoding, if one comes, would be asked for at the upgrade (for example `?enc=bin`) and use binary frames.
+- Text frames only, and each message in one frame: a fragmented message is answered with one bad request, without an `id` since it couldn't be read. Until the device puts messages together from their pieces, that includes a frame larger than one TCP segment (about 1.4 KB), which also reaches it in pieces. A binary encoding, if one comes, would be asked for at the upgrade (for example `?enc=bin`) and use binary frames.
 
 ## Envelope
 
@@ -76,7 +76,7 @@ Events go out to every client from the moment it connects, so they can arrive du
 
 ## Replies
 
-A client message with an `id` gets exactly one `reply` with that `id`, to that client only: `ok` 1 on success, or an error `code` and a `desc` for people. Error codes are in the schema: bad request, unknown op, unauthorized, not found, busy, radio unavailable, internal.
+A client message with an `id` gets exactly one `reply` with that `id`, to that client only, whether it is an op or a control message such as `next`: `ok` 1 on success, or an error `code` and a `desc` for people. Error codes are in the schema: bad request, unknown op, unauthorized, not found, busy, radio unavailable, internal.
 
 A malformed message gets a bad request, with its `id` when it had one. A type a client may not send gets an unknown op.
 

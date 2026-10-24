@@ -140,6 +140,8 @@ class SomfyShade : public SomfyRemote, public ShadeSettings, private MotorLink, 
     void emitState(uint8_t num, const char *evt = "shadeState");
     // What changed since the fan-out last sent the shade (SHADE_CHANGED_* bits).
     uint16_t changed = 0;
+    // A setting changed: protocol 2 clients get the whole shade.
+    void configChanged() { this->changed |= SHADE_CHANGED_CONFIG; }
     void emitCommand(somfy_commands cmd, const char *source, uint32_t sourceAddress, const char *evt = "shadeCommand");
     void emitCommand(uint8_t num, somfy_commands cmd, const char *source, uint32_t sourceAddress, const char *evt = "shadeCommand");
     // False when the radio refused a command it sent.
@@ -215,6 +217,8 @@ class SomfyGroup : public SomfyRemote {
     void emitState(uint8_t num, const char *evt = "groupState");
     // What changed since the fan-out last sent the group (GROUP_CHANGED_* bits).
     uint8_t changed = 0;
+    // A setting or its shades changed: protocol 2 clients get the whole group.
+    void configChanged() { this->changed |= GROUP_CHANGED_CONFIG; }
     bool sendCommand(somfy_commands cmd);
     bool sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize = 0);
     int8_t p_direction(int8_t dir);

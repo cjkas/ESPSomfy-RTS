@@ -4,6 +4,7 @@
 #include <vector>
 #include <ArduinoJson.h>
 #include "ProtoSchema.h"
+#include "ProtoFrame.h"
 #include "ProtoSync.h"
 #include "ProtoParse.h"
 
@@ -21,16 +22,16 @@ static BufferedJsonFormatter fmt;
  ********************************************************************/
 static void test_field_keys_and_names_are_unique() {
   std::set<std::string> keys, names;
-  for(uint8_t i = 0; i < static_cast<uint8_t>(pf::count); i++) {
-    const proto_field_info_t &f = protoField(static_cast<pf>(i));
+  for(uint8_t i = 0; i < static_cast<uint8_t>(proto_field_t::count); i++) {
+    const proto_field_info_t &f = protoField(static_cast<proto_field_t>(i));
     TEST_ASSERT_TRUE_MESSAGE(keys.insert(f.key).second, f.key);
     TEST_ASSERT_TRUE_MESSAGE(names.insert(f.name).second, f.name);
     TEST_ASSERT_TRUE_MESSAGE(strlen(f.key) >= 1 && strlen(f.key) <= 2, f.key);
   }
 }
 static void test_every_field_has_a_known_kind() {
-  for(uint8_t i = 0; i < static_cast<uint8_t>(pf::count); i++) {
-    const proto_field_info_t &f = protoField(static_cast<pf>(i));
+  for(uint8_t i = 0; i < static_cast<uint8_t>(proto_field_t::count); i++) {
+    const proto_field_info_t &f = protoField(static_cast<proto_field_t>(i));
     TEST_ASSERT_NOT_NULL_MESSAGE(strchr("binslo", f.kind), f.name);
   }
 }
@@ -52,12 +53,12 @@ static void test_error_and_feed_numbers_are_unique() {
 }
 static void test_bootstrap_keys_are_fixed() {
   // A client needs these before it has the schema.
-  TEST_ASSERT_EQUAL_STRING("fw", protoField(pf::fw).key);
-  TEST_ASSERT_EQUAL_STRING("sh", protoField(pf::schemaHash).key);
-  TEST_ASSERT_EQUAL_STRING("T", protoField(pf::types).key);
-  TEST_ASSERT_EQUAL_STRING("F", protoField(pf::fields).key);
-  TEST_ASSERT_EQUAL_STRING("E", protoField(pf::errors).key);
-  TEST_ASSERT_EQUAL_STRING("Q", protoField(pf::feeds).key);
+  TEST_ASSERT_EQUAL_STRING("fw", protoField(proto_field_t::fw).key);
+  TEST_ASSERT_EQUAL_STRING("sh", protoField(proto_field_t::schemaHash).key);
+  TEST_ASSERT_EQUAL_STRING("T", protoField(proto_field_t::types).key);
+  TEST_ASSERT_EQUAL_STRING("F", protoField(proto_field_t::fields).key);
+  TEST_ASSERT_EQUAL_STRING("E", protoField(proto_field_t::errors).key);
+  TEST_ASSERT_EQUAL_STRING("Q", protoField(proto_field_t::feeds).key);
 }
 static void test_schema_hash_is_eight_hex_digits_and_stable() {
   const std::string first = protoSchemaHash();
@@ -83,22 +84,22 @@ static std::string writeObject(void (*fill)(ProtoWriter &)) {
 }
 static void test_values_at_their_default_are_left_out() {
   TEST_ASSERT_EQUAL_STRING("{}", writeObject([](ProtoWriter &w) {
-    w.add(pf::position, (int8_t)0);
-    w.add(pf::myPos, (int8_t)-1);
-    w.add(pf::repeats, (uint8_t)1);
-    w.add(pf::paired, false);
-    w.add(pf::name, "");
-    w.add(pf::name, (const char *)nullptr);
+    w.add(proto_field_t::position, (int8_t)0);
+    w.add(proto_field_t::myPos, (int8_t)-1);
+    w.add(proto_field_t::repeats, (uint8_t)1);
+    w.add(proto_field_t::paired, false);
+    w.add(proto_field_t::name, "");
+    w.add(proto_field_t::name, (const char *)nullptr);
   }).c_str());
 }
 static void test_values_off_their_default_are_written_by_key() {
   TEST_ASSERT_EQUAL_STRING("{\"p\":50,\"m\":0,\"i\":1,\"n\":\"Office\",\"a\":4294967295,\"q\":-5}", writeObject([](ProtoWriter &w) {
-    w.add(pf::position, (int8_t)50);
-    w.add(pf::myPos, (int8_t)0);
-    w.add(pf::paired, true);
-    w.add(pf::name, "Office");
-    w.add(pf::remoteAddress, (uint32_t)0xFFFFFFFF);
-    w.add(pf::tiltPosition, (int8_t)-5);
+    w.add(proto_field_t::position, (int8_t)50);
+    w.add(proto_field_t::myPos, (int8_t)0);
+    w.add(proto_field_t::paired, true);
+    w.add(proto_field_t::name, "Office");
+    w.add(proto_field_t::remoteAddress, (uint32_t)0xFFFFFFFF);
+    w.add(proto_field_t::tiltPosition, (int8_t)-5);
   }).c_str());
 }
 
@@ -116,6 +117,11 @@ static void test_error_reply_frame() {
   writeErrorReply(fmt, 17, proto_error_t::notFound, "Shade not found");
   // ok is 0, its default, so it is left out.
   TEST_ASSERT_EQUAL_STRING("{\"v\":2,\"t\":2,\"id\":17,\"d\":{\"e\":4,\"x\":\"Shade not found\"}}", buff);
+}
+static void test_ok_reply_frame() {
+  fmt.setBuffer(buff, sizeof(buff));
+  writeOkReply(fmt, 9);
+  TEST_ASSERT_EQUAL_STRING("{\"v\":2,\"t\":2,\"id\":9,\"d\":{\"k\":1}}", buff);
 }
 
 /*********************************************************************
@@ -193,8 +199,8 @@ class ArraySource : public SyncSource {
     bool shade(uint8_t slot, shade_snapshot_t &out) override { out = shades[slot]; return out.shadeId != 0; }
     bool group(uint8_t slot, group_snapshot_t &out) override { out = groups[slot]; return out.groupId != 0; }
     bool repeater(uint8_t slot, uint32_t &address) override { address = repeaters[slot]; return address != 0; }
-    void header(ProtoWriter &w) override { w.add(pf::maxShades, (uint8_t)SOMFY_MAX_SHADES); }
-    void status(ProtoWriter &w) override { w.add(pf::freeHeap, (uint32_t)80000); }
+    void header(ProtoWriter &w) override { w.add(proto_field_t::maxShades, (uint8_t)SOMFY_MAX_SHADES); }
+    void status(ProtoWriter &w) override { w.add(proto_field_t::freeHeap, (uint32_t)80000); }
 };
 static void fillWidest(ArraySource &src) {
   for(uint8_t i = 0; i < SOMFY_MAX_ROOMS; i++) {
@@ -236,7 +242,7 @@ static std::vector<JsonDocument> runSync(SyncSource &src, bool withSchema, size_
   return frames;
 }
 // How many items a section has over every frame.
-static size_t count(const std::vector<JsonDocument> &frames, pf section) {
+static size_t count(const std::vector<JsonDocument> &frames, proto_field_t section) {
   size_t n = 0;
   for(const JsonDocument &doc : frames) {
     JsonVariantConst v = doc["d"][protoField(section).key];
@@ -250,16 +256,16 @@ static void test_full_sync_sends_every_item_whole() {
   fillWidest(src);
   const std::vector<JsonDocument> frames = runSync(src, true, PROTO_MAX_FRAME);
   TEST_ASSERT_GREATER_THAN_UINT32(1, frames.size());
-  TEST_ASSERT_EQUAL_UINT32(protoTypeCount(), count(frames, pf::types));
-  TEST_ASSERT_EQUAL_UINT32(static_cast<uint8_t>(pf::count), count(frames, pf::fields));
-  TEST_ASSERT_EQUAL_UINT32(protoErrorCount(), count(frames, pf::errors));
-  TEST_ASSERT_EQUAL_UINT32(protoFeedCount(), count(frames, pf::feeds));
-  TEST_ASSERT_EQUAL_UINT32(1, count(frames, pf::header));
-  TEST_ASSERT_EQUAL_UINT32(SOMFY_MAX_ROOMS, count(frames, pf::rooms));
-  TEST_ASSERT_EQUAL_UINT32(SOMFY_MAX_SHADES, count(frames, pf::shades));
-  TEST_ASSERT_EQUAL_UINT32(SOMFY_MAX_GROUPS, count(frames, pf::groups));
-  TEST_ASSERT_EQUAL_UINT32(SOMFY_MAX_REPEATERS, count(frames, pf::repeaters));
-  TEST_ASSERT_EQUAL_UINT32(1, count(frames, pf::status));
+  TEST_ASSERT_EQUAL_UINT32(protoTypeCount(), count(frames, proto_field_t::types));
+  TEST_ASSERT_EQUAL_UINT32(static_cast<uint8_t>(proto_field_t::count), count(frames, proto_field_t::fields));
+  TEST_ASSERT_EQUAL_UINT32(protoErrorCount(), count(frames, proto_field_t::errors));
+  TEST_ASSERT_EQUAL_UINT32(protoFeedCount(), count(frames, proto_field_t::feeds));
+  TEST_ASSERT_EQUAL_UINT32(1, count(frames, proto_field_t::header));
+  TEST_ASSERT_EQUAL_UINT32(SOMFY_MAX_ROOMS, count(frames, proto_field_t::rooms));
+  TEST_ASSERT_EQUAL_UINT32(SOMFY_MAX_SHADES, count(frames, proto_field_t::shades));
+  TEST_ASSERT_EQUAL_UINT32(SOMFY_MAX_GROUPS, count(frames, proto_field_t::groups));
+  TEST_ASSERT_EQUAL_UINT32(SOMFY_MAX_REPEATERS, count(frames, proto_field_t::repeaters));
+  TEST_ASSERT_EQUAL_UINT32(1, count(frames, proto_field_t::status));
   // Every shade comes out with all its linked remotes.
   for(const JsonDocument &doc : frames)
     for(JsonVariantConst s : doc["d"]["S"].as<JsonArrayConst>())
@@ -270,8 +276,8 @@ static void test_a_client_with_the_schema_skips_it() {
   src = ArraySource();
   src.shades[0] = restingShade(1);
   const std::vector<JsonDocument> frames = runSync(src, false, PROTO_MAX_FRAME);
-  TEST_ASSERT_EQUAL_UINT32(0, count(frames, pf::types));
-  TEST_ASSERT_EQUAL_UINT32(0, count(frames, pf::fields));
+  TEST_ASSERT_EQUAL_UINT32(0, count(frames, proto_field_t::types));
+  TEST_ASSERT_EQUAL_UINT32(0, count(frames, proto_field_t::fields));
   TEST_ASSERT_EQUAL_UINT32(1, frames.size());
   TEST_ASSERT_EQUAL(1, frames[0]["d"]["S"][0]["s"].as<int>());
 }
@@ -282,9 +288,9 @@ static void test_empty_slots_are_skipped() {
   src.shades[20] = restingShade(21);
   src.rooms[3].roomId = 4;
   const std::vector<JsonDocument> frames = runSync(src, false, PROTO_MAX_FRAME);
-  TEST_ASSERT_EQUAL_UINT32(2, count(frames, pf::shades));
-  TEST_ASSERT_EQUAL_UINT32(1, count(frames, pf::rooms));
-  TEST_ASSERT_EQUAL_UINT32(0, count(frames, pf::groups));
+  TEST_ASSERT_EQUAL_UINT32(2, count(frames, proto_field_t::shades));
+  TEST_ASSERT_EQUAL_UINT32(1, count(frames, proto_field_t::rooms));
+  TEST_ASSERT_EQUAL_UINT32(0, count(frames, proto_field_t::groups));
   TEST_ASSERT_TRUE(frames[0]["d"]["X"].isNull());
 }
 static void test_a_small_frame_takes_more_frames_and_keeps_items_whole() {
@@ -293,8 +299,8 @@ static void test_a_small_frame_takes_more_frames_and_keeps_items_whole() {
   const std::vector<JsonDocument> big = runSync(src, false, PROTO_MAX_FRAME);
   const std::vector<JsonDocument> small = runSync(src, false, 1400);
   TEST_ASSERT_GREATER_THAN_UINT32(big.size(), small.size());
-  TEST_ASSERT_EQUAL_UINT32(SOMFY_MAX_SHADES, count(small, pf::shades));
-  TEST_ASSERT_EQUAL_UINT32(SOMFY_MAX_GROUPS, count(small, pf::groups));
+  TEST_ASSERT_EQUAL_UINT32(SOMFY_MAX_SHADES, count(small, proto_field_t::shades));
+  TEST_ASSERT_EQUAL_UINT32(SOMFY_MAX_GROUPS, count(small, proto_field_t::groups));
 }
 static void test_an_item_too_big_for_a_frame_is_left_out_and_the_rest_go() {
   static ArraySource src;
@@ -303,7 +309,7 @@ static void test_an_item_too_big_for_a_frame_is_left_out_and_the_rest_go() {
   src.shades[1] = restingShade(2);
   // Too small for the widest shade, big enough for a resting one.
   const std::vector<JsonDocument> frames = runSync(src, false, 200);
-  TEST_ASSERT_EQUAL_UINT32(1, count(frames, pf::shades));
+  TEST_ASSERT_EQUAL_UINT32(1, count(frames, proto_field_t::shades));
 }
 static void test_the_largest_shade_fits_one_frame() {
   // test_full_sync covers it in the sync; this is the shade event on its own.
@@ -320,26 +326,26 @@ static void test_the_largest_shade_fits_one_frame() {
 /*********************************************************************
  * What clients send
  ********************************************************************/
-static proto_error_t parse(const char *text, proto_request_t &req) {
+static proto_error_t parse(const char *text, proto_message_t &req) {
   JsonDocument doc;
   return parseClientFrame(text, strlen(text), doc, req);
 }
 static void test_next_is_read() {
-  proto_request_t req;
+  proto_message_t req;
   TEST_ASSERT_EQUAL(proto_error_t::none, parse("{\"v\":2,\"t\":3}", req));
   TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(proto_type_t::next), req.type);
   TEST_ASSERT_EQUAL_UINT32(0, req.id);
 }
 static void test_subscribe_carries_its_id_and_payload() {
-  proto_request_t req;
+  proto_message_t req;
   JsonDocument doc;
   const char *text = "{\"v\":2,\"t\":6,\"id\":9,\"d\":{\"fe\":1}}";
   TEST_ASSERT_EQUAL(proto_error_t::none, parseClientFrame(text, strlen(text), doc, req));
   TEST_ASSERT_EQUAL_UINT32(9, req.id);
-  TEST_ASSERT_EQUAL_INT32(1, protoInt(doc["d"], pf::feed));
+  TEST_ASSERT_EQUAL_INT32(1, protoInt(doc["d"], proto_field_t::feed));
 }
 static void test_bad_frames_are_refused() {
-  proto_request_t req;
+  proto_message_t req;
   TEST_ASSERT_EQUAL(proto_error_t::badRequest, parse("not json", req));
   TEST_ASSERT_EQUAL(proto_error_t::badRequest, parse("[2,3]", req));
   TEST_ASSERT_EQUAL(proto_error_t::badRequest, parse("{\"v\":1,\"t\":3}", req));
@@ -349,7 +355,7 @@ static void test_bad_frames_are_refused() {
   TEST_ASSERT_EQUAL(proto_error_t::badRequest, parse("{\"v\":2,\"t\":3,\"id\":\"x\"}", req));
 }
 static void test_types_a_client_may_not_send_are_unknown() {
-  proto_request_t req;
+  proto_message_t req;
   // A device event, and a number nobody uses.
   TEST_ASSERT_EQUAL(proto_error_t::unknownOp, parse("{\"v\":2,\"t\":128,\"id\":5}", req));
   TEST_ASSERT_EQUAL_UINT32(5, req.id);
@@ -359,12 +365,12 @@ static void test_a_left_out_field_reads_as_its_default() {
   JsonDocument doc;
   deserializeJson(doc, "{\"p\":40}");
   JsonObjectConst d = doc.as<JsonObjectConst>();
-  TEST_ASSERT_EQUAL_INT32(40, protoInt(d, pf::position));
-  TEST_ASSERT_EQUAL_INT32(-1, protoInt(d, pf::myPos));
-  TEST_ASSERT_FALSE(protoBool(d, pf::paired));
-  TEST_ASSERT_NULL(protoString(d, pf::name));
-  TEST_ASSERT_TRUE(protoHas(d, pf::position));
-  TEST_ASSERT_FALSE(protoHas(d, pf::target));
+  TEST_ASSERT_EQUAL_INT32(40, protoInt(d, proto_field_t::position));
+  TEST_ASSERT_EQUAL_INT32(-1, protoInt(d, proto_field_t::myPos));
+  TEST_ASSERT_FALSE(protoBool(d, proto_field_t::paired));
+  TEST_ASSERT_NULL(protoString(d, proto_field_t::name));
+  TEST_ASSERT_TRUE(protoHas(d, proto_field_t::position));
+  TEST_ASSERT_FALSE(protoHas(d, proto_field_t::target));
 }
 
 int main(int argc, char **argv) {
@@ -382,6 +388,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_values_off_their_default_are_written_by_key);
   RUN_TEST(test_hello_frame);
   RUN_TEST(test_error_reply_frame);
+  RUN_TEST(test_ok_reply_frame);
   RUN_TEST(test_shade_state_of_a_resting_shade_is_its_id);
   RUN_TEST(test_group_lists_shade_ids);
   RUN_TEST(test_full_sync_sends_every_item_whole);

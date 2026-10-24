@@ -231,9 +231,6 @@ static void controllerHeader(JsonFormatter &json, const model_snapshot_t &snap) 
 // The parts of /discovery that aren't in the shade model.
 static void discoveryHeader(JsonFormatter &json, const model_snapshot_t &snap) {
   (void)snap;
-  const char *connType = "Unknown";
-  if(net.connType == conn_types_t::ethernet) connType = "Ethernet";
-  else if(net.connType == conn_types_t::wifi) connType = "Wifi";
   json.addElem("serverId", settings.serverId);
   json.addElem("version", settings.fwVersion.name);
   json.addElem("model", "ESPSomfyRTS");
@@ -241,7 +238,7 @@ static void discoveryHeader(JsonFormatter &json, const model_snapshot_t &snap) {
   json.addElem("authType", static_cast<uint8_t>(settings.Security.type));
   json.addElem("permissions", settings.Security.permissions);
   json.addElem("chipModel", settings.chipModel);
-  json.addElem("connType", connType);
+  json.addElem("connType", net.connTypeName());
   json.beginObject("memory");
   json.addElem("max", ESP.getMaxAllocHeap());
   json.addElem("free", ESP.getFreeHeap());

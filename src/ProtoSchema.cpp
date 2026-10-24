@@ -13,9 +13,9 @@ static const proto_named_t ERRORS[] = { PROTO_ERRORS(PROTO_NAMED_ROW) };
 static const proto_named_t FEEDS[] = { PROTO_FEEDS(PROTO_NAMED_ROW) };
 #undef PROTO_SENDER
 #undef PROTO_NAMED_ROW
-static_assert(sizeof(FIELDS) / sizeof(FIELDS[0]) == static_cast<size_t>(pf::count), "a field without a row");
+static_assert(sizeof(FIELDS) / sizeof(FIELDS[0]) == static_cast<size_t>(proto_field_t::count), "a field without a row");
 
-const proto_field_info_t &protoField(pf field) { return FIELDS[static_cast<uint8_t>(field)]; }
+const proto_field_info_t &protoField(proto_field_t field) { return FIELDS[static_cast<uint8_t>(field)]; }
 const proto_field_info_t *protoFieldByKey(const char *key) {
   for(const proto_field_info_t &f : FIELDS)
     if(strcmp(f.key, key) == 0) return &f;
@@ -76,31 +76,4 @@ void ProtoWriter::addInt(const proto_field_info_t &f, int64_t value) {
 void ProtoWriter::item(int64_t value) {
   if(value >= INT32_MIN && value <= INT32_MAX) this->json.addElem((int32_t)value);
   else this->json.addElem((uint32_t)value);
-}
-
-void beginFrame(JsonFormatter &json, proto_type_t type, uint32_t id) {
-  json.beginObject();
-  json.addElem("v", (uint8_t)PROTO_VERSION);
-  json.addElem("t", static_cast<uint8_t>(type));
-  if(id) json.addElem("id", id);
-  json.beginObject("d");
-}
-void endFrame(JsonFormatter &json) {
-  json.endObject();
-  json.endObject();
-}
-void writeErrorReply(JsonFormatter &json, uint32_t id, proto_error_t code, const char *desc) {
-  beginFrame(json, proto_type_t::reply, id);
-  ProtoWriter w(json);
-  w.add(pf::ok, false);
-  w.add(pf::code, static_cast<uint8_t>(code));
-  w.add(pf::desc, desc);
-  endFrame(json);
-}
-void writeHello(JsonFormatter &json, const char *fw) {
-  beginFrame(json, proto_type_t::hello);
-  ProtoWriter w(json);
-  w.add(pf::fw, fw);
-  w.add(pf::schemaHash, protoSchemaHash());
-  endFrame(json);
 }

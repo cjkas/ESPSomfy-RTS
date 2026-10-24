@@ -1,5 +1,6 @@
 #include "esp_log.h"
 #include "ProtoSync.h"
+#include "ProtoFrame.h"
 
 static const char *TAG = "Proto";
 
@@ -7,81 +8,81 @@ static const char *TAG = "Proto";
  * Items
  ********************************************************************/
 void protoRoom(ProtoWriter &w, const room_snapshot_t &room) {
-  w.add(pf::roomId, room.roomId);
-  w.add(pf::name, room.name);
-  w.add(pf::sortOrder, room.sortOrder);
+  w.add(proto_field_t::roomId, room.roomId);
+  w.add(proto_field_t::name, room.name);
+  w.add(proto_field_t::sortOrder, room.sortOrder);
 }
 void protoShadeState(ProtoWriter &w, const shade_snapshot_t &shade) {
-  w.add(pf::shadeId, shade.shadeId);
-  w.add(pf::position, shade.position);
-  w.add(pf::target, shade.target);
-  w.add(pf::direction, shade.direction);
-  w.add(pf::myPos, shade.myPos);
-  w.add(pf::tiltPosition, shade.tiltPosition);
-  w.add(pf::tiltTarget, shade.tiltTarget);
-  w.add(pf::tiltDirection, shade.tiltDirection);
-  w.add(pf::myTiltPos, shade.myTiltPos);
-  w.add(pf::flags, shade.flags);
-  w.add(pf::lastRollingCode, shade.lastRollingCode);
+  w.add(proto_field_t::shadeId, shade.shadeId);
+  w.add(proto_field_t::position, shade.position);
+  w.add(proto_field_t::target, shade.target);
+  w.add(proto_field_t::direction, shade.direction);
+  w.add(proto_field_t::myPos, shade.myPos);
+  w.add(proto_field_t::tiltPosition, shade.tiltPosition);
+  w.add(proto_field_t::tiltTarget, shade.tiltTarget);
+  w.add(proto_field_t::tiltDirection, shade.tiltDirection);
+  w.add(proto_field_t::myTiltPos, shade.myTiltPos);
+  w.add(proto_field_t::flags, shade.flags);
+  w.add(proto_field_t::lastRollingCode, shade.lastRollingCode);
 }
 void protoShade(ProtoWriter &w, const shade_snapshot_t &shade) {
   protoShadeState(w, shade);
-  w.add(pf::roomId, shade.roomId);
-  w.add(pf::name, shade.name);
-  w.add(pf::remoteAddress, shade.remoteAddress);
-  w.add(pf::upTime, shade.upTime);
-  w.add(pf::downTime, shade.downTime);
-  w.add(pf::tiltTime, shade.tiltTime);
-  w.add(pf::stepSize, shade.stepSize);
-  w.add(pf::paired, shade.paired);
-  w.add(pf::tiltType, shade.tiltType);
-  w.add(pf::shadeType, shade.shadeType);
-  w.add(pf::bitLength, shade.bitLength);
-  w.add(pf::proto, shade.proto);
-  w.add(pf::flipCommands, shade.flipCommands);
-  w.add(pf::flipPosition, shade.flipPosition);
-  w.add(pf::inGroup, shade.inGroup);
-  w.add(pf::sunSensor, shade.sunSensor);
-  w.add(pf::light, shade.light);
-  w.add(pf::simMy, shade.simMy);
-  w.add(pf::repeats, shade.repeats);
-  w.add(pf::sortOrder, shade.sortOrder);
-  w.add(pf::gpioUp, shade.gpioUp);
-  w.add(pf::gpioDown, shade.gpioDown);
-  w.add(pf::gpioMy, shade.gpioMy);
-  w.add(pf::gpioLLTrigger, shade.gpioLLTrigger);
+  w.add(proto_field_t::roomId, shade.roomId);
+  w.add(proto_field_t::name, shade.name);
+  w.add(proto_field_t::remoteAddress, shade.remoteAddress);
+  w.add(proto_field_t::upTime, shade.upTime);
+  w.add(proto_field_t::downTime, shade.downTime);
+  w.add(proto_field_t::tiltTime, shade.tiltTime);
+  w.add(proto_field_t::stepSize, shade.stepSize);
+  w.add(proto_field_t::paired, shade.paired);
+  w.add(proto_field_t::tiltType, shade.tiltType);
+  w.add(proto_field_t::shadeType, shade.shadeType);
+  w.add(proto_field_t::bitLength, shade.bitLength);
+  w.add(proto_field_t::proto, shade.proto);
+  w.add(proto_field_t::flipCommands, shade.flipCommands);
+  w.add(proto_field_t::flipPosition, shade.flipPosition);
+  w.add(proto_field_t::inGroup, shade.inGroup);
+  w.add(proto_field_t::sunSensor, shade.sunSensor);
+  w.add(proto_field_t::light, shade.light);
+  w.add(proto_field_t::simMy, shade.simMy);
+  w.add(proto_field_t::repeats, shade.repeats);
+  w.add(proto_field_t::sortOrder, shade.sortOrder);
+  w.add(proto_field_t::gpioUp, shade.gpioUp);
+  w.add(proto_field_t::gpioDown, shade.gpioDown);
+  w.add(proto_field_t::gpioMy, shade.gpioMy);
+  w.add(proto_field_t::gpioLLTrigger, shade.gpioLLTrigger);
   if(shade.linkedRemoteCount == 0) return;
-  w.beginList(pf::linkedRemotes);
+  w.beginList(proto_field_t::linkedRemotes);
   for(uint8_t i = 0; i < shade.linkedRemoteCount; i++) {
     w.beginItem();
-    w.add(pf::remoteAddress, shade.linkedRemotes[i].remoteAddress);
-    w.add(pf::lastRollingCode, shade.linkedRemotes[i].lastRollingCode);
+    w.add(proto_field_t::remoteAddress, shade.linkedRemotes[i].remoteAddress);
+    w.add(proto_field_t::lastRollingCode, shade.linkedRemotes[i].lastRollingCode);
     w.endItem();
   }
   w.endList();
 }
 void protoGroup(ProtoWriter &w, const group_snapshot_t &group) {
-  w.add(pf::groupId, group.groupId);
-  w.add(pf::roomId, group.roomId);
-  w.add(pf::name, group.name);
-  w.add(pf::remoteAddress, group.remoteAddress);
-  w.add(pf::lastRollingCode, group.lastRollingCode);
-  w.add(pf::bitLength, group.bitLength);
-  w.add(pf::proto, group.proto);
-  w.add(pf::sunSensor, group.sunSensor);
-  w.add(pf::flipCommands, group.flipCommands);
-  w.add(pf::flags, group.flags);
-  w.add(pf::repeats, group.repeats);
-  w.add(pf::sortOrder, group.sortOrder);
+  w.add(proto_field_t::groupId, group.groupId);
+  w.add(proto_field_t::roomId, group.roomId);
+  w.add(proto_field_t::name, group.name);
+  w.add(proto_field_t::remoteAddress, group.remoteAddress);
+  w.add(proto_field_t::lastRollingCode, group.lastRollingCode);
+  w.add(proto_field_t::bitLength, group.bitLength);
+  w.add(proto_field_t::proto, group.proto);
+  w.add(proto_field_t::sunSensor, group.sunSensor);
+  w.add(proto_field_t::flipCommands, group.flipCommands);
+  w.add(proto_field_t::flags, group.flags);
+  w.add(proto_field_t::repeats, group.repeats);
+  w.add(proto_field_t::sortOrder, group.sortOrder);
   if(group.linkedShadeCount == 0) return;
-  w.beginList(pf::linkedShades);
+  w.beginList(proto_field_t::linkedShades);
   for(uint8_t i = 0; i < group.linkedShadeCount; i++) w.item(group.linkedShades[i]);
   w.endList();
 }
 void protoGroupState(ProtoWriter &w, uint8_t groupId, uint8_t flags, int8_t direction) {
-  w.add(pf::groupId, groupId);
-  w.add(pf::flags, flags);
-  w.add(pf::direction, direction);
+  w.add(proto_field_t::groupId, groupId);
+  w.add(proto_field_t::flags, flags);
+  w.add(proto_field_t::direction, direction);
 }
 
 /*********************************************************************
@@ -98,24 +99,24 @@ sync_cursor_t beginSync(bool withSchema) {
   return cur;
 }
 
-static pf sectionField(sync_section_t section) {
+static proto_field_t sectionField(sync_section_t section) {
   switch(section) {
-    case sync_section_t::types: return pf::types;
-    case sync_section_t::fields: return pf::fields;
-    case sync_section_t::errors: return pf::errors;
-    case sync_section_t::feeds: return pf::feeds;
-    case sync_section_t::header: return pf::header;
-    case sync_section_t::rooms: return pf::rooms;
-    case sync_section_t::shades: return pf::shades;
-    case sync_section_t::groups: return pf::groups;
-    case sync_section_t::repeaters: return pf::repeaters;
-    default: return pf::status;
+    case sync_section_t::types: return proto_field_t::types;
+    case sync_section_t::fields: return proto_field_t::fields;
+    case sync_section_t::errors: return proto_field_t::errors;
+    case sync_section_t::feeds: return proto_field_t::feeds;
+    case sync_section_t::header: return proto_field_t::header;
+    case sync_section_t::rooms: return proto_field_t::rooms;
+    case sync_section_t::shades: return proto_field_t::shades;
+    case sync_section_t::groups: return proto_field_t::groups;
+    case sync_section_t::repeaters: return proto_field_t::repeaters;
+    default: return proto_field_t::status;
   }
 }
 static uint8_t sectionSlots(sync_section_t section) {
   switch(section) {
     case sync_section_t::types: return protoTypeCount();
-    case sync_section_t::fields: return static_cast<uint8_t>(pf::count);
+    case sync_section_t::fields: return static_cast<uint8_t>(proto_field_t::count);
     case sync_section_t::errors: return protoErrorCount();
     case sync_section_t::feeds: return protoFeedCount();
     case sync_section_t::rooms: return SOMFY_MAX_ROOMS;
@@ -139,7 +140,7 @@ static bool writeItem(SyncSource &src, ProtoWriter &w, sync_section_t section, u
     case sync_section_t::errors: namedRow(json, protoErrorAt(slot)); return true;
     case sync_section_t::feeds: namedRow(json, protoFeedAt(slot)); return true;
     case sync_section_t::fields: {
-      const proto_field_info_t &f = protoField(static_cast<pf>(slot));
+      const proto_field_info_t &f = protoField(static_cast<proto_field_t>(slot));
       const char kind[2] = {f.kind, '\0'};
       json.beginArray();
       json.addElem(f.key);

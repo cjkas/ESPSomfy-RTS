@@ -322,11 +322,11 @@ void Transceiver::emitFrequencyScan(uint8_t num) {
   sockEmit.endEmit(num);
   if(num == 255 && protoSocket.subscribed(proto_feed_t::frequencyScan)) {
     ProtoWriter w = protoSocket.beginFeed(proto_type_t::frequencyScan);
-    w.add(pf::scanning, rxmode == 3);
-    w.add(pf::testFreq, currFreq);
-    w.add(pf::testRssi, (int32_t)currRSSI);
-    w.add(pf::frequency, markFreq);
-    w.add(pf::rssi, (int32_t)markRSSI);
+    w.add(proto_field_t::scanning, rxmode == 3);
+    w.add(proto_field_t::testFreq, currFreq);
+    w.add(proto_field_t::testRssi, (int32_t)currRSSI);
+    w.add(proto_field_t::frequency, markFreq);
+    w.add(proto_field_t::rssi, (int32_t)markRSSI);
     protoSocket.endFeed(proto_feed_t::frequencyScan);
   }
 }
@@ -377,19 +377,19 @@ void Transceiver::emitFrame(somfy_frame_t *frame, somfy_rx_t *rx) {
   }
   if(protoSocket.subscribed(proto_feed_t::frames)) {
     ProtoWriter w = protoSocket.beginFeed(proto_type_t::frame);
-    w.add(pf::encKey, frame->encKey);
-    w.add(pf::remoteAddress, (uint32_t)frame->remoteAddress);
-    w.add(pf::lastRollingCode, (uint32_t)frame->rollingCode);
-    w.add(pf::command, translateSomfyCommand(frame->cmd).c_str());
-    w.add(pf::rawCmd, frame->rawCmd);
-    w.add(pf::rssi, (int32_t)frame->rssi);
-    w.add(pf::bits, rx ? rx->bit_length : (uint8_t)0);
-    w.add(pf::proto, static_cast<uint8_t>(frame->proto));
-    w.add(pf::valid, frame->valid);
-    w.add(pf::hwsync, frame->hwsync);
-    if(frame->cmd == somfy_commands::StepUp || frame->cmd == somfy_commands::StepDown) w.add(pf::stepSize, frame->stepSize);
+    w.add(proto_field_t::encKey, frame->encKey);
+    w.add(proto_field_t::remoteAddress, (uint32_t)frame->remoteAddress);
+    w.add(proto_field_t::lastRollingCode, (uint32_t)frame->rollingCode);
+    w.add(proto_field_t::command, translateSomfyCommand(frame->cmd).c_str());
+    w.add(proto_field_t::rawCmd, frame->rawCmd);
+    w.add(proto_field_t::rssi, (int32_t)frame->rssi);
+    w.add(proto_field_t::bits, rx ? rx->bit_length : (uint8_t)0);
+    w.add(proto_field_t::proto, static_cast<uint8_t>(frame->proto));
+    w.add(proto_field_t::valid, frame->valid);
+    w.add(proto_field_t::hwsync, frame->hwsync);
+    if(frame->cmd == somfy_commands::StepUp || frame->cmd == somfy_commands::StepDown) w.add(proto_field_t::stepSize, frame->stepSize);
     if(rx && rx->pulseCount) {
-      w.beginList(pf::pulses);
+      w.beginList(proto_field_t::pulses);
       for(uint16_t i = 0; i < rx->pulseCount; i++) w.item(rx->pulses[i]);
       w.endList();
     }

@@ -228,48 +228,19 @@ void cancelModelEdit(model_edit_t *edit) {
   delete edit;
   editBusy.store(false);
 }
-// What protocol 2 clients get after an edit: the whole item it changed, by its
-// config bit for shades and groups, so the change fan-out sends it once.
-// Deletes send their removal from the controller as they happen.
+// What protocol 2 clients get after an edit (editChanges).  A shade or group
+// goes out whole from the change fan-out, by its config bit, so it is sent
+// once with whatever else changed; the rest goes out now.
 static void markEdited(const model_edit_t &edit, const edit_result_t &result) {
-  auto shade = [](uint8_t id) {
-    SomfyShade *s = somfy.getShadeById(id);
-    if(s) s->changed |= SHADE_CHANGED_CONFIG;
-  };
-  auto group = [](uint8_t id) {
-    SomfyGroup *g = somfy.getGroupById(id);
-    if(g) g->changed |= GROUP_CHANGED_CONFIG;
-  };
-  switch(edit.type) {
-    case model_edit_type_t::add_shade:
-    case model_edit_type_t::save_shade:
-    case model_edit_type_t::set_paired:
-    case model_edit_type_t::link_remote:
-    case model_edit_type_t::unlink_remote:
-      shade(result.id);
-      break;
-    case model_edit_type_t::add_group:
-    case model_edit_type_t::save_group:
-      group(result.id);
-      break;
-    case model_edit_type_t::link_to_group:
-    case model_edit_type_t::unlink_from_group:
-      group(result.id);
-      shade(edit.doc["shadeId"] | (uint8_t)0);
-      break;
-    case model_edit_type_t::add_room:
-    case model_edit_type_t::save_room: {
-      SomfyRoom *room = somfy.getRoomById(result.id);
-      if(room) protoSocket.room(*room);
-      break;
-    }
-    case model_edit_type_t::room_order: protoSocket.order(proto_type_t::roomOrder); break;
-    case model_edit_type_t::shade_order: protoSocket.order(proto_type_t::shadeOrder); break;
-    case model_edit_type_t::group_order: protoSocket.order(proto_type_t::groupOrder); break;
-    case model_edit_type_t::link_repeater:
-    case model_edit_type_t::unlink_repeater: protoSocket.repeaters(); break;
-    default: break;
-  }
+  const edit_changes_t c = editChanges(edit.type, result);
+  SomfyShade *shade = c.shadeId ? somfy.getShadeById(c.shadeId) : nullptr;
+  if(shade) shade->configChanged();
+  SomfyGroup *group = c.groupId ? somfy.getGroupById(c.groupId) : nullptr;
+  if(group) group->configChanged();
+  SomfyRoom *room = c.roomId ? somfy.getRoomById(c.roomId) : nullptr;
+  if(room) protoSocket.room(*room);
+  if(c.order != sort_list_t::none) protoSocket.order(c.order);
+  if(c.repeaters) protoSocket.repeaters();
 }
 void runModelEdit(model_edit_t *edit) {
   const edit_result_t result = applyModelEdit(*edit);
@@ -404,7 +375,9 @@ edit_result_t applyModelEdit(model_edit_t &edit) {
       else if(!group->linkShade(shadeId)) return edit_result_t::error("This group already has the most shades it can.");
       somfy.commit();
       group->emitState();
-      return done(groupId);
+      edit_result_t r = done(groupId);
+      r.shadeId = shadeId;
+      return r;
     }
     case model_edit_type_t::link_repeater:
     case model_edit_type_t::unlink_repeater: {

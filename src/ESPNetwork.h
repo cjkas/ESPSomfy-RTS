@@ -38,6 +38,12 @@ class ESPNetwork {
     bool connecting();
     void clearConnecting();
     conn_types_t preferredConnType();
+    // How the device is connected, as clients are told: Ethernet, Wifi or Unknown.
+    const char *connTypeName() const {
+      if(this->connType == conn_types_t::ethernet) return "Ethernet";
+      if(this->connType == conn_types_t::wifi) return "Wifi";
+      return "Unknown";
+    }
     String ssid;
     String mac;
     int channel;

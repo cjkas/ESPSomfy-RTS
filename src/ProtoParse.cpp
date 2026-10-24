@@ -1,7 +1,7 @@
 #include "ProtoParse.h"
 
-proto_error_t parseClientFrame(const char *text, size_t len, JsonDocument &doc, proto_request_t &out) {
-  out = proto_request_t();
+proto_error_t parseClientFrame(const char *text, size_t len, JsonDocument &doc, proto_message_t &out) {
+  out = proto_message_t();
   if(len > PROTO_MAX_CLIENT_FRAME) return proto_error_t::badRequest;
   if(deserializeJson(doc, text, len) != DeserializationError::Ok) return proto_error_t::badRequest;
   if(!doc.is<JsonObject>()) return proto_error_t::badRequest;
@@ -19,18 +19,18 @@ proto_error_t parseClientFrame(const char *text, size_t len, JsonDocument &doc, 
   return proto_error_t::none;
 }
 
-int32_t protoInt(JsonObjectConst d, pf field) {
+int32_t protoInt(JsonObjectConst d, proto_field_t field) {
   const proto_field_info_t &f = protoField(field);
   JsonVariantConst v = d[f.key];
   return v.is<int32_t>() ? v.as<int32_t>() : f.def;
 }
-bool protoBool(JsonObjectConst d, pf field) {
+bool protoBool(JsonObjectConst d, proto_field_t field) {
   const proto_field_info_t &f = protoField(field);
   JsonVariantConst v = d[f.key];
   return v.is<int>() ? v.as<int>() != 0 : f.def != 0;
 }
-const char *protoString(JsonObjectConst d, pf field) {
+const char *protoString(JsonObjectConst d, proto_field_t field) {
   JsonVariantConst v = d[protoField(field).key];
   return v.is<const char *>() ? v.as<const char *>() : nullptr;
 }
-bool protoHas(JsonObjectConst d, pf field) { return !d[protoField(field).key].isNull(); }
+bool protoHas(JsonObjectConst d, proto_field_t field) { return !d[protoField(field).key].isNull(); }

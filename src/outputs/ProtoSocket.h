@@ -2,6 +2,7 @@
 #define PROTO_SOCKET_H
 #include <ESPAsyncWebServer.h>
 #include "ProtoSchema.h"
+#include "ModelEditor.h"
 
 class SomfyShade;
 class SomfyGroup;
@@ -13,11 +14,8 @@ class SomfyRoom;
 //
 // async_tcp only reads what clients send and answers with fixed frames that
 // hold nothing of the shade model (hello, errors, ok).  Everything formatted
-// from the model goes out from loop(), in the socket event buffer.
-#define PROTO_MAX_CLIENTS 5
-// How long a client may take to ask for the next sync frame.
-#define PROTO_SYNC_TIMEOUT_MS 30000
-
+// from the model goes out from loop(), in the socket event buffer.  The
+// clients' slots and syncs are in ProtoSlots.
 class ProtoSocket {
   public:
     // Adds /ws to the server.  From setup(), on loop()'s task.
@@ -34,24 +32,23 @@ class ProtoSocket {
     void groupRemoved(uint8_t groupId);
     void room(SomfyRoom &room);
     void roomRemoved(uint8_t roomId);
-    // roomOrder, shadeOrder or groupOrder: the ids, in sort order.
-    void order(proto_type_t type);
+    // roomOrder, shadeOrder or groupOrder: the list's ids, in sort order.
+    void order(sort_list_t list);
     void repeaters();
     void shadeCommand(SomfyShade &shade, const char *command, const char *source, uint32_t sourceAddress);
     void memory();
     void wifi();
     void ethernet();
     // A feed event: write its fields into the writer between the two.  Only
-    // when someone subscribed, so check subscribed() first.
+    // when subscribed() says someone is, which is also only on loop().
     bool subscribed(proto_feed_t feed) const;
     ProtoWriter beginFeed(proto_type_t type);
     void endFeed(proto_feed_t feed);
     static void wsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len);
   private:
-    TaskHandle_t _owner = nullptr;
-    bool onLoopTask() const;
-    JsonFormatter &beginEvent(proto_type_t type);
-    void endEvent();
+    // On loop()'s task, with a client to send to: nothing is formatted for
+    // nobody, or off the task that owns the event buffer.
+    bool sending() const;
 };
 extern ProtoSocket protoSocket;
 #endif
