@@ -411,7 +411,8 @@ edit_result_t applyModelEdit(model_edit_t &edit) {
       return done();
     }
     case model_edit_type_t::set_paired: {
-      SomfyShade *shade = obj["shadeId"].isNull() ? nullptr : somfy.getShadeById(obj["shadeId"]);
+      if(obj["shadeId"].isNull()) return edit_result_t::error("No shade id was supplied.");
+      SomfyShade *shade = somfy.getShadeById(obj["shadeId"]);
       if(!shade) return edit_result_t::missing("Shade not found to pair");
       shade->paired = obj["paired"] | false;
       shade->save();

@@ -28,10 +28,10 @@ static void test_every_command_op_but_the_remote_frame_is_a_shade_request() {
     proto_type_t::setPositions, proto_type_t::setSensor, proto_type_t::setMyPosition, proto_type_t::unpairShade,
     proto_type_t::setRollingCode
   };
-  for(proto_type_t t : shadeOps) TEST_ASSERT_TRUE(protoIsShadeOp(static_cast<uint8_t>(t)));
-  TEST_ASSERT_FALSE(protoIsShadeOp(static_cast<uint8_t>(proto_type_t::sendRemoteCommand)));
-  TEST_ASSERT_FALSE(protoIsShadeOp(static_cast<uint8_t>(proto_type_t::subscribe)));
-  TEST_ASSERT_FALSE(protoIsShadeOp(static_cast<uint8_t>(proto_type_t::shadeCommanded)));
+  for(proto_type_t t : shadeOps) TEST_ASSERT_EQUAL(proto_op_t::shadeRequest, protoOpKind(static_cast<uint8_t>(t)));
+  TEST_ASSERT_EQUAL(proto_op_t::remoteFrame, protoOpKind(static_cast<uint8_t>(proto_type_t::sendRemoteCommand)));
+  TEST_ASSERT_EQUAL(proto_op_t::none, protoOpKind(static_cast<uint8_t>(proto_type_t::subscribe)));
+  TEST_ASSERT_EQUAL(proto_op_t::none, protoOpKind(static_cast<uint8_t>(proto_type_t::shadeCommanded)));
 }
 
 /*********************************************************************

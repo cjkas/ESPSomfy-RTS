@@ -47,6 +47,8 @@ static BufferedJsonFormatter eventJson;
 // whoever was sending), so it is only touched under its lock, and never while
 // replying.
 static MessageAssembler assembler(PROTO_MAX_CLIENT_FRAME);
+// Static, so creating it can't fail.
+static StaticSemaphore_t assemblerMutexBuffer;
 static SemaphoreHandle_t assemblerMutex = nullptr;
 struct AssemblerLock {
   AssemblerLock() { xSemaphoreTake(assemblerMutex, portMAX_DELAY); }
@@ -212,12 +214,8 @@ static void queueReadOp(AsyncWebSocketClient *client, const proto_message_t &msg
   loop_item_t item;
   item.type = loop_item_type_t::proto_read;
   item.readOp = msg.type;
-  if(msg.type == static_cast<uint8_t>(proto_type_t::groupOptions)) {
-    JsonVariantConst groupId = d[protoField(proto_field_t::groupId).key];
-    if(groupId.isNull()) { replyError(client, msg.id, proto_error_t::badRequest, "groupId is missing"); return; }
-    if(!groupId.is<uint8_t>()) { replyError(client, msg.id, proto_error_t::badRequest, "groupId must be 0-255"); return; }
-    item.groupId = groupId.as<uint8_t>();
-  }
+  const char *bad = parseReadPayload(msg.type, d, item.groupId);
+  if(bad) { replyError(client, msg.id, proto_error_t::badRequest, bad); return; }
   item.replyTo = {client->id(), msg.id};
   if(!loopQueue.submit(item)) replyError(client, msg.id, proto_error_t::busy, "Command queue full");
 }
@@ -371,7 +369,7 @@ void ProtoSocket::wsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, 
 }
 
 void ProtoSocket::begin(AsyncWebServer &server) {
-  assemblerMutex = xSemaphoreCreateMutex();
+  assemblerMutex = xSemaphoreCreateMutexStatic(&assemblerMutexBuffer);
   ws.handleHandshake(authorized);
   ws.onEvent(ProtoSocket::wsEvent);
   server.addHandler(&ws);

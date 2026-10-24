@@ -35,10 +35,20 @@ bool protoEditType(uint8_t type, model_edit_type_t &out) {
   }
   return false;
 }
-bool protoIsReadOp(uint8_t type) { return protoOpKind(type) == proto_op_t::read; }
+const char *parseReadPayload(uint8_t type, JsonObjectConst d, uint8_t &groupId) {
+  groupId = 0;
+  if(type != static_cast<uint8_t>(proto_type_t::groupOptions)) return nullptr;
+  JsonVariantConst v = d[protoField(proto_field_t::groupId).key];
+  if(v.isNull()) return "groupId is missing";
+  if(!v.is<uint8_t>()) return "groupId must be 0-255";
+  groupId = v.as<uint8_t>();
+  return nullptr;
+}
 
 // The fields each edit's route reads, so a field it would ignore is refused
-// rather than dropped without a word.
+// rather than dropped without a word.  A shade's flags aren't among them:
+// they hold light, which is set on its own, and the sun and wind state, which
+// setSensor sets.  A group's sunSensor is worked out from its shades.
 static const proto_field_t ROOM_FIELDS[] = {proto_field_t::name, proto_field_t::sortOrder};
 static const proto_field_t SHADE_FIELDS[] = {
   proto_field_t::name, proto_field_t::roomId, proto_field_t::remoteAddress, proto_field_t::shadeType,
@@ -50,7 +60,7 @@ static const proto_field_t SHADE_FIELDS[] = {
 };
 static const proto_field_t GROUP_FIELDS[] = {
   proto_field_t::name, proto_field_t::roomId, proto_field_t::remoteAddress, proto_field_t::bitLength,
-  proto_field_t::proto, proto_field_t::flipCommands, proto_field_t::sunSensor, proto_field_t::repeats
+  proto_field_t::proto, proto_field_t::flipCommands, proto_field_t::repeats
 };
 template<size_t N>
 static bool in(proto_field_t field, const proto_field_t (&fields)[N]) {
@@ -130,8 +140,7 @@ const char *expandEditPayload(model_edit_type_t type, JsonObjectConst d, JsonDoc
       // The route takes the ids on their own, in their new order.
       for(JsonPairConst kv : d) {
         if(strcmp(kv.key().c_str(), protoField(proto_field_t::ids).key) == 0) continue;
-        snprintf(why, sizeof(why), "A sort order takes only ids");
-        return why;
+        return "A sort order takes only ids";
       }
       JsonVariantConst ids = d[protoField(proto_field_t::ids).key];
       if(!ids.is<JsonArrayConst>()) return "ids is missing";
@@ -160,5 +169,7 @@ const char *expandEditPayload(model_edit_type_t type, JsonObjectConst d, JsonDoc
       return why;
     }
   }
+  // A left-out field is not given, so it can't stand for unpaired.
+  if(type == model_edit_type_t::set_paired && obj["paired"].isNull()) return "paired is missing";
   return doc.overflowed() ? "Too large" : nullptr;
 }

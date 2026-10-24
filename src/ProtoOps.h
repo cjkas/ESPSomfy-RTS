@@ -16,7 +16,6 @@
 
 // Every command op except sendRemoteCommand becomes a shade request that
 // loop() runs.
-bool protoIsShadeOp(uint8_t type);
 // nullptr when the payload is good and req is filled in; otherwise what is
 // wrong with it, for a bad request reply.
 const char *parseShadeOp(uint8_t type, JsonObjectConst d, shade_request_t &req);

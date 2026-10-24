@@ -19,7 +19,9 @@ bool protoEditType(uint8_t type, model_edit_type_t &out);
 // a bad request reply.  As with every op, only what was sent is in it.
 const char *expandEditPayload(model_edit_type_t type, JsonObjectConst d, JsonDocument &doc);
 
-// getNextRoom, getNextShade, getNextGroup and groupOptions: answered by
-// loop() from the shade model.
-bool protoIsReadOp(uint8_t type);
+// A read op's payload (getNextRoom, getNextShade, getNextGroup and
+// groupOptions, answered by loop() from the shade model): groupOptions' group,
+// left 0 for the others.  nullptr when it is good; otherwise what is wrong
+// with it.
+const char *parseReadPayload(uint8_t type, JsonObjectConst d, uint8_t &groupId);
 #endif

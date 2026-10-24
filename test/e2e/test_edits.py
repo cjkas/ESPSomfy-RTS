@@ -62,6 +62,8 @@ def test_group_options_of_a_missing_group(connect, schema):
     ("saveRoom", {"zz": 1}, "Unknown field zz"),
     ("setPaired", {"s": 1, "i": 2}, "paired is not a boolean (1 or 0)"),
     ("shadeSortOrder", {}, "ids is missing"),
+    ("setPaired", {"s": 1}, "paired is missing"),
+    ("saveGroup", {"g": 1, "ss": 1}, "sunSensor can't be set by this edit"),
 ])
 def test_a_bad_payload_is_refused_before_it_is_queued(connect, schema, name, payload, why):
     c, _, _ = synced_model(connect, schema)
