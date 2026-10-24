@@ -64,7 +64,7 @@ Events go out to every client from the moment it connects, so they can arrive du
 
 | Event | When | Payload |
 |---|---|---|
-| `shadeState` | a shade moved or its state changed | id, position, target, direction, favorite, tilt, flags, rolling code |
+| `shadeState` | a shade's state changed, or it moved: while it travels, at most every 250 ms, and its stop at once | id, position, target, direction, favorite, tilt, flags, rolling code |
 | `shade` | a shade was added or a setting changed (edit, pairing, linked remote, group, its room deleted) | the whole shade, as in the sync |
 | `group`, `groupState` | the same for a group: its settings or linked shades, or its flags and direction | |
 | `room` | a room was added or saved | the whole room |
