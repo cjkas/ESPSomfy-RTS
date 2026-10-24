@@ -40,6 +40,8 @@ struct shade_request_t {
 
 // Whether the request sends anything on air.
 bool shadeRequestUsesRadio(shade_request_type_t type);
+// Whether the request's id is a group id rather than a shade id.
+bool shadeRequestIsForGroup(shade_request_type_t type);
 // A repeat count from a client: negative for the default, capped at what fits.
 int8_t requestRepeat(int32_t repeat);
 // A target from a client: -1 unless it is 0-100.
@@ -55,6 +57,7 @@ struct shade_info_t {
   float currentPos = 0.0f;
   float myPos = -1.0f;
   float myTiltPos = -1.0f;
+  bool idle = true;  // not moving, and at its target
 };
 
 // The seam between ShadeRequests and the shades and groups it acts on.  On the
@@ -89,7 +92,9 @@ class ShadeOps {
 enum class shade_request_result_t : uint8_t {
   done,
   not_found,      // no shade or group with that id; nothing was done
-  radio_refused   // the radio didn't take a command it sent
+  radio_refused,  // the radio didn't take a command it sent
+  shade_moving,   // a favorite is only set on a shade at rest; nothing was done
+  no_tilt         // only a tilt was given, for a shade without one; nothing was done
 };
 
 // Carries out shade requests, whichever entry point they came from: finds

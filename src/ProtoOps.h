@@ -27,6 +27,9 @@ const char *parseRemoteCommandOp(JsonObjectConst d, somfy_frame_t &frame, uint8_
 // in any case.  False for a name that isn't a command.
 bool protoCommand(const char *name, somfy_commands &cmd);
 
+// What a reply says when the radio didn't take a command.
+#define PROTO_RADIO_REFUSED "The radio didn't take the command"
+
 // The reply to a shade request that loop() has run: none when it was done.
 proto_error_t protoRequestError(shade_request_result_t result);
 // What that reply says.

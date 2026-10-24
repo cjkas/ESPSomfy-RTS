@@ -174,6 +174,13 @@ static void test_set_positions_leaves_the_tilt_of_a_shade_without_one() {
   requests.run(req);
   TEST_ASSERT_EQUAL_STRING("setPositions 4 20 -1", ops.calls.c_str());
 }
+static void test_set_positions_tilt_alone_on_a_shade_without_one_is_refused() {
+  ops.shades[4] = rollerShade();
+  shade_request_t req = request(shade_request_type_t::set_positions);
+  req.tiltPosition = 40;
+  TEST_ASSERT_EQUAL(shade_request_result_t::no_tilt, requests.run(req));
+  TEST_ASSERT_EQUAL_STRING("", ops.calls.c_str());
+}
 static void test_set_positions_with_nothing_in_range_does_nothing() {
   ops.shades[4] = tiltShade(tilt_types::integrated);
   shade_request_t req = request(shade_request_type_t::set_positions);
@@ -279,6 +286,21 @@ static void test_group_sensor_uses_the_groups_repeats() {
 /*********************************************************************
  * The favorite
  ********************************************************************/
+static void test_favorite_on_a_moving_shade_is_refused() {
+  ops.shades[4] = rollerShade();
+  ops.shades[4].idle = false;
+  shade_request_t req = request(shade_request_type_t::set_favorite);
+  req.position = 50;
+  TEST_ASSERT_EQUAL(shade_request_result_t::shade_moving, requests.run(req));
+  TEST_ASSERT_EQUAL_STRING("", ops.calls.c_str());
+}
+static void test_group_requests_take_a_group_id() {
+  TEST_ASSERT_TRUE(shadeRequestIsForGroup(shade_request_type_t::group_command));
+  TEST_ASSERT_TRUE(shadeRequestIsForGroup(shade_request_type_t::group_repeat));
+  TEST_ASSERT_TRUE(shadeRequestIsForGroup(shade_request_type_t::group_sensor));
+  TEST_ASSERT_FALSE(shadeRequestIsForGroup(shade_request_type_t::shade_sensor));
+  TEST_ASSERT_FALSE(shadeRequestIsForGroup(shade_request_type_t::unpair));
+}
 static void test_favorite_on_a_flipped_shade_is_turned_round() {
   ops.shades[4] = flippedShade();
   shade_request_t req = request(shade_request_type_t::set_favorite);
@@ -374,6 +396,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_tilt_without_a_target_sends_the_tilt_command);
   RUN_TEST(test_set_positions_on_a_flipped_shade_are_turned_round);
   RUN_TEST(test_set_positions_leaves_the_tilt_of_a_shade_without_one);
+  RUN_TEST(test_set_positions_tilt_alone_on_a_shade_without_one_is_refused);
   RUN_TEST(test_set_positions_with_nothing_in_range_does_nothing);
   RUN_TEST(test_client_values_are_checked_on_the_way_in);
   RUN_TEST(test_no_repeat_means_the_shades_own);
@@ -385,6 +408,8 @@ int main(int argc, char **argv) {
   RUN_TEST(test_group_repeat_repeats_the_last_frame);
   RUN_TEST(test_sensor_sends_what_was_given);
   RUN_TEST(test_group_sensor_uses_the_groups_repeats);
+  RUN_TEST(test_favorite_on_a_moving_shade_is_refused);
+  RUN_TEST(test_group_requests_take_a_group_id);
   RUN_TEST(test_favorite_on_a_flipped_shade_is_turned_round);
   RUN_TEST(test_favorite_without_a_tilt_keeps_the_favorite_tilt);
   RUN_TEST(test_favorite_tilt_alone_keeps_the_favorite_lift);

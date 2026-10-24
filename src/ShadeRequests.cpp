@@ -10,6 +10,16 @@ bool shadeRequestUsesRadio(shade_request_type_t type) {
       return true;
   }
 }
+bool shadeRequestIsForGroup(shade_request_type_t type) {
+  switch(type) {
+    case shade_request_type_t::group_command:
+    case shade_request_type_t::group_repeat:
+    case shade_request_type_t::group_sensor:
+      return true;
+    default:
+      return false;
+  }
+}
 int8_t requestRepeat(int32_t repeat) {
   if(repeat < 0) return -1;
   return repeat > INT8_MAX ? INT8_MAX : static_cast<int8_t>(repeat);
@@ -26,16 +36,10 @@ static shade_request_result_t sent(bool taken) { return taken ? shade_request_re
 shade_request_result_t ShadeRequests::run(const shade_request_t &req) {
   shade_info_t shade;
   uint8_t groupRepeats = 0;
-  switch(req.type) {
-    case shade_request_type_t::group_command:
-    case shade_request_type_t::group_repeat:
-    case shade_request_type_t::group_sensor:
-      if(!this->ops.findGroup(req.id, groupRepeats)) return shade_request_result_t::not_found;
-      break;
-    default:
-      if(!this->ops.findShade(req.id, shade)) return shade_request_result_t::not_found;
-      break;
+  if(shadeRequestIsForGroup(req.type)) {
+    if(!this->ops.findGroup(req.id, groupRepeats)) return shade_request_result_t::not_found;
   }
+  else if(!this->ops.findShade(req.id, shade)) return shade_request_result_t::not_found;
   const bool flip = shade.flipPosition;
   switch(req.type) {
     case shade_request_type_t::shade_command:
@@ -62,6 +66,8 @@ shade_request_result_t ShadeRequests::run(const shade_request_t &req) {
     case shade_request_type_t::set_positions: {
       const float pos = inRange(req.position) ? storedPosition(req.position, flip) : -1.0f;
       const float tilt = inRange(req.tiltPosition) && shade.tiltType != tilt_types::none ? storedPosition(req.tiltPosition, flip) : -1.0f;
+      // A tilt on its own for a shade without one has nothing to set.
+      if(pos < 0.0f && inRange(req.tiltPosition) && shade.tiltType == tilt_types::none) return shade_request_result_t::no_tilt;
       if(pos >= 0.0f || tilt >= 0.0f) this->ops.setPositions(req.id, pos, tilt);
       return shade_request_result_t::done;
     }
@@ -70,6 +76,8 @@ shade_request_result_t ShadeRequests::run(const shade_request_t &req) {
     case shade_request_type_t::group_sensor:
       return sent(this->ops.sendGroupSensorCommand(req.id, req.windy, req.sunny, repeatsOr(req.repeat, groupRepeats)));
     case shade_request_type_t::set_favorite: {
+      // The shade only takes a favorite at rest, and would ignore it.
+      if(!shade.idle) return shade_request_result_t::shade_moving;
       const int8_t tilt = requestedFavoriteTilt(req.tiltPosition, shade.tiltType, shade.myTiltPos, flip);
       // Without a lift position only the tilt changes: the lift favorite stays,
       // or is set where the shade is when it has none.

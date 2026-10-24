@@ -215,6 +215,12 @@ static void test_request_results_become_replies() {
   TEST_ASSERT_EQUAL_STRING("No shade with that id", protoRequestErrorDesc(shade, shade_request_result_t::not_found));
   TEST_ASSERT_EQUAL_STRING("No group with that id", protoRequestErrorDesc(group, shade_request_result_t::not_found));
   TEST_ASSERT_EQUAL(proto_error_t::radioUnavailable, protoRequestError(shade_request_result_t::radio_refused));
+  TEST_ASSERT_EQUAL_STRING("The radio didn't take the command", protoRequestErrorDesc(shade, shade_request_result_t::radio_refused));
+  // A favorite waits for the shade to stop: the client may try again.
+  TEST_ASSERT_EQUAL(proto_error_t::busy, protoRequestError(shade_request_result_t::shade_moving));
+  TEST_ASSERT_EQUAL_STRING("The shade is moving", protoRequestErrorDesc(shade, shade_request_result_t::shade_moving));
+  TEST_ASSERT_EQUAL(proto_error_t::badRequest, protoRequestError(shade_request_result_t::no_tilt));
+  TEST_ASSERT_EQUAL_STRING("The shade has no tilt", protoRequestErrorDesc(shade, shade_request_result_t::no_tilt));
 }
 
 int main(int argc, char **argv) {

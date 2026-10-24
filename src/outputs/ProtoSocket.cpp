@@ -170,7 +170,7 @@ static void sendRemoteCommand(AsyncWebSocketClient *client, const proto_message_
   const char *bad = parseRemoteCommandOp(d, frame, repeats);
   if(bad) { replyError(client, req.id, proto_error_t::badRequest, bad); return; }
   if(!somfy.sendFrame(frame, repeats)) {
-    replyError(client, req.id, proto_error_t::radioUnavailable, "The radio didn't take the command");
+    replyError(client, req.id, proto_error_t::radioUnavailable, PROTO_RADIO_REFUSED);
     return;
   }
   replyOk(client, req.id);

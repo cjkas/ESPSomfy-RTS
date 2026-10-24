@@ -76,7 +76,7 @@ Events go out to every client from the moment it connects, so they can arrive du
 
 ## Commands
 
-Every op carries an `id` and gets one reply. The ops take what the HTTP routes of the same name take, under the dictionary's keys:
+Every op carries an `id` and gets one reply. The ops do what the HTTP routes of the same name do, with these arguments:
 
 | Op | Payload | Does |
 |---|---|---|
@@ -94,8 +94,13 @@ Every op carries an `id` and gets one reply. The ops take what the HTTP routes o
 - **An op reads only the fields that were sent.** Unlike what the device sends, a field left out of an op is not its schema default: it is not given, so `setPositions` with only `position` leaves the tilt as it is. A client sends every field it means, defaults included.
 - `command` is a command's name, in any case: `My`, `Up`, `Down`, `MyUp`, `MyDown`, `UpDown`, `MyUpDown`, `Prog`, `SunFlag`, `Flag`, `StepUp`, `StepDown`, `Toggle`, `Sensor`, `Favorite`, `Stop`, or the spelling `shadeCommanded` reports (`Step Up`, `My+Up`).
 - `repeat` left out means the shade's or the group's own repeats.
+- Where they differ from the routes:
+  - The keys come from the dictionary: `setMyPosition` takes `myPos` and `myTiltPos` (the route: `pos`, `tilt`); `setRollingCode` and `sendRemoteCommand` take `lastRollingCode` (the routes: `rollingCode`, `rcode`); `sendRemoteCommand` takes `remoteAddress` (the route: `address`).
+  - `groupCommand`, `repeatCommand` and `sendRemoteCommand` need a `command`, where the routes send My without one.
+  - `setMyPosition` takes a tilt on its own and keeps the lift favorite, where the route needs a lift position.
 - A field of the wrong kind, a value out of range, or both of two alternatives, is a bad request, and `desc` names the field.
-- The reply comes once the command has gone to the radio, or was refused: not found (no shade or group with that id), radio unavailable (the radio is paused, as during a frequency scan, or didn't take it) or busy (the device's command queue is full). It carries no state: the shade's `shadeState` events follow as it moves.
+- The reply comes once the command has gone to the radio, or was refused: not found (no shade or group with that id), radio unavailable (the radio is paused, as during a frequency scan, or didn't take it), busy (the device's command queue is full, or `setMyPosition` on a shade that is moving) or bad request (`setPositions` with only a tilt, for a shade without one). It carries no state: the shade's `shadeState` events follow as it moves.
+- `sendRemoteCommand` is answered as soon as the radio has taken the frame, not after the ops queued before it, and with radio unavailable when the radio is full rather than waiting for room.
 
 ## Replies
 

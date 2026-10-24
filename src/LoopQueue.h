@@ -43,11 +43,14 @@ struct loop_item_t {
 inline bool loopItemUsesRadio(const loop_item_t &item) {
   return item.type == loop_item_type_t::shade_request && shadeRequestUsesRadio(item.request.type);
 }
-// Whether the item at the head of the queue waits for the radio.  The client
-// was already told it was accepted so it stays queued until the radio has room
-// rather than have the radio drop it.  While TX is suspended nothing gets
-// through anyway so nothing is held back then, except an unpair: the client was
-// told the shade is unpaired, so it waits until TX resumes.
+// Whether the item at the head of the queue waits for the radio.  An HTTP or
+// MQTT client was already told it was accepted, so it stays queued until the
+// radio has room rather than have the radio drop it; a protocol 2 client gets
+// its reply once it has run.  While TX is suspended nothing gets through
+// anyway so nothing is held back then, except an unpair: an HTTP client was
+// told the shade is unpaired, so it waits until TX resumes.  Everything queued
+// behind it waits too, protocol 2 replies included, so a frequency scan
+// started after an unpair delays them until it ends.
 inline bool holdLoopItem(const loop_item_t &item, bool txSuspended, bool txHasRoom) {
   if(txSuspended) return item.type == loop_item_type_t::shade_request && item.request.type == shade_request_type_t::unpair;
   return loopItemUsesRadio(item) && !txHasRoom;
