@@ -82,12 +82,17 @@ def test_sync_waits_for_next(connect):
     c.recv()  # hello
     first = c.recv()
     assert first["t"] == 4
-    # Without next nothing more comes, unless the whole sync fit one frame.
-    try:
-        more = c.recv(timeout=2)
-    except TimeoutError:
+    # Without next no more sync comes, unless the whole sync fit one frame.
+    # Events may come meanwhile, such as the 30 s memory status.
+    while True:
+        try:
+            more = c.recv(timeout=2)
+        except TimeoutError:
+            return
+        if more["t"] >= 128:
+            continue
+        assert more["t"] == 5, "a second sync frame came without next"
         return
-    assert more["t"] == 5, "a second sync frame came without next"
 
 
 def test_resync_sends_it_all_again(connect, schema):
