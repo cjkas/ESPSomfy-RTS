@@ -7,6 +7,7 @@
 #include "ESPNetwork.h"
 #include "entryPoints/Web.h"
 #include "outputs/SocketEmitter.h"
+#include "outputs/ProtoSocket.h"
 #include "Utils.h"
 #include "SSDP.h"
 #include "MqttConnection.h"
@@ -223,6 +224,9 @@ void ESPNetwork::emitSockets(uint8_t num) {
   }
   // A broadcast comes from emitSockets(), which has already sent memStatus.
   if(num != 255) this->emitHeap(num);
+  // Protocol 2 clients get the status in their sync, so only broadcasts.
+  else if(this->connType == conn_types_t::ethernet) protoSocket.ethernet();
+  else protoSocket.wifi();
 }
 // Runs on the WiFi/Ethernet event task, so it sends nothing on the sockets.
 // loop() broadcasts the new status and a client that reconnects gets it from
@@ -690,5 +694,8 @@ void ESPNetwork::emitHeap(uint8_t num) {
   json->addElem("loopMaxUs", loopStats.maxUs());
   json->endObject();
   sockEmit.endEmit(num);
-  if(num == 255) loopStats.publish(millis());
+  if(num == 255) {
+    protoSocket.memory();
+    loopStats.publish(millis());
+  }
 }

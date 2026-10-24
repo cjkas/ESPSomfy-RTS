@@ -24,11 +24,13 @@ enum class model_edit_type_t : uint8_t {
   room_order, shade_order, group_order
 };
 // What an edit did, sent to the clients as requestResult.  id is the room,
-// shade or group it added or changed, 0 when none.  code is the validation
-// error of a shade that wasn't saved, 0 otherwise.
+// shade or group it added or changed, 0 when none.  shadeId is the shade a
+// group gained or lost.  code is the validation error of a shade that wasn't
+// saved, 0 otherwise.
 struct edit_result_t {
   bool ok = true;
   uint8_t id = 0;
+  uint8_t shadeId = 0;
   int8_t code = 0;
   const char *desc = "";
   static edit_result_t error(const char *desc, int8_t code = 0) {
@@ -39,6 +41,20 @@ struct edit_result_t {
     return r;
   }
 };
+
+// The lists an edit can put in a new order.
+enum class sort_list_t : uint8_t { none, rooms, shades, groups };
+// What protocol 2 clients are sent once an edit has gone through: the whole
+// items it changed (0 for none), a list's new order, the repeaters.  Deletes
+// send their removals as they happen, so they need nothing here.
+struct edit_changes_t {
+  uint8_t shadeId = 0;
+  uint8_t groupId = 0;
+  uint8_t roomId = 0;
+  sort_list_t order = sort_list_t::none;
+  bool repeaters = false;
+};
+edit_changes_t editChanges(model_edit_type_t type, const edit_result_t &result);
 
 // The lowest id from 1 to lastId that isn't in usedIds, or 0 when every one
 // is taken.

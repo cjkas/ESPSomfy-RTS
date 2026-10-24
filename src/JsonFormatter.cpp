@@ -27,6 +27,14 @@ void JsonFormatter::discard() {
   this->_objects = 0;
   this->_arrays = 0;
 }
+void JsonFormatter::rollback(const json_mark_t &m) {
+  this->_len = m.len;
+  if(this->buff) this->buff[this->_len] = 0;
+  this->_objects = m.objects;
+  this->_arrays = m.arrays;
+  this->_nocomma = m.nocomma;
+  this->_overflow = false;
+}
 void JsonFormatter::beginObject(const char *name) {
   if(name && strlen(name) > 0) this->appendElem(name);
   else if(!this->_nocomma) this->_safecat(",");
@@ -101,7 +109,7 @@ void JsonFormatter::addElem(const char *name, bool bval) { strcpy(this->_numbuff
 void JsonFormatter::_safecat(const char *val, bool escape) {
   const size_t vlen = escape ? this->calcEscapedLength(val) + 2 : strlen(val);
   if(this->_len + vlen >= this->buffSize) {
-    if(!this->_overflow) ESP_LOGE(TAG, "JSON exceeded buffer size %u", (unsigned)this->buffSize);
+    if(!this->_overflow && this->_logOverflow) ESP_LOGE(TAG, "JSON exceeded buffer size %u", (unsigned)this->buffSize);
     this->_overflow = true;
     return;
   }

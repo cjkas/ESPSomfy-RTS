@@ -35,3 +35,7 @@ SomfyController.ino.esp32s2.bin
 # Temporary and Backup Files
 *.orig
 *.bak
+
+# Python (the e2e suite and build scripts)
+__pycache__/
+.pytest_cache/

@@ -1,0 +1,510 @@
+{
+ "hash": "8198c564",
+ "types": {
+  "1": "hello",
+  "2": "reply",
+  "3": "next",
+  "4": "sync",
+  "5": "syncEnd",
+  "6": "subscribe",
+  "7": "unsubscribe",
+  "128": "shadeState",
+  "129": "shade",
+  "130": "shadeRemoved",
+  "131": "group",
+  "132": "groupState",
+  "133": "groupRemoved",
+  "134": "room",
+  "135": "roomRemoved",
+  "136": "roomOrder",
+  "137": "shadeOrder",
+  "138": "groupOrder",
+  "139": "shadeCommand",
+  "140": "memory",
+  "141": "wifi",
+  "142": "ethernet",
+  "143": "frame",
+  "144": "frequencyScan",
+  "145": "repeaters"
+ },
+ "fields": {
+  "D": {
+   "name": "downTime",
+   "kind": "i",
+   "default": 0
+  },
+  "E": {
+   "name": "errors",
+   "kind": "l",
+   "default": 0
+  },
+  "F": {
+   "name": "fields",
+   "kind": "l",
+   "default": 0
+  },
+  "G": {
+   "name": "groups",
+   "kind": "l",
+   "default": 0
+  },
+  "M": {
+   "name": "myTiltPos",
+   "kind": "i",
+   "default": -1
+  },
+  "Q": {
+   "name": "feeds",
+   "kind": "l",
+   "default": 0
+  },
+  "R": {
+   "name": "rooms",
+   "kind": "l",
+   "default": 0
+  },
+  "S": {
+   "name": "shades",
+   "kind": "l",
+   "default": 0
+  },
+  "T": {
+   "name": "types",
+   "kind": "l",
+   "default": 0
+  },
+  "U": {
+   "name": "upTime",
+   "kind": "i",
+   "default": 0
+  },
+  "X": {
+   "name": "repeaters",
+   "kind": "l",
+   "default": 0
+  },
+  "Y": {
+   "name": "tiltTime",
+   "kind": "i",
+   "default": 0
+  },
+  "Z": {
+   "name": "status",
+   "kind": "o",
+   "default": 0
+  },
+  "a": {
+   "name": "remoteAddress",
+   "kind": "i",
+   "default": 0
+  },
+  "bl": {
+   "name": "bitLength",
+   "kind": "i",
+   "default": 56
+  },
+  "bt": {
+   "name": "bits",
+   "kind": "i",
+   "default": 0
+  },
+  "c": {
+   "name": "lastRollingCode",
+   "kind": "i",
+   "default": 0
+  },
+  "ch": {
+   "name": "channel",
+   "kind": "i",
+   "default": 0
+  },
+  "cm": {
+   "name": "command",
+   "kind": "s",
+   "default": 0
+  },
+  "co": {
+   "name": "connected",
+   "kind": "b",
+   "default": 0
+  },
+  "cp": {
+   "name": "chipModel",
+   "kind": "s",
+   "default": 0
+  },
+  "ct": {
+   "name": "connType",
+   "kind": "s",
+   "default": 0
+  },
+  "d": {
+   "name": "direction",
+   "kind": "i",
+   "default": 0
+  },
+  "e": {
+   "name": "code",
+   "kind": "i",
+   "default": 0
+  },
+  "ek": {
+   "name": "encKey",
+   "kind": "i",
+   "default": 0
+  },
+  "f": {
+   "name": "flags",
+   "kind": "i",
+   "default": 0
+  },
+  "fc": {
+   "name": "flipCommands",
+   "kind": "b",
+   "default": 0
+  },
+  "fd": {
+   "name": "fullDuplex",
+   "kind": "b",
+   "default": 0
+  },
+  "fe": {
+   "name": "feed",
+   "kind": "i",
+   "default": 0
+  },
+  "fp": {
+   "name": "flipPosition",
+   "kind": "b",
+   "default": 0
+  },
+  "fq": {
+   "name": "frequency",
+   "kind": "n",
+   "default": 0
+  },
+  "fr": {
+   "name": "freeHeap",
+   "kind": "i",
+   "default": 0
+  },
+  "fw": {
+   "name": "fw",
+   "kind": "s",
+   "default": 0
+  },
+  "g": {
+   "name": "groupId",
+   "kind": "i",
+   "default": 0
+  },
+  "gd": {
+   "name": "gpioDown",
+   "kind": "i",
+   "default": 0
+  },
+  "gl": {
+   "name": "gpioLLTrigger",
+   "kind": "b",
+   "default": 0
+  },
+  "gm": {
+   "name": "gpioMy",
+   "kind": "i",
+   "default": 0
+  },
+  "gu": {
+   "name": "gpioUp",
+   "kind": "i",
+   "default": 0
+  },
+  "h": {
+   "name": "header",
+   "kind": "o",
+   "default": 0
+  },
+  "hn": {
+   "name": "hostname",
+   "kind": "s",
+   "default": 0
+  },
+  "hs": {
+   "name": "hwsync",
+   "kind": "i",
+   "default": 0
+  },
+  "i": {
+   "name": "paired",
+   "kind": "b",
+   "default": 0
+  },
+  "ig": {
+   "name": "inGroup",
+   "kind": "b",
+   "default": 0
+  },
+  "is": {
+   "name": "ids",
+   "kind": "l",
+   "default": 0
+  },
+  "k": {
+   "name": "ok",
+   "kind": "b",
+   "default": 0
+  },
+  "li": {
+   "name": "light",
+   "kind": "b",
+   "default": 0
+  },
+  "lk": {
+   "name": "linkedRemotes",
+   "kind": "l",
+   "default": 0
+  },
+  "lp": {
+   "name": "loopRate",
+   "kind": "i",
+   "default": 0
+  },
+  "ls": {
+   "name": "linkedShades",
+   "kind": "l",
+   "default": 0
+  },
+  "lx": {
+   "name": "loopMaxUs",
+   "kind": "i",
+   "default": 0
+  },
+  "m": {
+   "name": "myPos",
+   "kind": "i",
+   "default": -1
+  },
+  "md": {
+   "name": "model",
+   "kind": "s",
+   "default": 0
+  },
+  "mn": {
+   "name": "minHeap",
+   "kind": "i",
+   "default": 0
+  },
+  "mx": {
+   "name": "maxHeap",
+   "kind": "i",
+   "default": 0
+  },
+  "n": {
+   "name": "name",
+   "kind": "s",
+   "default": 0
+  },
+  "o": {
+   "name": "sortOrder",
+   "kind": "i",
+   "default": 0
+  },
+  "p": {
+   "name": "position",
+   "kind": "i",
+   "default": 0
+  },
+  "pr": {
+   "name": "proto",
+   "kind": "i",
+   "default": 0
+  },
+  "pu": {
+   "name": "pulses",
+   "kind": "l",
+   "default": 0
+  },
+  "q": {
+   "name": "tiltPosition",
+   "kind": "i",
+   "default": 0
+  },
+  "r": {
+   "name": "roomId",
+   "kind": "i",
+   "default": 0
+  },
+  "rp": {
+   "name": "repeats",
+   "kind": "i",
+   "default": 1
+  },
+  "rs": {
+   "name": "rssi",
+   "kind": "i",
+   "default": 0
+  },
+  "rw": {
+   "name": "rawCmd",
+   "kind": "i",
+   "default": 0
+  },
+  "s": {
+   "name": "shadeId",
+   "kind": "i",
+   "default": 0
+  },
+  "sa": {
+   "name": "startingAddress",
+   "kind": "i",
+   "default": 0
+  },
+  "sc": {
+   "name": "scanning",
+   "kind": "b",
+   "default": 0
+  },
+  "sd": {
+   "name": "ssid",
+   "kind": "s",
+   "default": 0
+  },
+  "sg": {
+   "name": "strength",
+   "kind": "i",
+   "default": 0
+  },
+  "sh": {
+   "name": "schemaHash",
+   "kind": "s",
+   "default": 0
+  },
+  "sm": {
+   "name": "simMy",
+   "kind": "b",
+   "default": 0
+  },
+  "so": {
+   "name": "source",
+   "kind": "s",
+   "default": 0
+  },
+  "sp": {
+   "name": "speed",
+   "kind": "i",
+   "default": 0
+  },
+  "sr": {
+   "name": "sourceAddress",
+   "kind": "i",
+   "default": 0
+  },
+  "ss": {
+   "name": "sunSensor",
+   "kind": "b",
+   "default": 0
+  },
+  "st": {
+   "name": "shadeType",
+   "kind": "i",
+   "default": 0
+  },
+  "sv": {
+   "name": "serverId",
+   "kind": "s",
+   "default": 0
+  },
+  "t": {
+   "name": "target",
+   "kind": "i",
+   "default": 0
+  },
+  "tf": {
+   "name": "testFreq",
+   "kind": "n",
+   "default": 0
+  },
+  "to": {
+   "name": "totalHeap",
+   "kind": "i",
+   "default": 0
+  },
+  "tr": {
+   "name": "testRssi",
+   "kind": "i",
+   "default": 0
+  },
+  "u": {
+   "name": "tiltTarget",
+   "kind": "i",
+   "default": 0
+  },
+  "up": {
+   "name": "uptime",
+   "kind": "i",
+   "default": 0
+  },
+  "va": {
+   "name": "valid",
+   "kind": "b",
+   "default": 0
+  },
+  "w": {
+   "name": "tiltDirection",
+   "kind": "i",
+   "default": 0
+  },
+  "x": {
+   "name": "desc",
+   "kind": "s",
+   "default": 0
+  },
+  "xg": {
+   "name": "maxGroups",
+   "kind": "i",
+   "default": 0
+  },
+  "xl": {
+   "name": "maxLinkedRemotes",
+   "kind": "i",
+   "default": 0
+  },
+  "xm": {
+   "name": "maxGroupedShades",
+   "kind": "i",
+   "default": 0
+  },
+  "xr": {
+   "name": "maxRooms",
+   "kind": "i",
+   "default": 0
+  },
+  "xs": {
+   "name": "maxShades",
+   "kind": "i",
+   "default": 0
+  },
+  "y": {
+   "name": "tiltType",
+   "kind": "i",
+   "default": 0
+  },
+  "z": {
+   "name": "stepSize",
+   "kind": "i",
+   "default": 100
+  }
+ },
+ "errors": {
+  "1": "badRequest",
+  "2": "unknownOp",
+  "3": "unauthorized",
+  "4": "notFound",
+  "5": "busy",
+  "6": "radioUnavailable",
+  "7": "internal"
+ },
+ "feeds": {
+  "1": "frames",
+  "2": "frequencyScan"
+ }
+}

@@ -4,6 +4,8 @@
 #include <atomic>
 #include "ModelEditor.h"
 #include "SomfyEditor.h"
+#include "ShadeChanges.h"
+#include "outputs/ProtoSocket.h"
 
 static const char *TAG = "Somfy";
 
@@ -226,9 +228,24 @@ void cancelModelEdit(model_edit_t *edit) {
   delete edit;
   editBusy.store(false);
 }
+// What protocol 2 clients get after an edit (editChanges).  A shade or group
+// goes out whole from the change fan-out, by its config bit, so it is sent
+// once with whatever else changed; the rest goes out now.
+static void markEdited(const model_edit_t &edit, const edit_result_t &result) {
+  const edit_changes_t c = editChanges(edit.type, result);
+  SomfyShade *shade = c.shadeId ? somfy.getShadeById(c.shadeId) : nullptr;
+  if(shade) shade->configChanged();
+  SomfyGroup *group = c.groupId ? somfy.getGroupById(c.groupId) : nullptr;
+  if(group) group->configChanged();
+  SomfyRoom *room = c.roomId ? somfy.getRoomById(c.roomId) : nullptr;
+  if(room) protoSocket.room(*room);
+  if(c.order != sort_list_t::none) protoSocket.order(c.order);
+  if(c.repeaters) protoSocket.repeaters();
+}
 void runModelEdit(model_edit_t *edit) {
   const edit_result_t result = applyModelEdit(*edit);
   if(!result.ok) ESP_LOGW(TAG, "Edit %u refused: %s", static_cast<uint8_t>(edit->type), result.desc);
+  else markEdited(*edit, result);
   emitRequestResult(edit->requestId, result);
   cancelModelEdit(edit);
 }
@@ -358,7 +375,9 @@ edit_result_t applyModelEdit(model_edit_t &edit) {
       else if(!group->linkShade(shadeId)) return edit_result_t::error("This group already has the most shades it can.");
       somfy.commit();
       group->emitState();
-      return done(groupId);
+      edit_result_t r = done(groupId);
+      r.shadeId = shadeId;
+      return r;
     }
     case model_edit_type_t::link_repeater:
     case model_edit_type_t::unlink_repeater: {

@@ -5,6 +5,8 @@
 #include "Somfy.h"
 #include "ConfigFile.h"
 #include "ModelEditor.h"
+#include "ShadeChanges.h"
+#include "outputs/ProtoSocket.h"
 
 static const char *TAG = "Somfy";
 
@@ -280,9 +282,14 @@ bool SomfyShadeController::deleteShade(uint8_t shadeId) {
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
     if(this->shades[i].getShadeId() == shadeId) {
       shades[i].emitState("shadeRemoved");
+      protoSocket.shadeRemoved(shadeId);
       shades[i].unpublish();
       this->shades[i].clear();
     }
+  }
+  // Its groups lose it, or a new shade given its id would join them.
+  for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++) {
+    if(this->groups[i].getGroupId() != 255 && this->groups[i].unlinkShade(shadeId)) this->groups[i].configChanged();
   }
   this->commit();
   return true;
@@ -295,15 +302,18 @@ bool SomfyShadeController::deleteRoom(uint8_t roomId) {
         if(shades[j].roomId == roomId) {
           shades[j].roomId = 0;
           shades[j].emitState();
+          shades[j].configChanged();
         }
       }
       for(uint8_t j = 0; j < SOMFY_MAX_GROUPS; j++) {
         if(groups[j].roomId == roomId) {
           groups[j].roomId = 0;
           groups[j].emitState();
+          groups[j].configChanged();
         }
       }
       rooms[i].emitState("roomRemoved");
+      protoSocket.roomRemoved(roomId);
       this->rooms[i].clear();
     }
   }
@@ -313,7 +323,13 @@ bool SomfyShadeController::deleteRoom(uint8_t roomId) {
 bool SomfyShadeController::deleteGroup(uint8_t groupId) {
   for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++) {
     if(this->groups[i].getGroupId() == groupId) {
+      // Its shades are no longer in a group, which their inGroup shows.
+      for(uint8_t j = 0; j < SOMFY_MAX_GROUPED_SHADES && groups[i].linkedShades[j] != 0; j++) {
+        SomfyShade *shade = this->getShadeById(groups[i].linkedShades[j]);
+        if(shade) shade->configChanged();
+      }
       groups[i].emitState("groupRemoved");
+      protoSocket.groupRemoved(groupId);
       groups[i].unpublish();
       this->groups[i].clear();
     }
