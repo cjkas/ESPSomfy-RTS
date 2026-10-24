@@ -8,6 +8,7 @@
 #include "SomfySnapshot.h"
 #include "SomfyEditor.h"
 #include "Utils.h"
+#include "outputs/ProtoSocket.h"
 
 static const char *TAG = "LoopQueue";
 
@@ -50,10 +51,13 @@ void LoopQueue::drain() {
     // loop() is the only consumer so this is the item we peeked.
     xQueueReceive(q, &item, 0);
     switch(item.type) {
-      case loop_item_type_t::shade_request:
-        if(!shadeRequests.run(item.request))
+      case loop_item_type_t::shade_request: {
+        const shade_request_result_t result = shadeRequests.run(item.request);
+        if(result == shade_request_result_t::radio_refused)
           ESP_LOGW(TAG, "Radio didn't take shade request %u", static_cast<uint8_t>(item.request.type));
+        if(item.replyClient) protoSocket.replyRequest(item.replyClient, item.replyId, item.request, result);
         break;
+      }
       case loop_item_type_t::restore_shades: {
         restore_options_t opts = restoreOptions(item.restoreParts);
         const bool restored = ShadeConfigFile::restore(&somfy, "/shades.tmp", opts);

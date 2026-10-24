@@ -39,8 +39,8 @@ The keys of `hello` (`fw`, `sh`) and of the schema itself (`T`, `F`, `E`, `Q`) n
 | Range | Sender | Types |
 |---|---|---|
 | 1–15 | control | `hello` 1, `reply` 2, `next` 3, `sync` 4, `syncEnd` 5, `subscribe` 6, `unsubscribe` 7 |
-| 16–127 | client ops | none yet; commands, model edits and settings follow |
-| 128–255 | device events | `shadeState`, `shade`, `shadeRemoved`, `group`, `groupState`, `groupRemoved`, `room`, `roomRemoved`, `roomOrder`, `shadeOrder`, `groupOrder`, `shadeCommand`, `memory`, `wifi`, `ethernet`, `frame`, `frequencyScan`, `repeaters` |
+| 16–127 | client ops | commands: `shadeCommand` 16, `groupCommand` 17, `tiltCommand` 18, `repeatCommand` 19, `setPositions` 20, `setSensor` 21, `setMyPosition` 22, `unpairShade` 23, `setRollingCode` 24, `sendRemoteCommand` 25; model edits and settings follow |
+| 128–255 | device events | `shadeState`, `shade`, `shadeRemoved`, `group`, `groupState`, `groupRemoved`, `room`, `roomRemoved`, `roomOrder`, `shadeOrder`, `groupOrder`, `shadeCommanded`, `memory`, `wifi`, `ethernet`, `frame`, `frequencyScan`, `repeaters` |
 
 A number is never reused. A retired type stays reserved.
 
@@ -71,8 +71,36 @@ Events go out to every client from the moment it connects, so they can arrive du
 | `*Removed` | a shade, group or room was deleted | its id |
 | `roomOrder`, `shadeOrder`, `groupOrder` | the sort order changed | `is`: the ids in order |
 | `repeaters` | a repeater was linked or unlinked | the list |
-| `shadeCommand` | a remote or the device commanded a shade | id, address, command, source, rolling code, source address |
+| `shadeCommanded` | a remote or the device commanded a shade | id, address, command, source, rolling code, source address |
 | `memory`, `wifi`, `ethernet` | every 30 s, WiFi only when the signal moved | |
+
+## Commands
+
+Every op carries an `id` and gets one reply. The ops do what the HTTP routes of the same name do, with these arguments:
+
+| Op | Payload | Does |
+|---|---|---|
+| `shadeCommand` | `shadeId`; `command` or `target`; optional `repeat`, `stepSize` | sends the command, or moves the shade to the position 0–100 |
+| `tiltCommand` | `shadeId`; `command` or `target` | the same for the tilt |
+| `groupCommand` | `groupId`, `command`; optional `repeat`, `stepSize` | sends the command as the group |
+| `repeatCommand` | `shadeId` or `groupId`, `command`; optional `repeat`, `stepSize` | repeats the last frame when it was this command, or sends it |
+| `setPositions` | `shadeId`; `position`, `tiltPosition` or both | sets where the shade is thought to be; nothing goes on air |
+| `setSensor` | `shadeId` or `groupId`; `sunny`, `windy` or both; optional `repeat` | sends a sensor frame |
+| `setMyPosition` | `shadeId`; `myPos`, `myTiltPos` or both | sets the favorite |
+| `unpairShade` | `shadeId` | sends Prog and clears paired |
+| `setRollingCode` | `shadeId`, `lastRollingCode` | sets the next rolling code; nothing goes on air |
+| `sendRemoteCommand` | `remoteAddress`, `command`, `lastRollingCode`; optional `encKey`, `repeats` | sends one frame as a remote that isn't one of the shades |
+
+- **An op reads only the fields that were sent.** Unlike what the device sends, a field left out of an op is not its schema default: it is not given, so `setPositions` with only `position` leaves the tilt as it is. A client sends every field it means, defaults included.
+- `command` is a command's name, in any case: `My`, `Up`, `Down`, `MyUp`, `MyDown`, `UpDown`, `MyUpDown`, `Prog`, `SunFlag`, `Flag`, `StepUp`, `StepDown`, `Toggle`, `Sensor`, `Favorite`, `Stop`, or the spelling `shadeCommanded` reports (`Step Up`, `My+Up`).
+- `repeat` left out means the shade's or the group's own repeats.
+- Where they differ from the routes:
+  - The keys come from the dictionary: `setMyPosition` takes `myPos` and `myTiltPos` (the route: `pos`, `tilt`); `setRollingCode` and `sendRemoteCommand` take `lastRollingCode` (the routes: `rollingCode`, `rcode`); `sendRemoteCommand` takes `remoteAddress` (the route: `address`).
+  - `groupCommand`, `repeatCommand` and `sendRemoteCommand` need a `command`, where the routes send My without one.
+  - `setMyPosition` takes a tilt on its own and keeps the lift favorite, where the route needs a lift position.
+- A field of the wrong kind, a value out of range, or both of two alternatives, is a bad request, and `desc` names the field.
+- The reply comes once the command has gone to the radio, or was refused: not found (no shade or group with that id), radio unavailable (the radio is paused, as during a frequency scan, or didn't take it), busy (the device's command queue is full, or `setMyPosition` on a shade that is moving) or bad request (`setPositions` with only a tilt, for a shade without one). It carries no state: the shade's `shadeState` events follow as it moves.
+- `sendRemoteCommand` is answered as soon as the radio has taken the frame, not after the ops queued before it, and with radio unavailable when the radio is full rather than waiting for room.
 
 ## Replies
 

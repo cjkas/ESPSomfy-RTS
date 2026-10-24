@@ -15,6 +15,8 @@ def pytest_addoption(parser):
     parser.addoption("--username", default="", help="the username that goes with --password")
     parser.addoption("--pin", default=None, help="the device's PIN, when it is Secured with one")
     parser.addoption("--record", action="store_true", help="save what the device sends to test/fixtures/proto2")
+    parser.addoption("--radio", action="store_true", help="also run the tests that send commands on air")
+    parser.addoption("--shade", type=int, default=None, help="with --radio: the id of the shade the commands may move")
 
 
 @pytest.fixture(scope="session")
@@ -82,3 +84,14 @@ def schema(host, token):
 @pytest.fixture(scope="session")
 def recording(request):
     return request.config.getoption("--record")
+
+
+@pytest.fixture(scope="session")
+def radio_shade(request):
+    """The shade --radio tests may move, or a skip."""
+    if not request.config.getoption("--radio"):
+        pytest.skip("sends on air: pass --radio --shade <id>")
+    shade = request.config.getoption("--shade")
+    if shade is None:
+        pytest.skip("--radio needs --shade <id>, a shade that may move")
+    return shade

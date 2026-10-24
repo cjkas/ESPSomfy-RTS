@@ -105,6 +105,7 @@ class SomfyShade : public SomfyRemote, public ShadeSettings, private MotorLink, 
     uint8_t getShadeId() { return shadeId; }
     // Where the shade is and where it is going.
     const ShadeBehaviour::State &state() const { return this->behaviour.state(); }
+    bool isIdle() const { return this->behaviour.isIdle(); }
     uint8_t getFlags() override;
     // Sets the setting and state bits from a saved or sent flags byte.
     void setFlags(uint8_t flags);

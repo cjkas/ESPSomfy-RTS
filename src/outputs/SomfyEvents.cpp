@@ -50,7 +50,7 @@ void SomfyShade::emitCommand(uint8_t num, somfy_commands cmd, const char *source
   json->addElem("sourceAddress", (uint32_t)sourceAddress);
   json->endObject();
   sockEmit.endEmit(num);
-  if(num == 255) protoSocket.shadeCommand(*this, translateSomfyCommand(cmd).c_str(), source, sourceAddress);
+  if(num == 255) protoSocket.shadeCommanded(*this, translateSomfyCommand(cmd).c_str(), source, sourceAddress);
   if(mqtt.connected()) {
     this->publish("cmdSource", source);
     this->publish("cmdAddress", sourceAddress);

@@ -100,19 +100,19 @@ void tearDown() {}
 /*********************************************************************
  * Finding the shade or group
  ********************************************************************/
-static void test_a_missing_shade_is_dropped() {
+static void test_a_missing_shade_is_not_found() {
   shade_request_t req = request(shade_request_type_t::shade_command);
   req.target = 30;
-  TEST_ASSERT_TRUE(requests.run(req));
+  TEST_ASSERT_EQUAL(shade_request_result_t::not_found, requests.run(req));
   TEST_ASSERT_EQUAL_STRING("", ops.calls.c_str());
 }
-static void test_a_missing_group_is_dropped() {
-  TEST_ASSERT_TRUE(requests.run(request(shade_request_type_t::group_command, 2)));
+static void test_a_missing_group_is_not_found() {
+  TEST_ASSERT_EQUAL(shade_request_result_t::not_found, requests.run(request(shade_request_type_t::group_command, 2)));
   TEST_ASSERT_EQUAL_STRING("", ops.calls.c_str());
 }
 static void test_a_shade_id_is_not_a_group_id() {
   ops.shades[2] = rollerShade();
-  requests.run(request(shade_request_type_t::group_command, 2));
+  TEST_ASSERT_EQUAL(shade_request_result_t::not_found, requests.run(request(shade_request_type_t::group_command, 2)));
   TEST_ASSERT_EQUAL_STRING("", ops.calls.c_str());
 }
 
@@ -174,12 +174,19 @@ static void test_set_positions_leaves_the_tilt_of_a_shade_without_one() {
   requests.run(req);
   TEST_ASSERT_EQUAL_STRING("setPositions 4 20 -1", ops.calls.c_str());
 }
+static void test_set_positions_tilt_alone_on_a_shade_without_one_is_refused() {
+  ops.shades[4] = rollerShade();
+  shade_request_t req = request(shade_request_type_t::set_positions);
+  req.tiltPosition = 40;
+  TEST_ASSERT_EQUAL(shade_request_result_t::no_tilt, requests.run(req));
+  TEST_ASSERT_EQUAL_STRING("", ops.calls.c_str());
+}
 static void test_set_positions_with_nothing_in_range_does_nothing() {
   ops.shades[4] = tiltShade(tilt_types::integrated);
   shade_request_t req = request(shade_request_type_t::set_positions);
   req.position = -1;
   req.tiltPosition = 101;
-  TEST_ASSERT_TRUE(requests.run(req));
+  TEST_ASSERT_EQUAL(shade_request_result_t::done, requests.run(req));
   TEST_ASSERT_EQUAL_STRING("", ops.calls.c_str());
 }
 static void test_client_values_are_checked_on_the_way_in() {
@@ -279,6 +286,21 @@ static void test_group_sensor_uses_the_groups_repeats() {
 /*********************************************************************
  * The favorite
  ********************************************************************/
+static void test_favorite_on_a_moving_shade_is_refused() {
+  ops.shades[4] = rollerShade();
+  ops.shades[4].idle = false;
+  shade_request_t req = request(shade_request_type_t::set_favorite);
+  req.position = 50;
+  TEST_ASSERT_EQUAL(shade_request_result_t::shade_moving, requests.run(req));
+  TEST_ASSERT_EQUAL_STRING("", ops.calls.c_str());
+}
+static void test_group_requests_take_a_group_id() {
+  TEST_ASSERT_TRUE(shadeRequestIsForGroup(shade_request_type_t::group_command));
+  TEST_ASSERT_TRUE(shadeRequestIsForGroup(shade_request_type_t::group_repeat));
+  TEST_ASSERT_TRUE(shadeRequestIsForGroup(shade_request_type_t::group_sensor));
+  TEST_ASSERT_FALSE(shadeRequestIsForGroup(shade_request_type_t::shade_sensor));
+  TEST_ASSERT_FALSE(shadeRequestIsForGroup(shade_request_type_t::unpair));
+}
 static void test_favorite_on_a_flipped_shade_is_turned_round() {
   ops.shades[4] = flippedShade();
   shade_request_t req = request(shade_request_type_t::set_favorite);
@@ -338,14 +360,14 @@ static void test_unpair_holds_prog_longer_on_a_56_bit_motor() {
 static void test_unpair_the_radio_refused_leaves_the_shade_paired() {
   ops.shades[4] = rollerShade();
   ops.radioTakes = false;
-  TEST_ASSERT_FALSE(requests.run(request(shade_request_type_t::unpair)));
+  TEST_ASSERT_EQUAL(shade_request_result_t::radio_refused, requests.run(request(shade_request_type_t::unpair)));
   TEST_ASSERT_EQUAL_STRING("sendCommand 4 Prog repeat=7 step=0", ops.calls.c_str());
 }
 static void test_rolling_code_is_set() {
   ops.shades[4] = rollerShade();
   shade_request_t req = request(shade_request_type_t::set_rolling_code);
   req.rollingCode = 1234;
-  TEST_ASSERT_TRUE(requests.run(req));
+  TEST_ASSERT_EQUAL(shade_request_result_t::done, requests.run(req));
   TEST_ASSERT_EQUAL_STRING("setRollingCode 4 1234", ops.calls.c_str());
 }
 
@@ -357,15 +379,15 @@ static void test_a_refused_command_is_reported() {
   ops.radioTakes = false;
   shade_request_t req = request(shade_request_type_t::shade_command);
   req.target = 50;
-  TEST_ASSERT_FALSE(requests.run(req));
+  TEST_ASSERT_EQUAL(shade_request_result_t::radio_refused, requests.run(req));
 }
 
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   UNITY_BEGIN();
-  RUN_TEST(test_a_missing_shade_is_dropped);
-  RUN_TEST(test_a_missing_group_is_dropped);
+  RUN_TEST(test_a_missing_shade_is_not_found);
+  RUN_TEST(test_a_missing_group_is_not_found);
   RUN_TEST(test_a_shade_id_is_not_a_group_id);
   RUN_TEST(test_target_moves_a_shade_there);
   RUN_TEST(test_target_on_a_flipped_shade_is_turned_round);
@@ -374,6 +396,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_tilt_without_a_target_sends_the_tilt_command);
   RUN_TEST(test_set_positions_on_a_flipped_shade_are_turned_round);
   RUN_TEST(test_set_positions_leaves_the_tilt_of_a_shade_without_one);
+  RUN_TEST(test_set_positions_tilt_alone_on_a_shade_without_one_is_refused);
   RUN_TEST(test_set_positions_with_nothing_in_range_does_nothing);
   RUN_TEST(test_client_values_are_checked_on_the_way_in);
   RUN_TEST(test_no_repeat_means_the_shades_own);
@@ -385,6 +408,8 @@ int main(int argc, char **argv) {
   RUN_TEST(test_group_repeat_repeats_the_last_frame);
   RUN_TEST(test_sensor_sends_what_was_given);
   RUN_TEST(test_group_sensor_uses_the_groups_repeats);
+  RUN_TEST(test_favorite_on_a_moving_shade_is_refused);
+  RUN_TEST(test_group_requests_take_a_group_id);
   RUN_TEST(test_favorite_on_a_flipped_shade_is_turned_round);
   RUN_TEST(test_favorite_without_a_tilt_keeps_the_favorite_tilt);
   RUN_TEST(test_favorite_tilt_alone_keeps_the_favorite_lift);

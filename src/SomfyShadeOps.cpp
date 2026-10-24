@@ -16,6 +16,7 @@ bool SomfyShadeOps::findShade(uint8_t shadeId, shade_info_t &info) {
   info.currentPos = shade->state().currentPos;
   info.myPos = shade->state().myPos;
   info.myTiltPos = shade->state().myTiltPos;
+  info.idle = shade->isIdle();
   return true;
 }
 bool SomfyShadeOps::findGroup(uint8_t groupId, uint8_t &repeats) {

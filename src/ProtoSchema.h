@@ -24,6 +24,16 @@
   TYPE(syncEnd, 5, 'd') \
   TYPE(subscribe, 6, 'c') \
   TYPE(unsubscribe, 7, 'c') \
+  TYPE(shadeCommand, 16, 'c') \
+  TYPE(groupCommand, 17, 'c') \
+  TYPE(tiltCommand, 18, 'c') \
+  TYPE(repeatCommand, 19, 'c') \
+  TYPE(setPositions, 20, 'c') \
+  TYPE(setSensor, 21, 'c') \
+  TYPE(setMyPosition, 22, 'c') \
+  TYPE(unpairShade, 23, 'c') \
+  TYPE(setRollingCode, 24, 'c') \
+  TYPE(sendRemoteCommand, 25, 'c') \
   TYPE(shadeState, 128, 'd') \
   TYPE(shade, 129, 'd') \
   TYPE(shadeRemoved, 130, 'd') \
@@ -35,7 +45,7 @@
   TYPE(roomOrder, 136, 'd') \
   TYPE(shadeOrder, 137, 'd') \
   TYPE(groupOrder, 138, 'd') \
-  TYPE(shadeCommand, 139, 'd') \
+  TYPE(shadeCommanded, 139, 'd') \
   TYPE(memory, 140, 'd') \
   TYPE(wifi, 141, 'd') \
   TYPE(ethernet, 142, 'd') \
@@ -107,10 +117,13 @@
   FIELD(gpioLLTrigger, "gl", 'b', 0) \
   FIELD(linkedRemotes, "lk", 'l', 0) \
   FIELD(linkedShades, "ls", 'l', 0) \
-  /* shadeCommand */ \
+  /* the command ops and shadeCommanded */ \
   FIELD(command, "cm", 's', 0) \
   FIELD(source, "so", 's', 0) \
   FIELD(sourceAddress, "sr", 'i', 0) \
+  FIELD(repeat, "re", 'i', 0) \
+  FIELD(sunny, "sn", 'b', 0) \
+  FIELD(windy, "wn", 'b', 0) \
   /* the header */ \
   FIELD(maxRooms, "xr", 'i', 0) \
   FIELD(maxShades, "xs", 'i', 0) \

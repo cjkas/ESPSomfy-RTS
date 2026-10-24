@@ -1,5 +1,5 @@
 {
- "hash": "8198c564",
+ "hash": "0fa739cc",
  "types": {
   "1": "hello",
   "2": "reply",
@@ -8,6 +8,16 @@
   "5": "syncEnd",
   "6": "subscribe",
   "7": "unsubscribe",
+  "16": "shadeCommand",
+  "17": "groupCommand",
+  "18": "tiltCommand",
+  "19": "repeatCommand",
+  "20": "setPositions",
+  "21": "setSensor",
+  "22": "setMyPosition",
+  "23": "unpairShade",
+  "24": "setRollingCode",
+  "25": "sendRemoteCommand",
   "128": "shadeState",
   "129": "shade",
   "130": "shadeRemoved",
@@ -19,7 +29,7 @@
   "136": "roomOrder",
   "137": "shadeOrder",
   "138": "groupOrder",
-  "139": "shadeCommand",
+  "139": "shadeCommanded",
   "140": "memory",
   "141": "wifi",
   "142": "ethernet",
@@ -333,6 +343,11 @@
    "kind": "i",
    "default": 0
   },
+  "re": {
+   "name": "repeat",
+   "kind": "i",
+   "default": 0
+  },
   "rp": {
    "name": "repeats",
    "kind": "i",
@@ -380,6 +395,11 @@
   },
   "sm": {
    "name": "simMy",
+   "kind": "b",
+   "default": 0
+  },
+  "sn": {
+   "name": "sunny",
    "kind": "b",
    "default": 0
   },
@@ -451,6 +471,11 @@
   "w": {
    "name": "tiltDirection",
    "kind": "i",
+   "default": 0
+  },
+  "wn": {
+   "name": "windy",
+   "kind": "b",
    "default": 0
   },
   "x": {
