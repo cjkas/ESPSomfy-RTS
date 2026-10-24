@@ -113,6 +113,41 @@ _Avoid_: MQTTClass
 **Change fan-out**
 What sends everything that changed about a shade or group in one pass of `loop()` once: its changed MQTT topics, then one state event.
 
+## Socket protocol
+
+**Op**
+A request a client sends over the socket: a command, a read, a model edit or a settings change.
+_Avoid_: action, call
+
+**Reply**
+The answer to one op, sent only to the client that sent it: done, or an error with a code. Every op gets exactly one.
+_Avoid_: response, request result
+
+**Event**
+A message the device sends without being asked: a change to a shade, group, room or setting, or a status update. Events come from the change fan-out and go to every client allowed to see them.
+_Avoid_: increment, push
+
+**Sync**
+How a client catches up with the device: the shade model and status, sent item by item at the client's pace, after which events keep it current. It describes no single moment.
+_Avoid_: snapshot (a ModelSnapshot is a copy of one moment), initial load
+
+**Feed**
+A stream of events a client subscribes to on its own, such as received remote frames or a frequency scan.
+_Avoid_: topic (MQTT's word), room (a room is part of the shade model)
+
+**Schema**
+The device's description of the protocol it speaks: what each message type, field and error code is, and what a field is when left out.
+
+## Security
+
+**Security mode**
+Whether the device asks for login: *None* (everything open) or *Secured* (a PIN or password).
+_Avoid_: Secure Config Only (removed)
+
+**Token**
+What logging in returns. It stands for the PIN or password, on one client address, and every request under Secured carries it.
+_Avoid_: session, API key (the name of the field it travels in)
+
 ## Domain modules
 
 **Domain module**
