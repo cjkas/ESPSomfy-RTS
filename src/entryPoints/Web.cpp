@@ -17,7 +17,6 @@
 #include "Web.h"
 #include "WebRoutes.h"
 #include "MqttConnection.h"
-#include "GitOTA.h"
 #include "ESPNetwork.h"
 #include "Timing.h"
 #include <AsyncTCP.h>
@@ -32,7 +31,6 @@ extern LoopStats loopStats;
 extern SomfyShadeController somfy;
 extern Web webServer;
 extern MqttConnection mqtt;
-extern GitUpdater git;
 extern ESPNetwork net;
 extern LoopQueue loopQueue;
 extern SnapshotSlots snapshotSlots;
@@ -203,37 +201,12 @@ void serializeAppVersion(JsonFormatter &json, appver_t &ver) {
   json.addElem("build", ver.build);
   json.addElem("suffix", ver.suffix);
 }
-void serializeGitVersion(JsonFormatter &json) {
-  json.addElem("available", git.updateAvailable);
-  json.addElem("status", git.status);
-  json.addElem("error", (int32_t)git.error);
-  json.addElem("cancelled", git.cancelled);
-  json.addElem("checkForUpdate", settings.checkForUpdate);
-  json.addElem("inetAvailable", git.inetAvailable);
+void serializeVersion(JsonFormatter &json) {
   json.beginObject("fwVersion");
   serializeAppVersion(json, settings.fwVersion);
   json.endObject();
   json.beginObject("appVersion");
   serializeAppVersion(json, settings.appVersion);
-  json.endObject();
-  json.beginObject("latest");
-  serializeAppVersion(json, git.latest);
-  json.endObject();
-}
-void serializeGitRelease(GitRelease *rel, JsonFormatter &json) {
-  Timestamp ts;
-  char buff[20];
-  sprintf(buff, "%llu", rel->id);
-  json.addElem("id", buff);
-  json.addElem("name", rel->name);
-  json.addElem("date", ts.getISOTime(rel->releaseDate));
-  json.addElem("draft", rel->draft);
-  json.addElem("preRelease", rel->preRelease);
-  json.addElem("main", rel->main);
-  json.addElem("hasFS", rel->hasFS);
-  json.addElem("hwVersions", rel->hwVersions);
-  json.beginObject("version");
-  serializeAppVersion(json, rel->version);
   json.endObject();
 }
 
@@ -251,7 +224,7 @@ static void controllerHeader(JsonFormatter &json, const model_snapshot_t &snap) 
   json.endObject();
   json.endObject();
   json.beginObject("version");
-  serializeGitVersion(json);
+  serializeVersion(json);
   json.endObject();
 }
 // The parts of /discovery that aren't in the shade model.
@@ -262,14 +235,12 @@ static void discoveryHeader(JsonFormatter &json, const model_snapshot_t &snap) {
   else if(net.connType == conn_types_t::wifi) connType = "Wifi";
   json.addElem("serverId", settings.serverId);
   json.addElem("version", settings.fwVersion.name);
-  json.addElem("latest", git.latest.name);
   json.addElem("model", "ESPSomfyRTS");
   json.addElem("hostname", settings.hostname);
   json.addElem("authType", static_cast<uint8_t>(settings.Security.type));
   json.addElem("permissions", settings.Security.permissions);
   json.addElem("chipModel", settings.chipModel);
   json.addElem("connType", connType);
-  json.addElem("checkForUpdate", settings.checkForUpdate);
   json.beginObject("memory");
   json.addElem("max", ESP.getMaxAllocHeap());
   json.addElem("free", ESP.getFreeHeap());
@@ -696,40 +667,6 @@ void Web::handleSetSensor(AsyncWebServerRequest *request, JsonVariant &json) {
     else request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"An invalid groupId was provided\"}"));
   }
   else request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"shadeId was not provided\"}"));
-}
-void Web::handleDownloadFirmware(AsyncWebServerRequest *request) {
-  if(request->method() == HTTP_OPTIONS) { request->send(200); return; }
-  if(!this->isAuthenticated(request)) return;
-  GitRepo repo;
-  GitRelease *rel = nullptr;
-  int8_t err = repo.getReleases();
-  ESP_LOGI(TAG, "Async downloadFirmware called...");
-  if(err == 0) {
-    if(asyncHasParam(request, "ver")) {
-      String ver = asyncParam(request, "ver");
-      if(ver == "latest") rel = &repo.releases[0];
-      else if(ver == "main") rel = &repo.releases[GIT_MAX_RELEASES];
-      else {
-        for(uint8_t i = 0; i < GIT_MAX_RELEASES; i++) {
-          if(repo.releases[i].id == 0) continue;
-          if(strcmp(repo.releases[i].name, ver.c_str()) == 0) { rel = &repo.releases[i]; break; }
-        }
-      }
-      if(rel) {
-        AsyncJsonResp resp;
-        resp.beginResponse(request, g_async_content, sizeof(g_async_content));
-        resp.beginObject();
-        serializeGitRelease(rel, resp);
-        resp.endObject();
-        resp.endResponse();
-        strcpy(git.targetRelease, rel->name);
-        git.status = GIT_AWAITING_UPDATE;
-      }
-      else request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Release not found in repo.\"}"));
-    }
-    else request->send(500, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Release version not supplied.\"}"));
-  }
-  else request->send(err, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Error communicating with Github.\"}"));
 }
 void Web::handleBackup(AsyncWebServerRequest *request) {
   if(!this->isAuthenticated(request)) return;

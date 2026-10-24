@@ -18,7 +18,6 @@ void registerApiRoutes(AsyncWebServer &server) {
   server.on("/room", HTTP_GET, [](AsyncWebServerRequest *r) { webServer.handleRoom(r); });
   server.on("/shade", HTTP_GET, [](AsyncWebServerRequest *r) { webServer.handleShade(r); });
   server.on("/group", HTTP_GET, [](AsyncWebServerRequest *r) { webServer.handleGroup(r); });
-  server.on("/downloadFirmware", WebRequestMethodComposite(HTTP_GET) | HTTP_POST, [](AsyncWebServerRequest *r) { webServer.handleDownloadFirmware(r); });
   server.on("/backup", WebRequestMethodComposite(HTTP_GET) | HTTP_POST, [](AsyncWebServerRequest *r) { webServer.handleBackup(r); });
   server.on("/reboot", WebRequestMethodComposite(HTTP_POST) | HTTP_PUT, [](AsyncWebServerRequest *r) { webServer.handleReboot(r); });
   // JSON body endpoints

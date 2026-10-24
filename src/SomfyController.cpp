@@ -13,7 +13,6 @@
 #include "ShadeRequests.h"
 #include "SomfyShadeOps.h"
 #include "ModelSnapshot.h"
-#include "GitOTA.h"
 #include "esp_core_dump.h"
 #include "esp_system.h"
 #include "esp_app_desc.h"
@@ -45,7 +44,6 @@ ESPNetwork net;
 rebootDelay_t rebootDelay;
 SomfyShadeController somfy;
 MqttConnection mqtt;
-GitUpdater git;
 SomfyShadeOps shadeOps;
 ShadeRequests shadeRequests(shadeOps);
 LoopQueue loopQueue;
@@ -146,7 +144,6 @@ void setup() {
   delay(1000);
   net.setup();  
   somfy.begin();
-  //git.checkForUpdate();
   // The core starts the watchdog with a 5s timeout before setup(), so
   // esp_task_wdt_init() would fail and keep that.
   const esp_task_wdt_config_t wdt_config = { .timeout_ms = 15000, .idle_core_mask = 1, .trigger_panic = true };
@@ -186,11 +183,6 @@ void loop() {
   logIfSlow(TAG, "Loop changes", timing.lap(), LOOP_SLOW_MS);
   esp_task_wdt_reset();
   if(net.connected() || net.softAPOpened) {
-    if(!rebootDelay.reboot && net.connected() && !net.softAPOpened) {
-      git.loop();
-      logIfSlow(TAG, "Loop git", timing.lap(), LOOP_SLOW_MS);
-      esp_task_wdt_reset();
-    }
     webServer.loop();
     logIfSlow(TAG, "Loop web server", timing.lap(), LOOP_SLOW_MS);
     esp_task_wdt_reset();

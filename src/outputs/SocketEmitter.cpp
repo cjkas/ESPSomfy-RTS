@@ -6,7 +6,6 @@
 #include "ConfigSettings.h"
 #include "Somfy.h"
 #include "ESPNetwork.h"
-#include "GitOTA.h"
 #include "Timing.h"
 #include "Utils.h"
 
@@ -16,7 +15,6 @@ extern ConfigSettings settings;
 extern ESPNetwork net;
 extern SomfyShadeController somfy;
 extern SocketEmitter sockEmit;
-extern GitUpdater git;
 
 AsyncWebServer wsServer(8080);
 AsyncWebSocket ws("/");
@@ -147,6 +145,20 @@ uint8_t SocketEmitter::activeClients(uint8_t room) {
   if(room < SOCK_MAX_ROOMS) return this->rooms[room].activeClients();
   return 0;
 }
+// The installed versions, in the fwStatus event the web UI and Home Assistant
+// read them from.
+static void emitFirmwareVersion(uint8_t num) {
+  JsonSockEvent *json = sockEmit.beginEmit("fwStatus");
+  json->beginObject();
+  json->beginObject("fwVersion");
+  settings.fwVersion.toJSON(json);
+  json->endObject();
+  json->beginObject("appVersion");
+  settings.appVersion.toJSON(json);
+  json->endObject();
+  json->endObject();
+  sockEmit.endEmit(num);
+}
 void SocketEmitter::initClients() {
   for(uint8_t i = 0; i < sizeof(this->newClients); i++) {
     uint8_t slot = this->newClients[i];
@@ -162,8 +174,8 @@ void SocketEmitter::initClients() {
         somfy.emitState(slot);
         logElapsed(TAG, "Socket init somfy state", step.lap());
         if(!ws.hasClient(asyncId)) { this->newClients[i] = 255; continue; }
-        git.emitUpdateCheck(slot);
-        logElapsed(TAG, "Socket init update check", step.lap());
+        emitFirmwareVersion(slot);
+        logElapsed(TAG, "Socket init firmware version", step.lap());
         if(!ws.hasClient(asyncId)) { this->newClients[i] = 255; continue; }
         net.emitSockets(slot);
         logElapsed(TAG, "Socket init network", step.lap());

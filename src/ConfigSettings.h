@@ -183,6 +183,8 @@ class ConfigSettings: BaseSettings {
     appver_t fwVersion;
     appver_t appVersion;
     bool ssdpBroadcast = true;
+    // Nothing reads it since the GitHub update went (docs/adr/0007-no-github-update.md).
+    // NVS and the backup file still carry it so their formats stay the same.
     bool checkForUpdate = true;
     uint8_t status;
     IPSettings IP;

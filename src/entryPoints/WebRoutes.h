@@ -4,7 +4,6 @@
 #include "Somfy.h"
 #include "LoopQueue.h"
 #include "ModelSnapshot.h"
-#include "GitOTA.h"
 
 // What WebUiRoutes, ApiRoutes and the handlers both of them call (Web.cpp)
 // share.  Internal to the web servers.
@@ -40,6 +39,6 @@ void serializeShade(SomfyShade *shade, JsonFormatter &json);
 void serializeShade(SomfyShade *shade, JsonFormatter &json, bool paired, uint16_t lastRollingCode);
 void serializeTransceiverConfig(JsonFormatter &json);
 void serializeAppVersion(JsonFormatter &json, appver_t &ver);
-void serializeGitVersion(JsonFormatter &json);
-void serializeGitRelease(GitRelease *rel, JsonFormatter &json);
+// The installed firmware and web application versions.
+void serializeVersion(JsonFormatter &json);
 #endif
