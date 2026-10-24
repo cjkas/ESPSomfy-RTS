@@ -239,6 +239,9 @@ class SomfyShadeController {
     uint8_t getNextRoomId();
     uint8_t getNextShadeId();
     uint8_t getNextGroupId();
+    // The remote address a new shade or group with that id is offered: one no
+    // shade or group uses.
+    uint32_t getNextRemoteAddress(uint8_t id);
     int8_t getMaxRoomOrder();
     int8_t getMaxShadeOrder();
     int8_t getMaxGroupOrder();

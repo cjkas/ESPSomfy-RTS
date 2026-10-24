@@ -9,7 +9,7 @@ Why the protocol looks like this: [ADR 0005](adr/0005-one-websocket-protocol.md)
 - `ws://host/ws` on port 80. Under Secured the upgrade needs `?apikey=<token>` from `/login`; without a valid one it is refused with 401 ([ADR 0006](adr/0006-two-security-modes-eleven-http-routes.md)).
 - Optional `?schema=<hash>`: the client already has the schema with that hash and doesn't need it again.
 - At most 5 clients. A sixth is closed as soon as it connects.
-- Text frames only, and each message in one frame: a fragmented message is answered with one bad request, without an `id` since it couldn't be read. Until the device puts messages together from their pieces, that includes a frame larger than one TCP segment (about 1.4 KB), which also reaches it in pieces. A binary encoding, if one comes, would be asked for at the upgrade (for example `?enc=bin`) and use binary frames.
+- Text messages of at most 4 KB. A message may be sent as several frames, and a frame larger than one TCP segment (about 1.4 KB) reaches the device in pieces anyway; the device puts it back together. It does that for one message at a time across all clients: while it is, another client's long message is answered with busy, and the client sends it again. A message that hasn't arrived in full within 10 s is given up, and its client is told with a bad request. These refusals have no `id`, since the message couldn't be read. A binary encoding, if one comes, would be asked for at the upgrade (for example `?enc=bin`) and use binary frames.
 
 ## Envelope
 
@@ -39,7 +39,7 @@ The keys of `hello` (`fw`, `sh`) and of the schema itself (`T`, `F`, `E`, `Q`) n
 | Range | Sender | Types |
 |---|---|---|
 | 1–15 | control | `hello` 1, `reply` 2, `next` 3, `sync` 4, `syncEnd` 5, `subscribe` 6, `unsubscribe` 7 |
-| 16–127 | client ops | commands: `shadeCommand` 16, `groupCommand` 17, `tiltCommand` 18, `repeatCommand` 19, `setPositions` 20, `setSensor` 21, `setMyPosition` 22, `unpairShade` 23, `setRollingCode` 24, `sendRemoteCommand` 25; model edits and settings follow |
+| 16–127 | client ops | commands: `shadeCommand` 16, `groupCommand` 17, `tiltCommand` 18, `repeatCommand` 19, `setPositions` 20, `setSensor` 21, `setMyPosition` 22, `unpairShade` 23, `setRollingCode` 24, `sendRemoteCommand` 25; edits: 26–44 (`addRoom` … `groupSortOrder`); reads: `getNextRoom` 45, `getNextShade` 46, `getNextGroup` 47, `groupOptions` 48; settings follow |
 | 128–255 | device events | `shadeState`, `shade`, `shadeRemoved`, `group`, `groupState`, `groupRemoved`, `room`, `roomRemoved`, `roomOrder`, `shadeOrder`, `groupOrder`, `shadeCommanded`, `memory`, `wifi`, `ethernet`, `frame`, `frequencyScan`, `repeaters` |
 
 A number is never reused. A retired type stays reserved.
@@ -101,6 +101,28 @@ Every op carries an `id` and gets one reply. The ops do what the HTTP routes of 
 - A field of the wrong kind, a value out of range, or both of two alternatives, is a bad request, and `desc` names the field.
 - The reply comes once the command has gone to the radio, or was refused: not found (no shade or group with that id), radio unavailable (the radio is paused, as during a frequency scan, or didn't take it), busy (the device's command queue is full, or `setMyPosition` on a shade that is moving) or bad request (`setPositions` with only a tilt, for a shade without one). It carries no state: the shade's `shadeState` events follow as it moves.
 - `sendRemoteCommand` is answered as soon as the radio has taken the frame, not after the ops queued before it, and with radio unavailable when the radio is full rather than waiting for room.
+
+## Edits
+
+Each edit op is the edit route of the same name: `addRoom`, `addShade`, `addGroup`, `saveRoom`, `saveShade`, `saveGroup`, `deleteRoom`, `deleteShade`, `deleteGroup`, `linkRemote`, `unlinkRemote`, `linkToGroup`, `unlinkFromGroup`, `linkRepeater`, `unlinkRepeater`, `setPaired`, `roomSortOrder`, `shadeSortOrder`, `groupSortOrder`.
+
+- The payload holds what the route's request does, under the dictionary's keys: a room's, shade's or group's fields as in the sync, and its id to save, delete or link it. `linkRemote` takes `remoteAddress` and `lastRollingCode`; `linkRepeater` takes `remoteAddress`; `setPaired` needs `paired`. A sort order takes `ids`, the ids in their new order.
+- As with the commands, only the fields that were sent are applied. A key that isn't in the dictionary, a field the edit doesn't set, or a value of the wrong kind, is a bad request before anything is queued. A shade's save doesn't set `paired`, `linkedRemotes` or `flags` (`light` is its own field, and `setSensor` sets the sun and wind), and a group's doesn't set `sunSensor`, which comes from its shades.
+- One edit runs at a time, whichever client or route sent it: while one is waiting, another gets busy.
+- The reply comes once the edit is applied and saved. An add's reply carries the new item's id (`roomId`, `shadeId` or `groupId`). A refused edit has the route's reason in `desc`: not found for an id that doesn't exist, otherwise a bad request, with the reason's number in `validation` for a shade whose settings don't add up.
+- The edit's events follow: the whole item for an add or save, `*Removed` for a delete, the new order for a sort order, `repeaters` for a repeater.
+
+## Reads
+
+What an edit form needs before it is sent, worked out by the device as the edit would be:
+
+| Op | Payload | Reply |
+|---|---|---|
+| `getNextRoom` | | the `roomId` a new room gets |
+| `getNextShade`, `getNextGroup` | | the `shadeId` or `groupId` a new one gets, a `remoteAddress` no shade or group uses, and the radio's `bitLength` and `proto` |
+| `groupOptions` | `groupId` | the group's id, and in `ids` the shades it doesn't have yet |
+
+When every slot is taken the reply is a bad request; `groupOptions` for a group that doesn't exist is not found.
 
 ## Replies
 

@@ -2,15 +2,19 @@
 #define SOMFY_EDITOR_H
 #include <ArduinoJson.h>
 #include "ModelEditor.h"
+#include "ProtoFrame.h"
 
 // ModelEditor on the device: an edit of the shade model handed from the web
 // server task to loop(), which applies it with the ModelEditor rules and tells
 // the clients how it went.
 
 // One edit on its way to loop(): the edit route and a copy of its request.
+// From an edit route its result goes to every client as requestResult; from a
+// protocol 2 edit op, as its reply.
 struct model_edit_t {
   model_edit_type_t type = model_edit_type_t::add_room;
   uint32_t requestId = 0;
+  proto_reply_to_t replyTo;
   JsonDocument doc;
 };
 
@@ -20,7 +24,13 @@ bool beginModelEdit();
 uint32_t nextEditRequestId();
 // Gives up an edit that was begun but never queued.  Any task.
 void cancelModelEdit(model_edit_t *edit);
-// Applies the edit, saves it, sends requestResult and frees it.  loop() only.
+// Begins an edit of that type: nullptr when one is already waiting or running
+// (busy), or there was no memory for it.  Any task.
+model_edit_t *newModelEdit(model_edit_type_t type, bool &busy);
+// Hands a begun edit to loop(); false when the queue is full, and it is given
+// up.  Any task.
+bool submitModelEdit(model_edit_t *edit);
+// Applies the edit, saves it, tells how it went and frees it.  loop() only.
 void runModelEdit(model_edit_t *edit);
 // Applies the edit to the shade model and saves it.  loop() only.
 edit_result_t applyModelEdit(model_edit_t &edit);

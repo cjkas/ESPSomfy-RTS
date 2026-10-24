@@ -170,5 +170,5 @@ A copy of the shade model taken for one read, so the reply describes a single mo
 _Avoid_: InstallationSnapshot
 
 **LoopQueue**
-The single queue through which shade requests, model edits and snapshot requests reach `loop()` from other tasks, in the order they arrived.
+The single queue through which shade requests, model edits, reads and snapshot requests reach `loop()` from other tasks, in the order they arrived.
 _Avoid_: web command queue

@@ -81,25 +81,17 @@ static void onUploadDisconnect() {
 // The reply only says it was accepted; the result reaches every client as a
 // requestResult event carrying the same requestId once loop() has applied it.
 static void queueModelEdit(AsyncWebServerRequest *request, model_edit_type_t type, JsonVariantConst body) {
-  if(!beginModelEdit()) {
-    request->send(503, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Busy, try the change again\"}"));
-    return;
-  }
-  model_edit_t *edit = new (std::nothrow) model_edit_t();
+  bool busy;
+  model_edit_t *edit = newModelEdit(type, busy);
   if(!edit) {
-    cancelModelEdit(nullptr);
-    sendQueueFull(request);
+    if(busy) request->send(503, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Busy, try the change again\"}"));
+    else sendQueueFull(request);
     return;
   }
-  edit->type = type;
   edit->requestId = nextEditRequestId();
   edit->doc.set(body);
   const uint32_t requestId = edit->requestId;
-  loop_item_t item;
-  item.type = loop_item_type_t::model_edit;
-  item.edit = edit;
-  if(edit->doc.overflowed() || !loopQueue.submit(item)) {
-    cancelModelEdit(edit);
+  if(!submitModelEdit(edit)) {
     sendQueueFull(request);
     return;
   }

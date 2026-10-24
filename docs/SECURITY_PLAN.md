@@ -76,7 +76,7 @@ Protocol 2 lands as one PR per step, and `main` keeps working throughout because
 |---|---|---|
 | 1a | firmware | protocol core next to the existing HTTP: `hello`, socket auth, sync, events, feeds, schema; the e2e suite starts |
 | 1b | firmware | command ops through the LoopQueue, with replies from `loop()` |
-| 1c | firmware | model edit ops, replacing `requestResult`; messages reassembled from their pieces |
+| 1c | firmware | model edit ops, replacing `requestResult`, and the reads their forms need; messages reassembled from their pieces |
 | 1d | firmware | settings ops (`getSettings`/`saveSettings` by section), the WiFi and frequency scans, reboot |
 | 2 | firmware | web UI on ops; the CSS files bundled; token in `sessionStorage`; banner on a version mismatch |
 | 3 | HA | protocol 2 with the old-firmware fallback; `/loginContext` setup; runtime login and reauth |

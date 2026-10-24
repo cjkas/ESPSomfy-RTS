@@ -4,6 +4,7 @@
 #include "ProtoSchema.h"
 #include "ModelEditor.h"
 #include "ShadeRequests.h"
+#include "ProtoFrame.h"
 
 class SomfyShade;
 class SomfyGroup;
@@ -25,7 +26,11 @@ class ProtoSocket {
     void loop();
     bool hasClients() const;
     // The reply to a command op once loop() has run its shade request.
-    void replyRequest(uint32_t client, uint32_t id, const shade_request_t &req, shade_request_result_t result);
+    void replyRequest(const proto_reply_to_t &to, const shade_request_t &req, shade_request_result_t result);
+    // The reply to an edit op once loop() has applied it.
+    void replyEdit(const proto_reply_to_t &to, model_edit_type_t type, const edit_result_t &result);
+    // The reply to a read op, from the shade model.  loop() only.
+    void replyRead(const proto_reply_to_t &to, uint8_t op, uint8_t groupId);
     // Events, loop() only.
     void shadeState(SomfyShade &shade);
     void shade(SomfyShade &shade);

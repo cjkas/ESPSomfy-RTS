@@ -5,13 +5,13 @@
 #define PROTO_FIELD_ROW(name, key, kind, def) {#name, key, kind, def},
 static const proto_field_info_t FIELDS[] = { PROTO_FIELDS(PROTO_FIELD_ROW) };
 #undef PROTO_FIELD_ROW
-// Errors and feeds have no sender, so it is left empty and starts as 0.
-#define PROTO_NAMED_ROW(name, number, ...) {number, #name, PROTO_SENDER(__VA_ARGS__, 0)},
-#define PROTO_SENDER(sender, ...) sender
-static const proto_named_t TYPES[] = { PROTO_TYPES(PROTO_NAMED_ROW) };
+#define PROTO_TYPE_ROW(name, number, sender, op) {number, #name, sender, op},
+static const proto_named_t TYPES[] = { PROTO_TYPES(PROTO_TYPE_ROW) };
+#undef PROTO_TYPE_ROW
+// Errors and feeds have no sender or op.
+#define PROTO_NAMED_ROW(name, number) {number, #name, 0, 0},
 static const proto_named_t ERRORS[] = { PROTO_ERRORS(PROTO_NAMED_ROW) };
 static const proto_named_t FEEDS[] = { PROTO_FEEDS(PROTO_NAMED_ROW) };
-#undef PROTO_SENDER
 #undef PROTO_NAMED_ROW
 static_assert(sizeof(FIELDS) / sizeof(FIELDS[0]) == static_cast<size_t>(proto_field_t::count), "a field without a row");
 
@@ -20,6 +20,12 @@ const proto_field_info_t *protoFieldByKey(const char *key) {
   for(const proto_field_info_t &f : FIELDS)
     if(strcmp(f.key, key) == 0) return &f;
   return nullptr;
+}
+bool protoFieldOfKey(const char *key, proto_field_t &out) {
+  const proto_field_info_t *f = protoFieldByKey(key);
+  if(!f) return false;
+  out = static_cast<proto_field_t>(f - FIELDS);
+  return true;
 }
 uint8_t protoTypeCount() { return sizeof(TYPES) / sizeof(TYPES[0]); }
 const proto_named_t &protoTypeAt(uint8_t index) { return TYPES[index]; }
@@ -31,6 +37,11 @@ const char *protoTypeName(uint8_t number) {
   for(const proto_named_t &t : TYPES)
     if(t.number == number) return t.name;
   return nullptr;
+}
+proto_op_t protoOpKind(uint8_t type) {
+  for(const proto_named_t &t : TYPES)
+    if(t.number == type) return static_cast<proto_op_t>(t.op);
+  return proto_op_t::none;
 }
 bool protoClientMaySend(uint8_t type) {
   for(const proto_named_t &t : TYPES)
