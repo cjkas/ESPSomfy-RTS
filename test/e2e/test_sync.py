@@ -100,8 +100,36 @@ def test_resync_sends_it_all_again(connect, schema):
         assert "T" not in f["d"]
 
 
+# What a recording must not keep from a real installation: the remote
+# addresses and rolling codes would let anyone forge frames for its shades.
+SCRUBBED = {"remoteAddress", "lastRollingCode", "sourceAddress", "startingAddress", "repeaters",
+            "name", "serverId", "hostname", "ssid"}
+
+
+def scrub(value, schema, counter):
+    """Fake values of the same kind in place of anything identifying."""
+    if isinstance(value, list):
+        return [scrub(v, schema, counter) for v in value]
+    if not isinstance(value, dict):
+        return value
+    out = {}
+    for key, v in value.items():
+        name = schema.fields.get(key, (key,))[0]
+        if name in SCRUBBED:
+            counter[0] += 1
+            if isinstance(v, list):
+                v = [0x100000 + counter[0] * 16 + i for i in range(len(v))]
+            elif isinstance(v, str):
+                v = "%s %u" % (name, counter[0])
+            else:
+                v = 0x100000 + counter[0]
+        out[key] = scrub(v, schema, counter)
+    return out
+
+
 def test_record_fixtures(connect, recording):
-    """With --record, saves hello and a whole first sync for the other suites."""
+    """With --record, saves hello and a whole first sync for the other suites,
+    with the installation's identifying values replaced."""
     if not recording:
         return
     c = connect()
@@ -111,8 +139,12 @@ def test_record_fixtures(connect, recording):
     hello = json.loads(c.raw[0])
     with open(os.path.join(FIXTURES, "hello.json"), "w", encoding="utf-8") as f:
         json.dump(hello, f, indent=1)
+    counter = [0]
+    frames = [json.loads(r) for r in c.raw[1:]]
+    for frame in frames:
+        frame["d"] = scrub(frame["d"], schema, counter)
     with open(os.path.join(FIXTURES, "sync.json"), "w", encoding="utf-8") as f:
-        json.dump([json.loads(r) for r in c.raw[1:]], f, indent=1)
+        json.dump(frames, f, indent=1)
     expanded = {
         "hash": hello["d"]["sh"],
         "types": {str(k): v for k, v in sorted(schema.types.items())},
