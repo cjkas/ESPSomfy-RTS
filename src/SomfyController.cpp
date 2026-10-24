@@ -18,6 +18,9 @@
 #include "esp_system.h"
 #include "esp_app_desc.h"
 #include "esp_ota_ops.h"
+#include "esp_heap_caps.h"
+#include "esp_rom_sys.h"
+#include <inttypes.h>
 #include "Timing.h"
 
 static const char *TAG = "Main";
@@ -70,8 +73,18 @@ void listDir(const char *dirname, uint8_t levels) {
     }
 }
 
-void setup() {  
+// A failed allocation in library code aborts with only the backtrace, so this
+// leaves the size and what the heap had left next to it.  Printed by the ROM
+// as the logger might need the heap itself.
+static void onAllocFailed(size_t size, uint32_t caps, const char *function) {
+  esp_rom_printf("Alloc of %u bytes (caps 0x%" PRIx32 ") failed in %s: free %u, largest block %u, min free %u\n",
+    (unsigned)size, caps, function ? function : "?", (unsigned)heap_caps_get_free_size(caps),
+    (unsigned)heap_caps_get_largest_free_block(caps), (unsigned)heap_caps_get_minimum_free_size(caps));
+}
+
+void setup() {
   Serial.begin(SERIAL_BAUD);
+  heap_caps_register_failed_alloc_callback(onAllocFailed);
   ESP_LOGI(TAG, "Startup/Boot....");
   esp_core_dump_summary_t summary;
   if (esp_core_dump_get_summary(&summary) == ESP_OK) {
