@@ -1,0 +1,109 @@
+#include <unity.h>
+#include <string>
+#include <ArduinoJson.h>
+#include "ProtoEdits.h"
+
+// Socket protocol 2's edit ops: which edit each is, and the edit route's
+// request that its payload becomes (docs/PROTOCOL.md).
+
+void setUp() {}
+void tearDown() {}
+
+static JsonDocument payload;
+static JsonDocument doc;
+
+static const char *expand(model_edit_type_t type, const char *json) {
+  payload.clear();
+  TEST_ASSERT_EQUAL(DeserializationError::Ok, deserializeJson(payload, json).code());
+  return expandEditPayload(type, payload.as<JsonObjectConst>(), doc);
+}
+static std::string written() {
+  std::string out;
+  serializeJson(doc, out);
+  return out;
+}
+#define TEST_ASSERT_GOOD(why) TEST_ASSERT_NULL_MESSAGE(why, why)
+
+/*********************************************************************
+ * Which edit an op is
+ ********************************************************************/
+static void test_every_edit_op_is_an_edit() {
+  model_edit_type_t t;
+  TEST_ASSERT_TRUE(protoEditType(static_cast<uint8_t>(proto_type_t::addShade), t));
+  TEST_ASSERT_EQUAL(model_edit_type_t::add_shade, t);
+  TEST_ASSERT_TRUE(protoEditType(static_cast<uint8_t>(proto_type_t::groupSortOrder), t));
+  TEST_ASSERT_EQUAL(model_edit_type_t::group_order, t);
+  TEST_ASSERT_TRUE(protoEditType(static_cast<uint8_t>(proto_type_t::setPaired), t));
+  TEST_ASSERT_EQUAL(model_edit_type_t::set_paired, t);
+  // One op for each edit.
+  int count = 0;
+  for(int type = 16; type <= 127; type++)
+    if(protoEditType(static_cast<uint8_t>(type), t)) count++;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(model_edit_type_t::group_order) + 1, count);
+}
+static void test_other_types_are_not_edits() {
+  model_edit_type_t t;
+  TEST_ASSERT_FALSE(protoEditType(static_cast<uint8_t>(proto_type_t::shadeCommand), t));
+  TEST_ASSERT_FALSE(protoEditType(static_cast<uint8_t>(proto_type_t::getNextShade), t));
+  TEST_ASSERT_FALSE(protoEditType(static_cast<uint8_t>(proto_type_t::shade), t));
+}
+static void test_the_read_ops() {
+  TEST_ASSERT_TRUE(protoIsReadOp(static_cast<uint8_t>(proto_type_t::getNextRoom)));
+  TEST_ASSERT_TRUE(protoIsReadOp(static_cast<uint8_t>(proto_type_t::getNextShade)));
+  TEST_ASSERT_TRUE(protoIsReadOp(static_cast<uint8_t>(proto_type_t::getNextGroup)));
+  TEST_ASSERT_TRUE(protoIsReadOp(static_cast<uint8_t>(proto_type_t::groupOptions)));
+  TEST_ASSERT_FALSE(protoIsReadOp(static_cast<uint8_t>(proto_type_t::addRoom)));
+}
+
+/*********************************************************************
+ * The payload as the edit route's request
+ ********************************************************************/
+static void test_short_keys_become_the_route_names() {
+  TEST_ASSERT_GOOD(expand(model_edit_type_t::save_shade, R"({"s":3,"n":"Office","U":12000,"a":1193046})"));
+  TEST_ASSERT_EQUAL_STRING(R"({"shadeId":3,"name":"Office","upTime":12000,"remoteAddress":1193046})", written().c_str());
+}
+static void test_booleans_become_true_and_false() {
+  // set_paired reads paired | false, which takes only a boolean.
+  TEST_ASSERT_GOOD(expand(model_edit_type_t::set_paired, R"({"s":3,"i":1})"));
+  TEST_ASSERT_EQUAL_STRING(R"({"shadeId":3,"paired":true})", written().c_str());
+  TEST_ASSERT_GOOD(expand(model_edit_type_t::save_shade, R"({"s":3,"fp":0})"));
+  TEST_ASSERT_EQUAL_STRING(R"({"shadeId":3,"flipPosition":false})", written().c_str());
+}
+static void test_only_what_was_sent_is_in_the_request() {
+  TEST_ASSERT_GOOD(expand(model_edit_type_t::save_room, R"({"r":2})"));
+  TEST_ASSERT_EQUAL_STRING(R"({"roomId":2})", written().c_str());
+  TEST_ASSERT_GOOD(expand(model_edit_type_t::add_room, R"({})"));
+  TEST_ASSERT_EQUAL_STRING("{}", written().c_str());
+}
+static void test_a_sort_order_is_its_list_of_ids() {
+  TEST_ASSERT_GOOD(expand(model_edit_type_t::shade_order, R"({"is":[3,1,2]})"));
+  TEST_ASSERT_EQUAL_STRING("[3,1,2]", written().c_str());
+  TEST_ASSERT_EQUAL_STRING("ids is missing", expand(model_edit_type_t::room_order, R"({})"));
+  TEST_ASSERT_EQUAL_STRING("ids must be a list of ids", expand(model_edit_type_t::group_order, R"({"is":[1,"x"]})"));
+  TEST_ASSERT_EQUAL_STRING("ids must be a list of ids", expand(model_edit_type_t::group_order, R"({"is":[1,300]})"));
+}
+static void test_values_are_checked_against_their_kind() {
+  TEST_ASSERT_EQUAL_STRING("paired is not a boolean (1 or 0)", expand(model_edit_type_t::set_paired, R"({"s":3,"i":true})"));
+  TEST_ASSERT_EQUAL_STRING("paired is not a boolean (1 or 0)", expand(model_edit_type_t::set_paired, R"({"s":3,"i":2})"));
+  TEST_ASSERT_EQUAL_STRING("shadeId is not a whole number", expand(model_edit_type_t::delete_shade, R"({"s":"3"})"));
+  TEST_ASSERT_EQUAL_STRING("name is not a string", expand(model_edit_type_t::save_room, R"({"r":1,"n":5})"));
+}
+static void test_an_unknown_key_is_refused() {
+  TEST_ASSERT_EQUAL_STRING("Unknown field zz", expand(model_edit_type_t::save_room, R"({"r":1,"zz":5})"));
+}
+
+int main(int argc, char **argv) {
+  (void)argc;
+  (void)argv;
+  UNITY_BEGIN();
+  RUN_TEST(test_every_edit_op_is_an_edit);
+  RUN_TEST(test_other_types_are_not_edits);
+  RUN_TEST(test_the_read_ops);
+  RUN_TEST(test_short_keys_become_the_route_names);
+  RUN_TEST(test_booleans_become_true_and_false);
+  RUN_TEST(test_only_what_was_sent_is_in_the_request);
+  RUN_TEST(test_a_sort_order_is_its_list_of_ids);
+  RUN_TEST(test_values_are_checked_against_their_kind);
+  RUN_TEST(test_an_unknown_key_is_refused);
+  return UNITY_END();
+}

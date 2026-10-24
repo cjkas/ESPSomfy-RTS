@@ -34,6 +34,29 @@
   TYPE(unpairShade, 23, 'c') \
   TYPE(setRollingCode, 24, 'c') \
   TYPE(sendRemoteCommand, 25, 'c') \
+  TYPE(addRoom, 26, 'c') \
+  TYPE(addShade, 27, 'c') \
+  TYPE(addGroup, 28, 'c') \
+  TYPE(saveRoom, 29, 'c') \
+  TYPE(saveShade, 30, 'c') \
+  TYPE(saveGroup, 31, 'c') \
+  TYPE(deleteRoom, 32, 'c') \
+  TYPE(deleteShade, 33, 'c') \
+  TYPE(deleteGroup, 34, 'c') \
+  TYPE(linkRemote, 35, 'c') \
+  TYPE(unlinkRemote, 36, 'c') \
+  TYPE(linkToGroup, 37, 'c') \
+  TYPE(unlinkFromGroup, 38, 'c') \
+  TYPE(linkRepeater, 39, 'c') \
+  TYPE(unlinkRepeater, 40, 'c') \
+  TYPE(setPaired, 41, 'c') \
+  TYPE(roomSortOrder, 42, 'c') \
+  TYPE(shadeSortOrder, 43, 'c') \
+  TYPE(groupSortOrder, 44, 'c') \
+  TYPE(getNextRoom, 45, 'c') \
+  TYPE(getNextShade, 46, 'c') \
+  TYPE(getNextGroup, 47, 'c') \
+  TYPE(groupOptions, 48, 'c') \
   TYPE(shadeState, 128, 'd') \
   TYPE(shade, 129, 'd') \
   TYPE(shadeRemoved, 130, 'd') \
@@ -124,6 +147,8 @@
   FIELD(repeat, "re", 'i', 0) \
   FIELD(sunny, "sn", 'b', 0) \
   FIELD(windy, "wn", 'b', 0) \
+  /* the edit ops */ \
+  FIELD(validation, "vc", 'i', 0) \
   /* the header */ \
   FIELD(maxRooms, "xr", 'i', 0) \
   FIELD(maxShades, "xs", 'i', 0) \

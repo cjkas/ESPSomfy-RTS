@@ -8,6 +8,9 @@
 #include "ProtoParse.h"
 #include "ProtoSlots.h"
 #include "ProtoOps.h"
+#include "ProtoEdits.h"
+#include "ProtoAssembly.h"
+#include "SomfyEditor.h"
 #include "LoopQueue.h"
 #include "SomfySnapshot.h"
 #include "Somfy.h"
@@ -37,6 +40,8 @@ static_assert(MAX_SOCK_RESPONSE >= PROTO_MAX_FRAME, "protocol 2 frames share the
 static proto_slot_t slots[PROTO_MAX_CLIENTS];
 // What loop() formats events and syncEnd with, into the socket event buffer.
 static BufferedJsonFormatter eventJson;
+// Messages that arrive in pieces.  async_tcp only.
+static MessageAssembler assembler(PROTO_MAX_CLIENT_FRAME);
 
 /*********************************************************************
  * The shade model as a sync source
@@ -175,6 +180,50 @@ static void sendRemoteCommand(AsyncWebSocketClient *client, const proto_message_
   }
   replyOk(client, req.id);
 }
+// An edit op: loop() applies it as its edit route does, and replies.
+static void queueEditOp(AsyncWebSocketClient *client, const proto_message_t &msg, model_edit_type_t type, JsonObjectConst d) {
+  if(!beginModelEdit()) {
+    replyError(client, msg.id, proto_error_t::busy, "Another edit is running, send it again");
+    return;
+  }
+  model_edit_t *edit = new (std::nothrow) model_edit_t();
+  if(!edit) {
+    cancelModelEdit(nullptr);
+    replyError(client, msg.id, proto_error_t::internal, "Out of memory");
+    return;
+  }
+  const char *bad = expandEditPayload(type, d, edit->doc);
+  if(bad) {
+    replyError(client, msg.id, proto_error_t::badRequest, bad);
+    cancelModelEdit(edit);
+    return;
+  }
+  edit->type = type;
+  edit->replyClient = client->id();
+  edit->replyId = msg.id;
+  loop_item_t item;
+  item.type = loop_item_type_t::model_edit;
+  item.edit = edit;
+  if(!loopQueue.submit(item)) {
+    cancelModelEdit(edit);
+    replyError(client, msg.id, proto_error_t::busy, "Command queue full");
+  }
+}
+// A read op: loop() answers it from the shade model.
+static void queueReadOp(AsyncWebSocketClient *client, const proto_message_t &msg, JsonObjectConst d) {
+  loop_item_t item;
+  item.type = loop_item_type_t::proto_read;
+  item.readOp = msg.type;
+  if(msg.type == static_cast<uint8_t>(proto_type_t::groupOptions)) {
+    JsonVariantConst groupId = d[protoField(proto_field_t::groupId).key];
+    if(groupId.isNull()) { replyError(client, msg.id, proto_error_t::badRequest, "groupId is missing"); return; }
+    if(!groupId.is<uint8_t>()) { replyError(client, msg.id, proto_error_t::badRequest, "groupId must be 0-255"); return; }
+    item.readId = groupId.as<uint8_t>();
+  }
+  item.replyClient = client->id();
+  item.replyId = msg.id;
+  if(!loopQueue.submit(item)) replyError(client, msg.id, proto_error_t::busy, "Command queue full");
+}
 static bool authorized(AsyncWebServerRequest *request) {
   if(settings.Security.type == security_types::None) return true;
   const AsyncWebParameter *key = request->getParam("apikey");
@@ -200,23 +249,19 @@ static void onConnect(AsyncWebSocketClient *client, AsyncWebServerRequest *reque
   ESP_LOGI(TAG, "Socket [%lu] connected from %u.%u.%u.%u%s", (unsigned long)id, ip[0], ip[1], ip[2], ip[3], withSchema ? "" : " (has the schema)");
 }
 static void onDisconnect(AsyncWebSocketClient *client) {
+  assembler.drop(client->id());
   proto_slot_t *slot = slotOf(slots, PROTO_MAX_CLIENTS, client->id());
   if(!slot) return;
   freeSlot(*slot);
   ESP_LOGI(TAG, "Socket [%lu] disconnected", (unsigned long)client->id());
 }
-static void onFrame(AsyncWebSocketClient *client, AwsFrameInfo *info, uint8_t *data, size_t len) {
-  if(!(info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT)) {
-    // One reply for the whole message: its first piece gets it, the rest are
-    // dropped.  A frame larger than a TCP segment arrives in pieces too.
-    if(info->num == 0 && info->index == 0) replyError(client, 0, proto_error_t::badRequest, "Send each message as one text frame");
-    return;
-  }
+// One whole message from a client.
+static void onMessage(AsyncWebSocketClient *client, const char *text, size_t len) {
   proto_slot_t *slot = slotOf(slots, PROTO_MAX_CLIENTS, client->id());
   if(!slot) return;
   JsonDocument doc;
   proto_message_t msg;
-  const proto_error_t err = parseClientFrame(reinterpret_cast<const char *>(data), len, doc, msg);
+  const proto_error_t err = parseClientFrame(text, len, doc, msg);
   if(err != proto_error_t::none) {
     replyError(client, msg.id, err, err == proto_error_t::unknownOp ? "Unknown message type" : "Malformed message");
     return;
@@ -244,13 +289,66 @@ static void onFrame(AsyncWebSocketClient *client, AwsFrameInfo *info, uint8_t *d
     case proto_type_t::sendRemoteCommand:
       sendRemoteCommand(client, msg, doc["d"]);
       return;
-    default:
+    default: {
       if(protoIsShadeOp(msg.type)) {
         queueShadeOp(client, msg, doc["d"]);
         return;
       }
-      // The edit and settings ops arrive with the protocol core's later PRs.
+      model_edit_type_t edit;
+      if(protoEditType(msg.type, edit)) {
+        queueEditOp(client, msg, edit, doc["d"]);
+        return;
+      }
+      if(protoIsReadOp(msg.type)) {
+        queueReadOp(client, msg, doc["d"]);
+        return;
+      }
+      // The settings ops arrive with the protocol core's next PR.
       replyError(client, msg.id, proto_error_t::unknownOp, "Unknown message type");
+      return;
+    }
+  }
+}
+static void onFrame(AsyncWebSocketClient *client, AwsFrameInfo *info, uint8_t *data, size_t len) {
+  // Most messages are a whole text frame in one piece.
+  if(info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
+    onMessage(client, reinterpret_cast<const char *>(data), len);
+    return;
+  }
+  // The rest come in pieces: a frame larger than a TCP segment, or a message
+  // sent as several frames.  Only a message's first frame has a text or
+  // binary opcode; the frames after it are continuations.
+  proto_piece_t piece;
+  piece.clientId = client->id();
+  piece.first = info->index == 0 && info->opcode != WS_CONTINUATION;
+  piece.last = info->final && info->index + len == info->len;
+  piece.text = info->message_opcode == WS_TEXT;
+  piece.data = data;
+  piece.len = len;
+  // Each refusal comes once per message, so the client gets one reply.  The
+  // message couldn't be read, so the reply has no id.
+  switch(assembler.add(piece, millis())) {
+    case assembly_t::complete:
+      onMessage(client, assembler.text(), assembler.length());
+      assembler.done();
+      return;
+    case assembly_t::busy:
+      replyError(client, 0, proto_error_t::busy, "Another long message is on its way, send it again");
+      return;
+    case assembly_t::tooLarge:
+      replyError(client, 0, proto_error_t::badRequest, "Message too large");
+      return;
+    case assembly_t::notText:
+      replyError(client, 0, proto_error_t::badRequest, "Send text messages");
+      return;
+    case assembly_t::noMemory:
+      replyError(client, 0, proto_error_t::internal, "Out of memory");
+      return;
+    case assembly_t::timedOut:
+      replyError(client, 0, proto_error_t::badRequest, "The message took too long to arrive");
+      return;
+    case assembly_t::more:
+    case assembly_t::ignored:
       return;
   }
 }
@@ -318,6 +416,83 @@ void ProtoSocket::replyRequest(uint32_t client, uint32_t id, const shade_request
   if(code == proto_error_t::none) writeOkReply(json, id);
   else writeErrorReply(json, id, code, protoRequestErrorDesc(req, result));
   // A client that has gone is skipped.
+  if(!json.overflowed()) ws.text(client, buf, json.length());
+}
+
+// What an edit op's reply says: for an add, the new item's id; for a refused
+// edit, the route's reason and the shade's validation code when it has one.
+void ProtoSocket::replyEdit(uint32_t client, uint32_t id, model_edit_type_t type, const edit_result_t &result) {
+  if(!sockEmit.onLoopTask() || id == 0) return;
+  char buf[256];
+  BufferedJsonFormatter json;
+  json.setBuffer(buf, sizeof(buf));
+  beginFrame(json, proto_type_t::reply, id);
+  ProtoWriter w(json);
+  w.add(proto_field_t::ok, result.ok);
+  if(!result.ok) {
+    w.add(proto_field_t::code, static_cast<uint8_t>(proto_error_t::badRequest));
+    w.add(proto_field_t::desc, result.desc);
+    w.add(proto_field_t::validation, result.code);
+  }
+  else if(type == model_edit_type_t::add_room) w.add(proto_field_t::roomId, result.id);
+  else if(type == model_edit_type_t::add_shade) w.add(proto_field_t::shadeId, result.id);
+  else if(type == model_edit_type_t::add_group) w.add(proto_field_t::groupId, result.id);
+  endFrame(json);
+  // A client that has gone is skipped.
+  if(!json.overflowed()) ws.text(client, buf, json.length());
+}
+// The reads an edit form needs: what a new room, shade or group would get,
+// and the shades a group could take.
+void ProtoSocket::replyRead(uint32_t client, uint32_t id, uint8_t op, uint8_t groupId) {
+  if(!sockEmit.onLoopTask() || id == 0) return;
+  char buf[256];
+  BufferedJsonFormatter json;
+  json.setBuffer(buf, sizeof(buf));
+  const char *refused = nullptr;
+  proto_error_t code = proto_error_t::badRequest;
+  beginFrame(json, proto_type_t::reply, id);
+  ProtoWriter w(json);
+  switch(static_cast<proto_type_t>(op)) {
+    case proto_type_t::getNextRoom: {
+      const uint8_t roomId = somfy.getNextRoomId();
+      if(roomId == 0) { refused = "Maximum number of rooms exceeded."; break; }
+      w.add(proto_field_t::ok, true);
+      w.add(proto_field_t::roomId, roomId);
+      break;
+    }
+    case proto_type_t::getNextShade:
+    case proto_type_t::getNextGroup: {
+      const bool isShade = op == static_cast<uint8_t>(proto_type_t::getNextShade);
+      const uint8_t newId = isShade ? somfy.getNextShadeId() : somfy.getNextGroupId();
+      if(newId == 255) { refused = isShade ? "Maximum number of shades exceeded." : "Maximum number of groups exceeded."; break; }
+      w.add(proto_field_t::ok, true);
+      w.add(isShade ? proto_field_t::shadeId : proto_field_t::groupId, newId);
+      w.add(proto_field_t::remoteAddress, somfy.getNextRemoteAddress(newId));
+      w.add(proto_field_t::bitLength, somfy.transceiver.config.type);
+      w.add(proto_field_t::proto, static_cast<uint8_t>(somfy.transceiver.config.proto));
+      break;
+    }
+    case proto_type_t::groupOptions: {
+      SomfyGroup *group = somfy.getGroupById(groupId);
+      if(!group) { refused = "No group with that id"; code = proto_error_t::notFound; break; }
+      w.add(proto_field_t::ok, true);
+      w.add(proto_field_t::groupId, groupId);
+      // The shades it could take: every one it doesn't have.
+      w.beginList(proto_field_t::ids);
+      for(SomfyShade &shade : somfy.shades)
+        if(shade.getShadeId() != 255 && !group->hasShadeId(shade.getShadeId())) w.item(shade.getShadeId());
+      w.endList();
+      break;
+    }
+    default:
+      refused = "Not a read op";
+      break;
+  }
+  if(refused) {
+    json.setBuffer(buf, sizeof(buf));
+    writeErrorReply(json, id, code, refused);
+  }
+  else endFrame(json);
   if(!json.overflowed()) ws.text(client, buf, json.length());
 }
 

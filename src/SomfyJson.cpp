@@ -246,7 +246,8 @@ void runModelEdit(model_edit_t *edit) {
   const edit_result_t result = applyModelEdit(*edit);
   if(!result.ok) ESP_LOGW(TAG, "Edit %u refused: %s", static_cast<uint8_t>(edit->type), result.desc);
   else markEdited(*edit, result);
-  emitRequestResult(edit->requestId, result);
+  if(edit->replyClient) protoSocket.replyEdit(edit->replyClient, edit->replyId, edit->type, result);
+  else emitRequestResult(edit->requestId, result);
   cancelModelEdit(edit);
 }
 
@@ -357,8 +358,10 @@ edit_result_t applyModelEdit(model_edit_t &edit) {
       if(!shade) return edit_result_t::error("Shade Id not found.");
       if(obj["remoteAddress"].isNull()) return edit_result_t::error("Remote address not provided.");
       const uint32_t address = obj["remoteAddress"];
+      // The route's name, or protocol 2's.
+      const uint16_t rollingCode = obj["rollingCode"] | (obj["lastRollingCode"] | (uint16_t)0);
       if(edit.type == model_edit_type_t::unlink_remote) shade->unlinkRemote(address);
-      else if(!shade->linkRemote(address, obj["rollingCode"] | (uint16_t)0))
+      else if(!shade->linkRemote(address, rollingCode))
         return edit_result_t::error("This shade already has the most linked remotes it can.");
       return done(shade->getShadeId());
     }

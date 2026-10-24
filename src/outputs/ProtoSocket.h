@@ -26,6 +26,10 @@ class ProtoSocket {
     bool hasClients() const;
     // The reply to a command op once loop() has run its shade request.
     void replyRequest(uint32_t client, uint32_t id, const shade_request_t &req, shade_request_result_t result);
+    // The reply to an edit op once loop() has applied it.
+    void replyEdit(uint32_t client, uint32_t id, model_edit_type_t type, const edit_result_t &result);
+    // The reply to a read op, from the shade model.  loop() only.
+    void replyRead(uint32_t client, uint32_t id, uint8_t op, uint8_t groupId);
     // Events, loop() only.
     void shadeState(SomfyShade &shade);
     void shade(SomfyShade &shade);

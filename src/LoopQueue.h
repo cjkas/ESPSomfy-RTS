@@ -24,7 +24,8 @@ enum class loop_item_type_t : uint8_t {
   restore_shades,  // restore from /shades.tmp, then reboot
   load_shades,     // replace the shades with /shades.tmp
   snapshot_fill,   // fill a read's ModelSnapshot
-  model_edit       // apply an edit with ModelEditor
+  model_edit,      // apply an edit with ModelEditor
+  proto_read       // answer a protocol 2 read op from the shade model
 };
 struct model_edit_t;
 struct loop_item_t {
@@ -33,10 +34,12 @@ struct loop_item_t {
   uint8_t restoreParts = 0;       // restore_shades: RESTORE_* bits
   uint8_t slot = 0;               // snapshot_fill: the SnapshotSlots slot
   model_edit_t *edit = nullptr;   // model_edit: loop() runs and frees it
-  // shade_request from a protocol 2 client: loop() replies to this socket
-  // client with replyId once the request has run.  0 for no reply.
+  // shade_request and proto_read from a protocol 2 client: loop() replies to
+  // this socket client with replyId once it has run.  0 for no reply.
   uint32_t replyClient = 0;
   uint32_t replyId = 0;
+  uint8_t readOp = 0;             // proto_read: the op's type
+  uint8_t readId = 0;             // proto_read: the group, for groupOptions
 };
 
 // Whether the item sends anything on air.

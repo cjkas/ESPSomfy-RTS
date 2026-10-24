@@ -17,6 +17,7 @@ def pytest_addoption(parser):
     parser.addoption("--record", action="store_true", help="save what the device sends to test/fixtures/proto2")
     parser.addoption("--radio", action="store_true", help="also run the tests that send commands on air")
     parser.addoption("--shade", type=int, default=None, help="with --radio: the id of the shade the commands may move")
+    parser.addoption("--edit", action="store_true", help="also run the edits that change the shade model, then undo them")
 
 
 @pytest.fixture(scope="session")
@@ -95,3 +96,11 @@ def radio_shade(request):
     if shade is None:
         pytest.skip("--radio needs --shade <id>, a shade that may move")
     return shade
+
+
+@pytest.fixture(scope="session")
+def editing(request):
+    """For tests that change the shade model and change it back, or a skip."""
+    if not request.config.getoption("--edit"):
+        pytest.skip("changes the shade model and back: pass --edit")
+    return True

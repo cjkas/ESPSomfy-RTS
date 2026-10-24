@@ -8,9 +8,14 @@
 // the clients how it went.
 
 // One edit on its way to loop(): the edit route and a copy of its request.
+// From an edit route its result goes to every client as requestResult; from a
+// protocol 2 edit op, as the reply to replyId for the socket client
+// replyClient.
 struct model_edit_t {
   model_edit_type_t type = model_edit_type_t::add_room;
   uint32_t requestId = 0;
+  uint32_t replyClient = 0;
+  uint32_t replyId = 0;
   JsonDocument doc;
 };
 
@@ -20,7 +25,7 @@ bool beginModelEdit();
 uint32_t nextEditRequestId();
 // Gives up an edit that was begun but never queued.  Any task.
 void cancelModelEdit(model_edit_t *edit);
-// Applies the edit, saves it, sends requestResult and frees it.  loop() only.
+// Applies the edit, saves it, tells how it went and frees it.  loop() only.
 void runModelEdit(model_edit_t *edit);
 // Applies the edit to the shade model and saves it.  loop() only.
 edit_result_t applyModelEdit(model_edit_t &edit);

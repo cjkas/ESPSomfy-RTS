@@ -11,8 +11,9 @@ Runs against a real device on your network, by hand, never in CI. It checks sock
 | `--device` | the device's address (required) |
 | `--password`, `--username` / `--pin` | the credentials of a Secured device |
 | `--radio --shade <id>` | also send real commands: that shade moves a little and back |
+| `--edit` | also add a room and delete it again |
 | `--record` | save hello, the sync and the schema to `test/fixtures/proto2/`, for the web UI and Home Assistant tests |
 
-A plain run sends nothing on air, changes no settings and doesn't reboot the device. The command tests send ops that are refused before they reach the radio, and one `setPositions` that sets a shade to the position the sync gave: that drops the fraction of a percent the shade's believed position may have had. It does fill every socket slot for a few seconds, and replays a page load.
+A plain run sends nothing on air, changes no settings and doesn't reboot the device. The command tests send ops that are refused before they reach the radio, and one `setPositions` that sets a shade to the position the sync gave: that drops the fraction of a percent the shade's believed position may have had. The edit tests send edits that are refused, and one shade sort order set to the order it has, which saves the shades again unchanged. It does fill every socket slot for a few seconds, and replays a page load.
 
 The tests run in whatever security mode the device is in; the suite never changes it. To test both modes, run the suite once in each.

@@ -84,6 +84,9 @@ void LoopQueue::drain() {
       case loop_item_type_t::model_edit:
         runModelEdit(item.edit);
         break;
+      case loop_item_type_t::proto_read:
+        protoSocket.replyRead(item.replyClient, item.replyId, item.readOp, item.readId);
+        break;
     }
   }
 }

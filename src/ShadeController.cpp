@@ -176,6 +176,15 @@ uint8_t SomfyShadeController::getNextGroupId() {
   const uint8_t id = firstFreeId(ids, SOMFY_MAX_GROUPS, SOMFY_MAX_GROUPS);
   return id == 0 ? 255 : id;
 }
+uint32_t SomfyShadeController::getNextRemoteAddress(uint8_t id) {
+  uint32_t used[SOMFY_MAX_SHADES + SOMFY_MAX_GROUPS];
+  size_t count = 0;
+  for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++)
+    if(this->shades[i].getShadeId() != 255) used[count++] = this->shades[i].getRemoteAddress();
+  for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++)
+    if(this->groups[i].getGroupId() != 255) used[count++] = this->groups[i].getRemoteAddress();
+  return freeRemoteAddress(this->startingAddress + id, used, count);
+}
 uint8_t SomfyShadeController::getNextRoomId() {
   uint8_t ids[SOMFY_MAX_ROOMS];
   for(uint8_t i = 0; i < SOMFY_MAX_ROOMS; i++) ids[i] = this->rooms[i].roomId;
