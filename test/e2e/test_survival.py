@@ -2,6 +2,7 @@
 (docs/adr/0005-one-websocket-protocol.md): every client reconnecting at once,
 and a browser loading the page."""
 import threading
+import time
 import urllib.request
 
 import pytest
@@ -29,7 +30,24 @@ def watch_heap(host):
     assert after["min"] >= HEAP_FLOOR, "the heap fell to %u bytes (floor %u)" % (after["min"], HEAP_FLOOR)
 
 
-def test_every_client_reconnecting_at_once(connect, schema, watch_heap):
+@pytest.fixture
+def all_slots_free(host, token):
+    """Skips unless every socket slot is free.  The web UI holds one per open
+    tab, which would leave these tests a client short."""
+    clients = [ProtoClient(host, params={"apikey": token} if token else None) for _ in range(MAX_CLIENTS)]
+    try:
+        time.sleep(1)
+        taken = sum(1 for c in clients if c.closed.is_set())
+    finally:
+        for c in clients:
+            c.close()
+    # The device frees a slot when it sees the disconnect.
+    time.sleep(0.5)
+    if taken:
+        pytest.skip("%u socket slot(s) in use, likely by the web UI: close its tabs" % taken)
+
+
+def test_every_client_reconnecting_at_once(connect, schema, watch_heap, all_slots_free):
     clients = [connect() for _ in range(MAX_CLIENTS)]
     errors = []
 
@@ -44,7 +62,7 @@ def test_every_client_reconnecting_at_once(connect, schema, watch_heap):
     assert not errors, errors
 
 
-def test_one_client_too_many_is_closed(connect, schema):
+def test_one_client_too_many_is_closed(connect, schema, all_slots_free):
     clients = [connect(schema=schema.hash) for _ in range(MAX_CLIENTS)]
     for c in clients:
         run_sync(c)
