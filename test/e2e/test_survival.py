@@ -54,7 +54,7 @@ def test_one_client_too_many_is_closed(connect, schema):
 
 def test_page_load(host, token, connect, watch_heap):
     """The static files in parallel, as a browser fetches them, then the socket."""
-    files = ["/", "/main.css", "/widgets.css", "/icons.css", "/index.js", "/icon.png"]
+    files = ["/", "/app.css", "/index.js", "/icon.png"]
     errors = []
 
     def get(path):

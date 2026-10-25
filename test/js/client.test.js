@@ -1,0 +1,200 @@
+// The web UI's ProtoClient (data-src/js/client.js): the recorded hello and
+// sync replayed through a stand-in socket.
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { ProtoClient, ProtoError } = require('../../data-src/js/client.js');
+const { hello, sync, recordedItems, recordedSchema, FakeSocket, FakeTimers, FakeStorage } = require('./helpers.js');
+
+function client(opts) {
+    FakeSocket.reset();
+    const timers = new FakeTimers();
+    const c = new ProtoClient(Object.assign({ host: 'device', WebSocket: FakeSocket, setTimeout: timers.setTimeout,
+        clearTimeout: timers.clearTimeout }, opts || {}));
+    c.timers = timers;
+    return c;
+}
+// Connects and plays the recorded hello and sync.
+function connected(opts) {
+    const c = client(opts);
+    c.connect();
+    const ws = FakeSocket.last;
+    ws.open();
+    ws.deliver(hello);
+    for (const f of sync) ws.deliver(f);
+    return { c, ws };
+}
+const schema = recordedSchema();
+const T = schema.typeNumbers;
+function reply(id, d) { return { v: 2, t: T.reply, id: id, d: d }; }
+
+test('the client connects with its token and syncs, sending next after each sync frame', () => {
+    const c = client({ token: 'abc 123' });
+    c.connect();
+    const ws = FakeSocket.last;
+    assert.equal(ws.url, 'ws://device/ws?apikey=abc%20123');
+    ws.open();
+    ws.deliver(hello);
+    for (const f of sync) ws.deliver(f);
+    const syncFrames = sync.filter((f) => f.t === T.sync).length;
+    assert.equal(ws.sent.filter((f) => f.t === T.next).length, syncFrames);
+    assert.ok(c.ready);
+    assert.equal(c.fw, hello.d.fw);
+    assert.equal(c.model.shades.size, recordedItems('S').length);
+});
+
+test('synced comes once the sync has ended', () => {
+    const c = client();
+    let synced = 0;
+    c.on('synced', () => synced++);
+    c.connect();
+    const ws = FakeSocket.last;
+    ws.open();
+    ws.deliver(hello);
+    for (const f of sync.filter((f) => f.t === T.sync)) ws.deliver(f);
+    assert.equal(synced, 0);
+    ws.deliver(sync.find((f) => f.t === T.syncEnd));
+    assert.equal(synced, 1);
+});
+
+test('an op resolves with its reply', async () => {
+    const { c, ws } = connected();
+    const p = c.op('getSettings', { section: 'radio' });
+    const sent = ws.sent[ws.sent.length - 1];
+    assert.deepEqual(sent, { v: 2, t: T.getSettings, id: sent.id, d: { se: 'radio' } });
+    ws.deliver(reply(sent.id, { k: 1, bl: 80, en: 1 }));
+    assert.deepEqual(await p, { ok: true, bitLength: 80, enabled: true });
+});
+
+test('a refused op rejects with the error by its name', async () => {
+    const { c, ws } = connected();
+    const p = c.op('saveSettings', { section: 'mqtt' });
+    const id = ws.sent[ws.sent.length - 1].id;
+    ws.deliver(reply(id, { e: schema.errorNumbers.badRequest, x: 'Nothing to save' }));
+    await assert.rejects(p, (err) => err instanceof ProtoError && err.code === 'badRequest' && err.desc === 'Nothing to save');
+});
+
+test('an op is refused before the sync, and when its reply never comes', async () => {
+    const c = client();
+    await assert.rejects(c.op('reboot'), (err) => err.code === 'notConnected');
+    const { c: c2 } = connected();
+    const p = c2.op('reboot');
+    c2.timers.runAll();
+    await assert.rejects(p, (err) => err.code === 'timeout');
+});
+
+test('an op of a name or field the device lacks is refused here', async () => {
+    const { c } = connected();
+    await assert.rejects(c.op('noSuchOp'), (err) => err.code === 'unknownOp');
+    await assert.rejects(c.op('reboot', { noSuchField: 1 }), (err) => err.code === 'badRequest');
+});
+
+test('ops waiting when the socket closes are refused, and the client connects again', async () => {
+    const { c, ws } = connected();
+    const p = c.op('scanWifi');
+    let closed = 0;
+    c.on('closed', () => closed++);
+    ws.drop();
+    await assert.rejects(p, (err) => err.code === 'closed');
+    assert.equal(closed, 1);
+    assert.equal(c.ready, false);
+    assert.deepEqual(c.timers.runAll(), [500]);
+    assert.notEqual(FakeSocket.last, ws);
+});
+
+test('a socket refused before it opened says so, and the retries slow down', () => {
+    const c = client();
+    let refused = 0;
+    c.on('refused', () => refused++);
+    c.connect();
+    const delays = [];
+    for (let i = 0; i < 6; i++) {
+        FakeSocket.last.drop();
+        delays.push(...c.timers.runAll());
+    }
+    assert.equal(refused, 6);
+    assert.deepEqual(delays, [500, 1000, 2000, 4000, 8000, 10000]);
+});
+
+test('close stops the reconnecting', () => {
+    const { c } = connected();
+    c.close();
+    assert.deepEqual(c.timers.runAll(), []);
+});
+
+test('events update the model, and are told by name', () => {
+    const { c, ws } = connected();
+    const shade = c.model.shadeList()[0];
+    const seen = [];
+    c.on('shadeState', (d) => seen.push(d));
+    ws.deliver({ v: 2, t: T.shadeState, d: { s: shade.shadeId, t: 30, d: 1 } });
+    assert.equal(c.model.shades.get(shade.shadeId).target, 30);
+    assert.deepEqual(seen, [{ shadeId: shade.shadeId, target: 30, direction: 1 }]);
+});
+
+test('an event before the schema is kept until the sync ends', () => {
+    const c = client();
+    c.connect();
+    const ws = FakeSocket.last;
+    ws.open();
+    ws.deliver(hello);
+    // Before the schema: the client can't read it yet.
+    const shadeId = recordedItems('S')[0].s;
+    ws.deliver({ v: 2, t: T.shadeState, d: { s: shadeId, t: 55 } });
+    for (const f of sync) ws.deliver(f);
+    assert.equal(c.model.shades.get(shadeId).target, 55);
+});
+
+test('the schema is kept, and the device is told it has it', () => {
+    const storage = new FakeStorage();
+    connected({ storage: storage });
+    const c = client({ storage: storage });
+    c.connect();
+    const ws = FakeSocket.last;
+    assert.equal(ws.url, `ws://device/ws?schema=${hello.d.sh}`);
+    ws.open();
+    ws.deliver(hello);
+    // Without the schema's rows, as the device sends a client that has it.
+    for (const f of sync) {
+        const d = Object.assign({}, f.d);
+        for (const k of ['T', 'F', 'E', 'Q']) delete d[k];
+        ws.deliver(Object.assign({}, f, { d: d }));
+    }
+    assert.ok(c.ready);
+    assert.equal(c.model.shades.size, recordedItems('S').length);
+});
+
+test('a kept schema of another firmware is dropped', () => {
+    const storage = new FakeStorage();
+    connected({ storage: storage });
+    const c = client({ storage: storage });
+    c.connect();
+    const ws = FakeSocket.last;
+    ws.open();
+    ws.deliver({ v: 2, t: 1, d: { fw: 'v4.0.0', sh: 'ffffffff' } });
+    assert.equal(c.schema.hash, 'ffffffff');
+    assert.ok(c.schema.empty);
+});
+
+test('a frame of another protocol version is reported', () => {
+    const { c, ws } = connected();
+    let mismatch = null;
+    c.on('versionMismatch', (d) => { mismatch = d; });
+    ws.deliver({ v: 3, t: 1, d: {} });
+    assert.deepEqual(mismatch, { device: 3, client: 2 });
+});
+
+test('a new token connects again with it', () => {
+    const { c, ws } = connected();
+    c.setToken('new');
+    assert.ok(ws.closed);
+    c.timers.runAll();
+    assert.match(FakeSocket.last.url, /apikey=new/);
+});
+
+test('subscribe sends the feed number', () => {
+    const { c, ws } = connected();
+    c.subscribe('frames');
+    const sent = ws.sent[ws.sent.length - 1];
+    assert.equal(sent.t, T.subscribe);
+    assert.deepEqual(sent.d, { fe: schema.feedNumbers.frames });
+});
