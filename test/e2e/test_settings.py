@@ -84,8 +84,11 @@ def test_a_save_tells_the_other_clients(connect, schema):
 
 
 def test_a_wifi_scan_lists_the_networks(connect, schema):
-    c, _, _ = synced_model(connect, schema)
-    if settings(c, schema, "network").get("connMode") != 1:
+    c = connect(schema=schema.hash)
+    _, frames, _ = run_sync(c)
+    header = next(schema.expand(f["d"][schema.keys["header"]]) for f in frames if schema.keys["header"] in f["d"])
+    # The connection in use: Ethernet with WiFi as the fallback may be on either.
+    if header.get("connType") != "Wifi":
         pytest.skip("the device isn't on WiFi")
     assert is_ok(schema, op(c, schema, "scanWifi", {}))
     found = c.recv_until(lambda f: f["t"] == schema.type_numbers["wifiNetworks"], timeout=20)[-1]

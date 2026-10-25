@@ -31,7 +31,7 @@ settings_save_t *newSettingsSave(bool &busy) {
   if(!save) saveBusy.store(false);
   return save;
 }
-void cancelSettingsSave(settings_save_t *save) {
+void freeSettingsSave(settings_save_t *save) {
   delete save;
   saveBusy.store(false);
 }
@@ -160,6 +160,7 @@ static void runSave(const proto_reply_to_t &to, settings_save_t *save) {
   const uint16_t parts = settingsParts(section, req);
   bool reboot = false;
   char token[65] = "";
+  const security_types securityBefore = settings.Security.type;
   switch(section) {
     case settings_section_t::general:
       if(settingsSets(parts, settings_part_t::general)) {
@@ -195,19 +196,23 @@ static void runSave(const proto_reply_to_t &to, settings_save_t *save) {
       break;
     }
   }
-  cancelSettingsSave(save);
+  freeSettingsSave(save);
   ProtoWriter w = protoSocket.beginReply(to);
   w.add(proto_field_t::apiKey, token);
   w.add(proto_field_t::rebooting, reboot);
   protoSocket.endReply(to);
   ESP_LOGI(TAG, "Socket [%lu] saved the %s settings%s", (unsigned long)to.client, settingsSectionName(section), reboot ? ", rebooting" : "");
-  // The other clients' tokens may have changed, and some had none: they
-  // connect again with what they have, and log in when it is refused.
-  if(section == settings_section_t::security) protoSocket.closeAllBut(to.client);
+  // Under Secured every token may have changed, and a client that connected
+  // under None had none: they all connect again, the saver with the token in
+  // its reply, and the rest log in when theirs is refused.  None to None
+  // changes nobody's access.
+  const bool closeAll = section == settings_section_t::security &&
+    (securityBefore != settings.Security.type || settings.requiresAuth());
+  if(closeAll) protoSocket.closeAll(to.client);
   else protoSocket.settingsChanged(to.client, settingsSectionName(section));
   if(reboot) {
-    rebootDelay.reboot = true;
     rebootDelay.rebootTime = millis() + 1000;
+    rebootDelay.reboot = true;
   }
 }
 
@@ -229,8 +234,30 @@ void runDeviceOp(const loop_item_t &item) {
       protoSocket.beginReply(item.replyTo);
       protoSocket.endReply(item.replyTo);
       break;
+    case proto_type_t::beginFrequencyScan:
+      if(!somfy.transceiver.config.enabled) {
+        protoSocket.replyRefused(item.replyTo, proto_error_t::radioUnavailable, "The radio is disabled");
+        break;
+      }
+      somfy.transceiver.beginFrequencyScan();
+      protoSocket.beginReply(item.replyTo);
+      protoSocket.endReply(item.replyTo);
+      break;
+    case proto_type_t::endFrequencyScan:
+      somfy.transceiver.endFrequencyScan();
+      protoSocket.beginReply(item.replyTo);
+      protoSocket.endReply(item.replyTo);
+      break;
+    case proto_type_t::reboot:
+      ESP_LOGI(TAG, "Socket [%lu] asked for a reboot", (unsigned long)item.replyTo.client);
+      protoSocket.beginReply(item.replyTo);
+      protoSocket.endReply(item.replyTo);
+      // Time for the reply to go out.
+      rebootDelay.rebootTime = millis() + 500;
+      rebootDelay.reboot = true;
+      break;
     default:
-      if(item.save) cancelSettingsSave(item.save);
+      if(item.save) freeSettingsSave(item.save);
       protoSocket.replyRefused(item.replyTo, proto_error_t::internal, "Not a device op");
       break;
   }

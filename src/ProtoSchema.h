@@ -61,9 +61,9 @@
   TYPE(getSettings, 49, 'c', 'd') \
   TYPE(saveSettings, 50, 'c', 'd') \
   TYPE(scanWifi, 51, 'c', 'd') \
-  TYPE(beginFrequencyScan, 52, 'c', 'a') \
-  TYPE(endFrequencyScan, 53, 'c', 'a') \
-  TYPE(reboot, 54, 'c', 'a') \
+  TYPE(beginFrequencyScan, 52, 'c', 'd') \
+  TYPE(endFrequencyScan, 53, 'c', 'd') \
+  TYPE(reboot, 54, 'c', 'd') \
   TYPE(shadeState, 128, 'd', '-') \
   TYPE(shade, 129, 'd', '-') \
   TYPE(shadeRemoved, 130, 'd', '-') \
@@ -298,11 +298,7 @@ enum class proto_op_t : char {
   remoteFrame = 'f',   // sendRemoteCommand: a frame that goes to the radio at once
   edit = 'e',          // an edit loop() applies
   read = 'r',          // a read loop() answers from the shade model
-  device = 'd',        // a settings op or the WiFi scan, which loop() runs
-  // The frequency scan and reboot, run at once as their routes are: they
-  // touch nothing loop() owns, and a scan's end mustn't wait in the loop
-  // queue behind an unpair that waits for the scan to end.
-  atOnce = 'a'
+  device = 'd'         // a settings, scan or reboot op loop() runs
 };
 const proto_field_info_t &protoField(proto_field_t field);
 const proto_field_info_t *protoFieldByKey(const char *key);

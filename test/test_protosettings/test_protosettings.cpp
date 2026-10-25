@@ -105,6 +105,20 @@ static void test_the_bit_length_is_56_or_80() {
   TEST_ASSERT_EQUAL_STRING("bitLength must be 56 or 80", expand(R"({"se":"radio","bl":60})"));
   TEST_ASSERT_EQUAL_STRING("bitLength must be 56 or 80", expand(R"({"se":"radio","bl":0})"));
 }
+static void test_the_radio_proto_is_one_there_is() {
+  TEST_ASSERT_GOOD(expand(R"({"se":"radio","pr":2})"));
+  TEST_ASSERT_GOOD(expand(R"({"se":"radio","pr":8})"));
+  TEST_ASSERT_EQUAL_STRING("proto must be 0, 1, 2, 8 or 9", expand(R"({"se":"radio","pr":5})"));
+  TEST_ASSERT_EQUAL_STRING("proto must be 0, 1, 2, 8 or 9", expand(R"({"se":"radio","pr":10})"));
+}
+static void test_numbers_are_checked_against_what_the_radio_can_be_set_to() {
+  // The ends themselves, though 58.03 is a little under it as a float.
+  TEST_ASSERT_GOOD(expand(R"({"se":"radio","fq":300,"bw":58.03,"dv":380.85})"));
+  TEST_ASSERT_GOOD(expand(R"({"se":"radio","fq":928,"bw":812.5,"dv":1.58})"));
+  TEST_ASSERT_EQUAL_STRING("frequency must be 300.00-928.00", expand(R"({"se":"radio","fq":299.9})"));
+  TEST_ASSERT_EQUAL_STRING("rxBandwidth must be 58.03-812.50", expand(R"({"se":"radio","bw":900})"));
+  TEST_ASSERT_EQUAL_STRING("deviation must be 1.58-380.85", expand(R"({"se":"radio","dv":0})"));
+}
 static void test_strings_must_fit_their_setting() {
   // hostname holds 31 characters, a PIN 4.
   TEST_ASSERT_GOOD(expand(R"({"se":"general","hn":"0123456789012345678901234567890"})"));
@@ -188,6 +202,8 @@ int main(int argc, char **argv) {
   RUN_TEST(test_a_number_may_be_whole);
   RUN_TEST(test_whole_numbers_are_checked_against_what_the_setting_holds);
   RUN_TEST(test_the_bit_length_is_56_or_80);
+  RUN_TEST(test_the_radio_proto_is_one_there_is);
+  RUN_TEST(test_numbers_are_checked_against_what_the_radio_can_be_set_to);
   RUN_TEST(test_strings_must_fit_their_setting);
   RUN_TEST(test_addresses_are_checked_and_empty_clears_them);
   RUN_TEST(test_only_what_was_sent_is_in_the_request);

@@ -21,8 +21,8 @@ struct settings_save_t {
 // whichever client sent it: nullptr and busy while another is waiting, and
 // nullptr when there is no memory for it.
 settings_save_t *newSettingsSave(bool &busy);
-// Frees a save that never reached loop().
-void cancelSettingsSave(settings_save_t *save);
+// Frees a save, run or refused, so another may follow.
+void freeSettingsSave(settings_save_t *save);
 // loop(): runs a proto_device item and replies.
 void runDeviceOp(const loop_item_t &item);
 #endif

@@ -38,9 +38,10 @@ class ProtoSocket {
     void replyRefused(const proto_reply_to_t &to, proto_error_t code, const char *desc);
     // settingsChanged, to every client but the one that saved them.
     void settingsChanged(uint32_t savedBy, const char *section);
-    // Closes every client but keep, as a security save does: their tokens may
-    // no longer be good.
-    void closeAllBut(uint32_t keep);
+    // Closes every client, as a security save does: their tokens may no
+    // longer be good, or they had none.  savedBy is closed once its reply has
+    // gone, so it reads its new token first.
+    void closeAll(uint32_t savedBy);
     // wifiNetworks goes to the clients that asked for a scan since the last
     // one, once it is done: count is WiFi.scanComplete(), and the networks
     // are WiFi's scan results.

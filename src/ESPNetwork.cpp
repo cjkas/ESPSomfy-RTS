@@ -42,7 +42,8 @@ static void clientScanLoop(ESPNetwork &net) {
     WiFi.scanDelete();
     return;
   }
-  if(!_clientScanWanted || _apScanning) return;
+  // Not in the middle of joining a network either, as the roaming scan isn't.
+  if(!_clientScanWanted || _apScanning || net.connecting()) return;
   _clientScanWanted = false;
   // As /scanaps does: the soft AP's connection attempts would get in its way.
   if(net.softAPOpened) WiFi.disconnect(false);

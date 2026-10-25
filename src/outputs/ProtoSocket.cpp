@@ -36,7 +36,6 @@ extern Web webServer;
 extern LoopStats loopStats;
 extern SocketEmitter sockEmit;
 extern LoopQueue loopQueue;
-extern rebootDelay_t rebootDelay;
 
 ProtoSocket protoSocket;
 static AsyncWebSocket ws("/ws");
@@ -244,7 +243,7 @@ static void queueDeviceOp(AsyncWebSocketClient *client, const proto_message_t &m
     }
     const char *bad = expandSettingsPayload(d, HAS_ETHERNET, save->section, save->request);
     if(bad) {
-      cancelSettingsSave(save);
+      freeSettingsSave(save);
       replyError(client, msg.id, proto_error_t::badRequest, bad);
       return;
     }
@@ -252,34 +251,12 @@ static void queueDeviceOp(AsyncWebSocketClient *client, const proto_message_t &m
     save->ip = client->remoteIP();
     item.save = save;
   }
-  if(loopQueue.submit(item)) return;
-  if(item.save) cancelSettingsSave(item.save);
+  // An unpair waits at the head of the queue while a frequency scan runs, so
+  // the scan's end goes ahead of it.
+  const bool first = msg.type == static_cast<uint8_t>(proto_type_t::endFrequencyScan);
+  if(loopQueue.submit(item, first)) return;
+  if(item.save) freeSettingsSave(item.save);
   replyError(client, msg.id, proto_error_t::busy, "Command queue full");
-}
-// The frequency scan and reboot, as their routes run them.
-static void runAtOnce(AsyncWebSocketClient *client, const proto_message_t &msg) {
-  switch(static_cast<proto_type_t>(msg.type)) {
-    case proto_type_t::beginFrequencyScan:
-      if(!somfy.transceiver.config.enabled) {
-        replyError(client, msg.id, proto_error_t::radioUnavailable, "The radio is disabled");
-        return;
-      }
-      somfy.transceiver.beginFrequencyScan();
-      break;
-    case proto_type_t::endFrequencyScan:
-      somfy.transceiver.endFrequencyScan();
-      break;
-    case proto_type_t::reboot:
-      ESP_LOGI(TAG, "Socket [%lu] asked for a reboot", (unsigned long)client->id());
-      // Time for the reply to go out.
-      rebootDelay.reboot = true;
-      rebootDelay.rebootTime = millis() + 500;
-      break;
-    default:
-      replyError(client, msg.id, proto_error_t::internal, "Not an op run at once");
-      return;
-  }
-  replyOk(client, msg.id);
 }
 static bool authorized(AsyncWebServerRequest *request) {
   if(settings.Security.type == security_types::None) return true;
@@ -369,9 +346,6 @@ static void onMessage(AsyncWebSocketClient *client, const char *text, size_t len
     case proto_op_t::device:
       queueDeviceOp(client, msg, doc["d"]);
       return;
-    case proto_op_t::atOnce:
-      runAtOnce(client, msg);
-      return;
     case proto_op_t::none:
       replyError(client, msg.id, proto_error_t::unknownOp, "Unknown message type");
       return;
@@ -451,6 +425,7 @@ bool ProtoSocket::sending() const { return sockEmit.onLoopTask() && this->hasCli
 /*********************************************************************
  * loop(): syncs
  ********************************************************************/
+static void closeOnceSent();
 static void sendSyncFrame(proto_slot_t &s) {
   LiveSource src;
   char *buf = socketFrameBuffer();
@@ -491,6 +466,7 @@ void ProtoSocket::loop() {
     writeErrorReply(json, 0, proto_error_t::badRequest, "The message took too long to arrive");
     ws.text(stalled, buf, json.length());
   }
+  closeOnceSent();
   ws.cleanupClients(PROTO_MAX_CLIENTS);
 }
 
@@ -754,12 +730,27 @@ void ProtoSocket::settingsChanged(uint32_t savedBy, const char *section) {
     if(id && id != savedBy) ws.text(id, socketFrameBuffer(), eventJson.length());
   }
 }
-void ProtoSocket::closeAllBut(uint32_t keep) {
+// The client that saved the security settings, closed once its reply has
+// gone: a close frame goes ahead of the messages waiting to be sent.
+// loop() only.
+static uint32_t closeWhenSent = 0;
+static uint32_t closeWhenSentSince = 0;
+#define CLOSE_WHEN_SENT_MAX_MS 2000
+void ProtoSocket::closeAll(uint32_t savedBy) {
   if(!sockEmit.onLoopTask()) return;
   for(proto_slot_t &s : slots) {
     const uint32_t id = s.clientId.load();
-    if(id && id != keep) ws.close(id);
+    if(id && id != savedBy) ws.close(id);
   }
+  closeWhenSent = savedBy;
+  closeWhenSentSince = millis();
+}
+static void closeOnceSent() {
+  if(!closeWhenSent) return;
+  AsyncWebSocketClient *client = ws.client(closeWhenSent);
+  if(client && client->queueLen() > 0 && millis() - closeWhenSentSince < CLOSE_WHEN_SENT_MAX_MS) return;
+  if(client) client->close();
+  closeWhenSent = 0;
 }
 // The clients waiting for a WiFi scan.  loop() only.
 static uint32_t scanAskers[PROTO_MAX_CLIENTS];
@@ -781,22 +772,28 @@ void ProtoSocket::wifiNetworks(int16_t count) {
   bool asked = false;
   for(uint32_t id : scanAskers) asked |= id != 0;
   if(!asked) return;
-  ProtoWriter w(beginEvent(proto_type_t::wifiNetworks));
-  w.beginList(proto_field_t::networks);
-  uint8_t listed = 0;
-  for(int16_t i = 0; i < count && listed < PROTO_MAX_NETWORKS; i++) {
-    // As /scanaps lists them: named networks that can be heard.
-    if(WiFi.SSID(i).length() == 0 || WiFi.RSSI(i) < -95) continue;
-    w.beginItem();
-    w.add(proto_field_t::ssid, WiFi.SSID(i).c_str());
-    w.add(proto_field_t::channel, (int32_t)WiFi.channel(i));
-    w.add(proto_field_t::strength, (int32_t)WiFi.RSSI(i));
-    w.add(proto_field_t::macAddress, WiFi.BSSIDstr(i).c_str());
-    w.endItem();
-    listed++;
+  // Each asker was told the networks would follow, so when they don't fit
+  // fewer go: names that need escaping can make one five times longer.
+  bool fits = false;
+  for(uint8_t most = PROTO_MAX_NETWORKS; !fits && most > 0; most /= 2) {
+    ProtoWriter w(beginEvent(proto_type_t::wifiNetworks));
+    w.beginList(proto_field_t::networks);
+    uint8_t listed = 0;
+    for(int16_t i = 0; i < count && listed < most; i++) {
+      // As /scanaps lists them: named networks that can be heard.
+      if(WiFi.SSID(i).length() == 0 || WiFi.RSSI(i) < -95) continue;
+      w.beginItem();
+      w.add(proto_field_t::ssid, WiFi.SSID(i).c_str());
+      w.add(proto_field_t::channel, (int32_t)WiFi.channel(i));
+      w.add(proto_field_t::strength, (int32_t)WiFi.RSSI(i));
+      w.add(proto_field_t::macAddress, WiFi.BSSIDstr(i).c_str());
+      w.endItem();
+      listed++;
+    }
+    w.endList();
+    endFrame(eventJson);
+    fits = !eventJson.overflowed();
   }
-  w.endList();
-  const bool fits = finishEvent();
   for(uint32_t &id : scanAskers) {
     if(fits && id) ws.text(id, socketFrameBuffer(), eventJson.length());
     id = 0;

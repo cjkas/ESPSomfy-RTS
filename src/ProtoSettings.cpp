@@ -21,9 +21,10 @@ static settings_section_t sectionOf(settings_part_t part) {
   }
 }
 
-// What a save may set.  lo..hi is a whole number's range, and hi a string's
-// longest length: what the setting holds, so the route's fromJSON neither cuts
-// it short nor wraps it.  The has* fields and radioInit are only ever sent.
+// What a save may set.  lo..hi is a whole number's range, a number's in
+// hundredths, and hi a string's longest length: what the setting holds, so the
+// route's fromJSON neither cuts it short nor wraps it.  The has* fields and
+// radioInit are only ever sent.
 struct settings_field_t {
   settings_part_t part;
   proto_field_t field;
@@ -72,6 +73,7 @@ static const settings_field_t FIELDS[] = {
   {settings_part_t::security, proto_field_t::permissions, nullptr, 0, 1},
   // 56 or 80, checked on its own.
   {settings_part_t::radio, proto_field_t::bitLength, "type", 56, 80},
+  // RTS, RTW, RTV, GP Relay or GP Remote (radio_proto), checked on its own.
   {settings_part_t::radio, proto_field_t::proto, nullptr, 0, 9},
   {settings_part_t::radio, proto_field_t::enabled, nullptr, 0, 0},
   {settings_part_t::radio, proto_field_t::TXPin, nullptr, 0, 48},
@@ -80,9 +82,10 @@ static const settings_field_t FIELDS[] = {
   {settings_part_t::radio, proto_field_t::MOSIPin, nullptr, 0, 48},
   {settings_part_t::radio, proto_field_t::MISOPin, nullptr, 0, 48},
   {settings_part_t::radio, proto_field_t::CSNPin, nullptr, 0, 48},
-  {settings_part_t::radio, proto_field_t::frequency, nullptr, 0, 0},
-  {settings_part_t::radio, proto_field_t::rxBandwidth, nullptr, 0, 0},
-  {settings_part_t::radio, proto_field_t::deviation, nullptr, 0, 0},
+  // What the CC1101 can be set to, in MHz and kHz.
+  {settings_part_t::radio, proto_field_t::frequency, nullptr, 30000, 92800},
+  {settings_part_t::radio, proto_field_t::rxBandwidth, nullptr, 5803, 81250},
+  {settings_part_t::radio, proto_field_t::deviation, nullptr, 158, 38085},
   {settings_part_t::radio, proto_field_t::txPower, nullptr, -30, 12},
   {settings_part_t::radio, proto_field_t::noiseDetection, nullptr, 0, 0}
 };
@@ -129,8 +132,21 @@ static const char *checkValue(const settings_field_t &s, const proto_field_info_
       snprintf(why, sizeof(why), "%s must be 56 or 80", f.name);
       return why;
     }
+    if(s.field == proto_field_t::proto) {
+      if(inRange && (value.as<int>() <= 2 || value.as<int>() >= 8)) return nullptr;
+      snprintf(why, sizeof(why), "%s must be 0, 1, 2, 8 or 9", f.name);
+      return why;
+    }
     if(inRange) return nullptr;
     snprintf(why, sizeof(why), "%s must be %ld-%ld", f.name, (long)s.lo, (long)s.hi);
+    return why;
+  }
+  if(f.kind == 'n') {
+    // Half a hundredth either way, as 58.03 is a little under it in a float.
+    const double hundredths = value.as<double>() * 100;
+    if(hundredths > s.lo - 0.5 && hundredths < s.hi + 0.5) return nullptr;
+    snprintf(why, sizeof(why), "%s must be %ld.%02ld-%ld.%02ld", f.name, (long)(s.lo / 100), (long)(s.lo % 100),
+      (long)(s.hi / 100), (long)(s.hi % 100));
     return why;
   }
   if(f.kind != 's') return nullptr;

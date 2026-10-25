@@ -143,7 +143,7 @@ The settings are in five sections. `getSettings` and `saveSettings` name one in 
 - **Saving.** `saveSettings` takes the section and the fields to change. As with every op, a field left out stays as it is. A secret sent empty keeps the stored one, except alongside a new `ssid` or MQTT `username`, as on the routes.
 - Every field is checked before anything is saved:
   - its kind;
-  - its range: `port` 1–65535, `txPower` -30–12, `bitLength` 56 or 80, a pin 0–48, and so on;
+  - its range: `port` 1–65535, `txPower` -30–12, `bitLength` 56 or 80, `proto` 0, 1, 2, 8 or 9, a pin 0–48 (`PWRPin` and `phyAddress` may also be -1, for none), `frequency` 300–928, and so on;
   - a string's length, which is what the setting holds: `hostname` 31, `pin` 4, and so on;
   - an address: four numbers 0–255, or `""` for none.
 
@@ -152,8 +152,12 @@ The settings are in five sections. `getSettings` and `saveSettings` name one in 
 - The reply comes once the settings are saved and applied, as their route applies them. A saved time zone takes effect at once, where the route waited for a reboot.
   - `rebooting` 1 means the device restarts a second later for them. That happens for a new `connMode`, for a new SSID or passphrase while on WiFi with nobody on the soft AP, and for Ethernet settings while on Ethernet.
   - A security save's reply has the client's new token in `apiKey`, or none under None.
-- The other clients get `settingsChanged` with the section. After a security save they are closed instead, since their tokens may no longer be good. They connect again with what they have, and log in when it is refused.
-- `/connectwifi` refused an SSID the device couldn't hear; the save doesn't check. The check stalled the device for a scan, and a hidden network can't be heard anyway. A client offers the networks from `scanWifi`.
+- The other clients get `settingsChanged` with the section.
+- A security save that leaves the device Secured, or changes its mode, closes every client instead, the one that saved it too, once its reply has gone. Under Secured the tokens may no longer be good, and a client that connected under None had none. The saver connects again with the token from its reply; the others log in when theirs is refused. A save from None to None closes nobody.
+- Where a section differs from its routes:
+  - `/connectwifi` refused an SSID the device couldn't hear; the save doesn't check. The check stalled the device for a scan, and a hidden network can't be heard anyway. A client offers the networks from `scanWifi`.
+  - `/modulesettings` and `/networksettings` also sent `fwVersion` and `chipModel`, which are in the header (`fw`, `chipModel`). Their `connType` is `connMode` in `network`, and `/networksettings`' hostname and `ssdpBroadcast` are in `general`.
+  - `/scanaps` also sent the network the device is on: that is the `wifi` event, and `status` in the sync.
 
 | Op | Payload | Reply |
 |---|---|---|
@@ -162,7 +166,7 @@ The settings are in five sections. `getSettings` and `saveSettings` name one in 
 | `endFrequencyScan` | | ok. A scan nobody ends stops after 5 minutes. |
 | `reboot` | | ok, and the device restarts half a second later. |
 
-The frequency scan ops and `reboot` run at once, as their routes do, not through `loop()`. A scan's end mustn't wait in the loop queue behind an unpair that is itself waiting for the scan to end.
+These ops run on `loop()` like the rest. `endFrequencyScan` goes ahead of whatever is waiting in the loop queue: an unpair waits there for the radio to send again, which only the scan's end allows.
 
 ## Replies
 

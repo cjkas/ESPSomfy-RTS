@@ -67,8 +67,10 @@ class LoopQueue {
   public:
     void begin();
     // Hands the item to loop() without waiting, so it is safe from any task,
-    // including async_tcp.  False when the queue is full.
-    bool submit(const loop_item_t &item);
+    // including async_tcp.  False when the queue is full.  first puts it
+    // ahead of everything waiting: an item that ends a frequency scan, which
+    // an unpair at the head waits for (holdLoopItem).
+    bool submit(const loop_item_t &item, bool first = false);
     // Runs the waiting items in order.  Only from loop().
     void drain();
   private:
