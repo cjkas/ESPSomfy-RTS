@@ -52,6 +52,16 @@ MINIFY_AND_GZIP = {".html", ".htm", ".css", ".js", ".json", ".svg", ".xml"}
 # Extensions that optipng can optimise
 PNG_EXTENSIONS = {".png"}
 
+# Files joined into one, in this order, before they are minified: a page load
+# then opens fewer connections, each of which costs the device heap
+# (docs/adr/0005-one-websocket-protocol.md).  The protocol 2 client in js/
+# comes before index.js, which uses it.  A source listed here isn't copied on
+# its own.
+BUNDLES = {
+    "index.js": ["js/schema.js", "js/model.js", "js/client.js", "js/views.js", "index.js"],
+    "app.css": ["main.css", "widgets.css", "icons.css"],
+}
+
 # Everything else is copied verbatim
 # ──────────────────────────────────────────────
 
@@ -252,6 +262,39 @@ def minify_all():
     total_final = 0
     file_count = 0
 
+    def report(rel_path, stats):
+        nonlocal total_original, total_final, file_count
+        pct = (1 - stats["final"] / stats["original"]) * 100 if stats["original"] > 0 else 0
+        print(
+            f"  {rel_path:<40s} "
+            f"{stats['original']:>8,d} → {stats['final']:>8,d} B "
+            f"({pct:+.0f}%)  [{stats['action']}]"
+        )
+        total_original += stats["original"]
+        total_final += stats["final"]
+        file_count += 1
+
+    bundled = set()
+    # Inside data/, so it goes even when a bundle fails: left there, it would
+    # end up in the LittleFS image.
+    work_dir = os.path.join(dst_dir, ".bundles")
+    os.makedirs(work_dir, exist_ok=True)
+    try:
+        for name, parts in BUNDLES.items():
+            joined = os.path.join(work_dir, name)
+            with open(joined, "w", encoding="utf-8") as out:
+                for part in parts:
+                    # utf-8-sig drops a byte order mark: mid-file it would be
+                    # read as part of the next selector, and that rule lost.
+                    with open(os.path.join(src_dir, part), "r", encoding="utf-8-sig") as f:
+                        out.write(f.read())
+                    # A file without a final newline would run into the next.
+                    out.write("\n")
+                    bundled.add(os.path.normpath(part))
+            report(f"{name} ({len(parts)} files)", process_file(joined, os.path.join(dst_dir, name)))
+    finally:
+        shutil.rmtree(work_dir, ignore_errors=True)
+
     for root, dirs, files in os.walk(src_dir):
         for fname in sorted(files):
             # Skip hidden files and editor temp files
@@ -260,20 +303,11 @@ def minify_all():
 
             src_path = os.path.join(root, fname)
             rel_path = os.path.relpath(src_path, src_dir)
+            if os.path.normpath(rel_path) in bundled:
+                continue
             dst_path = os.path.join(dst_dir, rel_path)
 
-            stats = process_file(src_path, dst_path)
-
-            pct = (1 - stats["final"] / stats["original"]) * 100 if stats["original"] > 0 else 0
-            print(
-                f"  {rel_path:<40s} "
-                f"{stats['original']:>8,d} → {stats['final']:>8,d} B "
-                f"({pct:+.0f}%)  [{stats['action']}]"
-            )
-
-            total_original += stats["original"]
-            total_final += stats["final"]
-            file_count += 1
+            report(rel_path, process_file(src_path, dst_path))
 
     print(f"[minify] {file_count} files processed")
     print(
