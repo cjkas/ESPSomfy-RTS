@@ -284,7 +284,9 @@ def minify_all():
             joined = os.path.join(work_dir, name)
             with open(joined, "w", encoding="utf-8") as out:
                 for part in parts:
-                    with open(os.path.join(src_dir, part), "r", encoding="utf-8") as f:
+                    # utf-8-sig drops a byte order mark: mid-file it would be
+                    # read as part of the next selector, and that rule lost.
+                    with open(os.path.join(src_dir, part), "r", encoding="utf-8-sig") as f:
                         out.write(f.read())
                     # A file without a final newline would run into the next.
                     out.write("\n")
