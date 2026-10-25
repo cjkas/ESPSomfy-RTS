@@ -238,7 +238,6 @@
   FIELD(securityType, "sy", 'i', 0) \
   FIELD(pin, "pn", 's', 0) \
   FIELD(hasPin, "hi", 'b', 0) \
-  FIELD(permissions, "pm", 'i', 0) \
   /* the radio: bitLength, proto, frequency and enabled as above */ \
   FIELD(TXPin, "tx", 'i', 0) \
   FIELD(RXPin, "rx", 'i', 0) \

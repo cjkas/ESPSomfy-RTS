@@ -135,7 +135,7 @@ The settings are in five sections. `getSettings` and `saveSettings` name one in 
 | `general` | `hostname`, `ssdpBroadcast`, `ntpServer`, `posixZone` | `/modulesettings`, `/setgeneral` |
 | `network` | `connMode`; WiFi: `ssid`, `passphrase`, `roaming`, `hidden`; Ethernet: `boardType`, `phyType`, `CLKMode`, `phyAddress`, `PWRPin`, `MDCPin`, `MDIOPin`; the address: `dhcp`, `ip`, `gateway`, `subnet`, `dns1`, `dns2` | `/networksettings`, `/setNetwork`, `/setIP`, `/connectwifi` |
 | `mqtt` | `enabled`, `pubDisco`, `protocol`, `hostname` (the broker's), `port`, `username`, `password`, `rootTopic`, `discoTopic` | `/mqttsettings`, `/connectmqtt` |
-| `security` | `securityType`, `username`, `password`, `pin`, `permissions` | `/getSecurity`, `/saveSecurity` |
+| `security` | `securityType`, `username`, `password`, `pin` | `/getSecurity`, `/saveSecurity` |
 | `radio` | `bitLength`, `proto`, `enabled`, `TXPin`, `RXPin`, `SCKPin`, `MOSIPin`, `MISOPin`, `CSNPin`, `frequency`, `rxBandwidth`, `deviation`, `txPower`, `noiseDetection` | `/getRadio`, `/saveRadio` |
 
 - **Reading.** `getSettings` replies with the section's fields. A secret is never sent: `hasPassphrase`, `hasPassword` and `hasPin` say whether one is set. `network` also has `hasEthernet`, and has the Ethernet fields only on a device with Ethernet. `radio` also has `radioInit`.

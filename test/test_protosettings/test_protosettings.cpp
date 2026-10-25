@@ -161,6 +161,10 @@ static void test_a_field_of_another_section_is_refused() {
   TEST_ASSERT_EQUAL_STRING("TXPin can't be saved in mqtt", expand(R"({"se":"mqtt","tx":12})"));
   TEST_ASSERT_EQUAL_STRING("shadeId can't be saved in radio", expand(R"({"se":"radio","s":1})"));
 }
+static void test_secure_config_only_is_not_a_field() {
+  // Two modes, None and Secured (ADR 0006): "Secure Config Only" has no key.
+  TEST_ASSERT_EQUAL_STRING("Unknown field pm", expand(R"({"se":"security","pm":1})"));
+}
 static void test_ethernet_needs_a_chip_with_it() {
   TEST_ASSERT_GOOD(expand(R"({"se":"network","bo":1})"));
   TEST_ASSERT_EQUAL_STRING("This device has no Ethernet", expand(R"({"se":"network","bo":1})", false));
@@ -211,6 +215,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_an_unknown_key_is_refused);
   RUN_TEST(test_what_is_only_sent_is_refused);
   RUN_TEST(test_a_field_of_another_section_is_refused);
+  RUN_TEST(test_secure_config_only_is_not_a_field);
   RUN_TEST(test_ethernet_needs_a_chip_with_it);
   RUN_TEST(test_a_save_sets_the_parts_it_has_fields_of);
   RUN_TEST(test_a_route_name_belongs_to_its_section);

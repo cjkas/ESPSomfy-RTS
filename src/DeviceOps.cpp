@@ -91,7 +91,8 @@ static void writeSettings(ProtoWriter &w, settings_section_t section) {
       w.add(proto_field_t::username, settings.Security.username);
       w.add(proto_field_t::hasPassword, hasSecret(settings.Security.password));
       w.add(proto_field_t::hasPin, hasSecret(settings.Security.pin));
-      w.add(proto_field_t::permissions, settings.Security.permissions);
+      // Not "Secure Config Only"'s permissions: the socket has two modes, None
+      // and Secured (docs/adr/0006-two-security-modes-eleven-http-routes.md).
       break;
     case settings_section_t::radio: {
       const transceiver_config_t &cfg = somfy.transceiver.config;

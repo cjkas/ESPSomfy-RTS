@@ -70,7 +70,6 @@ static const settings_field_t FIELDS[] = {
   {settings_part_t::security, proto_field_t::username, nullptr, 0, 32},
   {settings_part_t::security, proto_field_t::password, nullptr, 0, 32},
   {settings_part_t::security, proto_field_t::pin, nullptr, 0, 4},
-  {settings_part_t::security, proto_field_t::permissions, nullptr, 0, 1},
   // 56 or 80, checked on its own.
   {settings_part_t::radio, proto_field_t::bitLength, "type", 56, 80},
   // RTS, RTW, RTV, GP Relay or GP Remote (radio_proto), checked on its own.
