@@ -68,7 +68,27 @@ class ProtoClient {
     // unless a listener calls close(), as the UI does once /loginContext says
     // a login is needed (docs/SECURITY_PLAN.md).
     on(name, cb) { (this.listeners[name] = this.listeners[name] || []).push(cb); }
-    emit(name, d) { for (const cb of this.listeners[name] || []) cb(d); }
+    off(name, cb) { this.listeners[name] = (this.listeners[name] || []).filter((x) => x !== cb); }
+    emit(name, d) { for (const cb of (this.listeners[name] || []).slice()) cb(d); }
+    // The next event of that name that match(d) accepts, or null after ms.
+    // An edit's events follow its reply, so this is how a caller gets the
+    // item the edit left: the model has it by then.
+    waitFor(name, match, ms) {
+        return new Promise((resolve) => {
+            let timer = null;
+            const cb = (d) => {
+                if (match && !match(d)) return;
+                this.off(name, cb);
+                this.clearTimeout(timer);
+                resolve(d);
+            };
+            this.on(name, cb);
+            timer = this.setTimeout(() => {
+                this.off(name, cb);
+                resolve(null);
+            }, ms);
+        });
+    }
 
     connect() {
         if (!this.stopped && (this.ws || this.reconnectTimer)) return;

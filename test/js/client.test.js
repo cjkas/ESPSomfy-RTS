@@ -296,6 +296,25 @@ test('a new token connects again with it', () => {
     assert.match(FakeSocket.last.url, /apikey=new/);
 });
 
+test('waitFor resolves with the first event that matches, after the model has it', async () => {
+    const { c, ws } = connected();
+    const shadeId = recordedItems('S')[0].s;
+    const p = c.waitFor('shade', (d) => d.shadeId === shadeId, 3000);
+    ws.deliver({ v: 2, t: T.shade, d: { s: 250, n: 'Other' } });
+    ws.deliver({ v: 2, t: T.shade, d: { s: shadeId, n: 'Renamed' } });
+    const d = await p;
+    assert.equal(d.name, 'Renamed');
+    assert.equal(c.model.shades.get(shadeId).name, 'Renamed');
+});
+
+test('waitFor gives null when no event comes, and stops listening', async () => {
+    const { c } = connected();
+    const p = c.waitFor('room', null, 3000);
+    c.timers.runAll();
+    assert.equal(await p, null);
+    assert.equal((c.listeners.room || []).length, 0);
+});
+
 test('subscribe sends the feed number', () => {
     const { c, ws } = connected();
     c.subscribe('frames');

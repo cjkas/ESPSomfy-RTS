@@ -245,7 +245,7 @@ var httpStatusText = {
     '504': 'Gateway Timeout',
     '505': 'HTTP Version Not Supported'
 };
-function getJSON(url, cb, attempt) {
+function getJSON(url, cb) {
     let xhr = new XMLHttpRequest();
     console.log({ get: url });
     xhr.open('GET', baseUrl.length > 0 ? `${baseUrl}${url}` : url, true);
@@ -253,10 +253,6 @@ function getJSON(url, cb, attempt) {
     xhr.responseType = 'json';
     xhr.onload = () => {
         let status = xhr.status;
-        if (isBusy(status, xhr.response) && (attempt || 0) < 10) {
-            setTimeout(() => getJSON(url, cb, (attempt || 0) + 1), 250);
-            return;
-        }
         if (status !== 200) {
             let err = xhr.response || {};
             err.htmlError = status;
@@ -278,17 +274,12 @@ function getJSON(url, cb, attempt) {
     };
     xhr.send();
 }
-function getJSONSync(url, cb, attempt) {
+function getJSONSync(url, cb) {
     let overlay = ui.waitMessage(document.getElementById('divContainer'));
     let xhr = new XMLHttpRequest();
     xhr.responseType = 'json';
     xhr.onload = () => {
         let status = xhr.status;
-        if (isBusy(status, xhr.response) && (attempt || 0) < 10) {
-            if (typeof overlay !== 'undefined') overlay.remove();
-            setTimeout(() => getJSONSync(url, cb, (attempt || 0) + 1), 250);
-            return;
-        }
         if (status !== 200) {
             let err = xhr.response || {};
             err.htmlError = status;
@@ -319,109 +310,6 @@ function getJSONSync(url, cb, attempt) {
     xhr.open('GET', baseUrl.length > 0 ? `${baseUrl}${url}` : url, true);
     xhr.setRequestHeader('apikey', security.apiKey);
     xhr.send();
-}
-function getText(url, cb) {
-    let xhr = new XMLHttpRequest();
-    console.log({ get: url });
-    xhr.open('GET', baseUrl.length > 0 ? `${baseUrl}${url}` : url, true);
-    xhr.setRequestHeader('apikey', security.apiKey);
-    xhr.responseType = 'text';
-    xhr.onload = () => {
-        let status = xhr.status;
-        if (status !== 200) {
-            let err = xhr.response || {};
-            err.htmlError = status;
-            err.service = `GET ${url}`;
-            if (typeof err.desc === 'undefined') err.desc = xhr.statusText || httpStatusText[xhr.status || 500];
-            cb(err, null);
-        }
-        else
-            cb(null, xhr.response);
-    };
-    xhr.onerror = (evt) => {
-        let err = {
-            htmlError: xhr.status || 500,
-            service: `GET ${url}`
-        };
-        if (typeof err.desc === 'undefined') err.desc = xhr.statusText || httpStatusText[xhr.status || 500];
-        cb(err, null);
-    };
-    xhr.send();
-}
-function postJSONSync(url, data, cb) {
-    let overlay = ui.waitMessage(document.getElementById('divContainer'));
-    try {
-        let xhr = new XMLHttpRequest();
-        console.log({ post: url, data: data });
-        let fd = new FormData();
-        for (let name in data) {
-            fd.append(name, data[name]);
-        }
-        xhr.open('POST', baseUrl.length > 0 ? `${baseUrl}${url}` : url, true);
-        xhr.responseType = 'json';
-        xhr.setRequestHeader('Accept', 'application/json');
-        xhr.setRequestHeader('apikey', security.apiKey);
-        xhr.onload = () => {
-            let status = xhr.status;
-            console.log(xhr);
-            if (status !== 200) {
-                let err = xhr.response || {};
-                err.htmlError = status;
-                err.service = `POST ${url}`;
-                err.data = data;
-                if (typeof err.desc === 'undefined') err.desc = xhr.statusText || httpStatusText[xhr.status || 500];
-                cb(err, null);
-            }
-            else {
-                cb(null, xhr.response);
-            }
-            overlay.remove();
-        };
-        xhr.onerror = (evt) => {
-            console.log(xhr);
-            let err = {
-                htmlError: xhr.status || 500,
-                service: `POST ${url}`
-            };
-            if (typeof err.desc === 'undefined') err.desc = xhr.statusText || httpStatusText[xhr.status || 500];
-            cb(err, null);
-            overlay.remove();
-        };
-        xhr.send(fd);
-    } catch (err) { ui.serviceError(document.getElementById('divContainer'), err); }
-}
-function putJSON(url, data, cb) {
-    let xhr = new XMLHttpRequest();
-    console.log({ put: url, data: data });
-    xhr.open('PUT', baseUrl.length > 0 ? `${baseUrl}${url}` : url, true);
-    xhr.responseType = 'json';
-    xhr.setRequestHeader('Content-Type', 'application/json; charset=utf-8');
-    xhr.setRequestHeader('Accept', 'application/json');
-    xhr.setRequestHeader('apikey', security.apiKey);
-    xhr.onload = () => {
-        let status = xhr.status;
-        if (status !== 200) {
-            let err = xhr.response || {};
-            err.htmlError = status;
-            err.service = `PUT ${url}`;
-            err.data = data;
-            if (typeof err.desc === 'undefined') err.desc = xhr.statusText || httpStatusText[xhr.status || 500];
-            cb(err, null);
-        }
-        else {
-            cb(null, xhr.response);
-        }
-    };
-    xhr.onerror = (evt) => {
-        console.log(xhr);
-        let err = {
-            htmlError: xhr.status || 500,
-            service: `PUT ${url}`
-        };
-        if (typeof err.desc === 'undefined') err.desc = xhr.statusText || httpStatusText[xhr.status || 500];
-        cb(err, null);
-    };
-    xhr.send(JSON.stringify(data));
 }
 function putJSONSync(url, data, cb) {
     let overlay = ui.waitMessage(document.getElementById('divContainer'));
@@ -462,264 +350,214 @@ function putJSONSync(url, data, cb) {
         xhr.send(JSON.stringify(data));
     } catch (err) { ui.serviceError(document.getElementById('divContainer'), err); }
 }
-// Edits of rooms, shades, groups and repeaters run on the device's main loop
-// after the reply, so the reply only says the edit was accepted.  How it went
-// comes over the socket as requestResult with the same requestId.  On success
-// readUrl(id) is read back, so cb gets what the edit route itself used to
-// return; without readUrl cb gets the result.
-var pendingEdits = {};
-var earlyResults = {};
-function editJSON(url, data, readUrl, cb) {
+// The device over socket protocol 2 (docs/PROTOCOL.md; the client is in
+// data-src/js).  Everything but the login and the file transfers goes over the
+// one socket: a page load opens no other connection, which the device's heap
+// can't spare (docs/adr/0005-one-websocket-protocol.md).
+var proto = null;
+var protoSynced = false;
+var connectFailed = 0;
+// An op's refusal as ui.serviceError shows it.  A shade whose settings don't
+// add up carries the reason's number, which the errors table describes.
+function opError(name, err) {
+    let e = { htmlError: err.code, service: name, desc: err.desc };
+    if (err.data && typeof err.data.validation === 'number' && err.data.validation !== 0) e.code = err.data.validation;
+    return e;
+}
+function notConnected(name) { return opError(name, { code: 'notConnected', desc: 'Not connected to the device' }); }
+// Sends an op; cb(err, reply) as the HTTP helpers did.  With wait the spinner
+// shows until the reply.  The device saves settings one at a time, so a save
+// that finds another running tries again; a busy command is the radio's queue
+// or a moving shade, which the user decides about.
+function sendOp(name, fields, cb, wait) {
+    let overlay = wait ? ui.waitMessage(document.getElementById('divContainer')) : null;
+    let attempts = 0;
+    let done = (err, d) => {
+        if (overlay) overlay.remove();
+        if (typeof cb === 'function') cb(err, d);
+    };
+    if (!proto) {
+        done(notConnected(name), null);
+        return;
+    }
+    let send = () => proto.op(name, fields).then((d) => done(null, d), (err) => {
+        if (err.code === 'busy' && name === 'saveSettings' && ++attempts < 10) setTimeout(send, 300);
+        else done(opError(name, err), null);
+    });
+    send();
+}
+// What an edit's cb gets: the room, shade or group as the edit's event left
+// it.  id picks the item's id from the reply (an add's new id) or the fields.
+function editedItem(kind, id) {
+    let key = `${kind}Id`;
+    let map = { room: 'rooms', shade: 'shades', group: 'groups' }[kind];
+    return { event: kind, id: id, match: (d, i) => d[key] === i, read: (i) => kind === 'group' ? groupView(proto.model.groups.get(i)) : proto.model[map].get(i) };
+}
+function editedRepeaters() { return { event: 'repeaters', id: () => 0, match: () => true, read: () => proto.model.repeaters.slice() }; }
+// An edit.  The device runs one at a time, so one that finds another running
+// tries again.  Its events follow the reply: with after, cb gets the item once
+// its event is in; without, the lists redraw from the events anyway.
+function sendEdit(name, fields, after, cb) {
+    if (!proto) {
+        cb(notConnected(name), null);
+        return;
+    }
     let overlay = ui.waitMessage(document.getElementById('divContainer'));
     let attempts = 0;
-    let finish = (result) => {
+    let finish = (err, item) => {
         overlay.remove();
-        if (!result.ok) {
-            let err = { htmlError: 500, service: `PUT ${url}`, desc: result.desc, data: data };
-            if (result.code) err.code = result.code;
-            cb(err, null);
-        }
-        else if (typeof readUrl === 'function') getJSONSync(readUrl(result.id), cb);
-        else cb(null, result);
+        if (typeof cb === 'function') cb(err, item);
     };
     let send = () => {
-        putJSON(url, data, (err, reply) => {
-            // Another edit is still being applied.
-            if (err && err.htmlError === 503 && typeof err.desc === 'string' && err.desc.startsWith('Busy') && ++attempts < 10) {
-                setTimeout(send, 300);
+        proto.op(name, fields).then((reply) => {
+            if (!after) {
+                finish(null, reply);
                 return;
             }
-            if (err) {
-                overlay.remove();
-                cb(err, null);
-                return;
-            }
-            let id = reply.requestId;
-            if (typeof earlyResults[id] !== 'undefined') {
-                let result = earlyResults[id];
-                delete earlyResults[id];
-                finish(result);
-                return;
-            }
-            let timer = setTimeout(() => {
-                delete pendingEdits[id];
-                overlay.remove();
-                let prompt = ui.promptMessage('The device did not confirm the change.', () => { location.reload(); });
-                prompt.querySelector('.sub-message').innerHTML = '<p>It may or may not have been made.  Press YES to reload the page and see.</p>';
-            }, 5000);
-            pendingEdits[id] = (result) => {
-                clearTimeout(timer);
-                finish(result);
-            };
+            let id = after.id(reply);
+            // Without the event the reply is all there is, an add's new id in it.
+            proto.waitFor(after.event, (d) => after.match(d, id), 3000).then(() => finish(null, after.read(id) || reply));
+        }, (err) => {
+            if (err.code === 'busy' && ++attempts < 10) setTimeout(send, 300);
+            else finish(opError(name, err), null);
         });
     };
     send();
 }
-function procRequestResult(result) {
-    let fn = pendingEdits[result.requestId];
-    if (typeof fn === 'function') {
-        delete pendingEdits[result.requestId];
-        fn(result);
-    }
-    // The socket can beat the reply that carries the id.  Results of other
-    // clients' edits land here too, so only the latest few are kept.
-    else {
-        earlyResults[result.requestId] = result;
-        let ids = Object.keys(earlyResults);
-        if (ids.length > 10) delete earlyResults[ids[0]];
-    }
+// A group as the UI shows it: its shades whole, where the device sends ids.
+function groupView(group) {
+    if (!group) return group;
+    let view = Object.assign({}, group);
+    view.linkedShades = group.linkedShades.map((id) => proto.model.shades.get(id) || { shadeId: id, name: `Shade ${id}`, remoteAddress: 0 });
+    return view;
 }
-function editsPending() { return Object.keys(pendingEdits).length > 0; }
-// Reads are served from a copy of the shade model the device takes for each,
-// and it takes at most two at once: a third is told to try again.
-function isBusy(status, response) {
-    return status === 503 && response && typeof response.desc === 'string' && response.desc.startsWith('Busy');
+// The lists redraw from the model after events, a burst of them at once.
+var renderPending = {};
+var renderTimer = null;
+function render(part) {
+    renderPending[part] = true;
+    if (!protoSynced || renderTimer) return;
+    renderTimer = setTimeout(() => {
+        renderTimer = null;
+        let p = renderPending;
+        renderPending = {};
+        // Shades and groups show their room's name.
+        if (p.rooms) somfy.setRoomsList(proto.model.roomList());
+        if (p.rooms || p.shades) somfy.setShadesList(proto.model.shadeList());
+        if (p.rooms || p.groups) somfy.setGroupsList(proto.model.groupList().map(groupView));
+        if (p.repeaters) somfy.setRepeaterList(proto.model.repeaters);
+    }, 20);
 }
-var socket;
-var tConnect = null;
-var sockIsOpen = false;
-var connecting = false;
-var connects = 0;
-var connectFailed = 0;
-async function initSockets() {
-    if (connecting) return;
-    console.log('Connecting to socket...');
-    connecting = true;
-    if (tConnect) clearTimeout(tConnect);
-    tConnect = null;
-    let wms = document.getElementsByClassName('socket-wait');
-    for (let i = 0; i < wms.length; i++) {
-        wms[i].remove();
-    }
-    ui.waitMessage(document.getElementById('divContainer')).classList.add('socket-wait');
-    let host = window.location.protocol === 'file:' ? hst : window.location.hostname;
-    try {
-        socket = new WebSocket(`ws://${host}:8080/`);
-        socket.onmessage = (evt) => {
-            if (evt.data.startsWith('42')) {
-                let ndx = evt.data.indexOf(',');
-                let eventName = evt.data.substring(3, ndx);
-                let data = evt.data.substring(ndx + 1, evt.data.length - 1);
-                try {
-                    var reISO = /^(\d{4}|\+010000)-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2}(?:\.\d*))(?:Z|(\+|-)([\d|:]*))?$/;
-                    var reMsAjax = /^\/Date\((d|-|.*)\)[\/|\\]$/;
-                    var msg = JSON.parse(data, (key, value) => {
-                        if (typeof value === 'string') {
-                            var a = reISO.exec(value);
-                            if (a) return new Date(value);
-                            a = reMsAjax.exec(value);
-                            if (a) {
-                                var b = a[1].split(/[-+,.]/);
-                                return new Date(b[0] ? +b[0] : 0 - +b[1]);
-                            }
-                        }
-                        return value;
-                    });
-                    switch (eventName) {
-                        case 'memStatus':
-                            firmware.procMemoryStatus(msg);
-                            break;
-                        case 'fwStatus':
-                            firmware.procFwStatus(msg);
-                            break;
-                        case 'remoteFrame':
-                            somfy.procRemoteFrame(msg);
-                            break;
-                        case 'groupState':
-                            somfy.procGroupState(msg);
-                            break;
-                        case 'shadeState':
-                            somfy.procShadeState(msg);
-                            break;
-                        case 'shadeCommand':
-                            console.log(msg);
-                            break;
-                        case 'requestResult':
-                            procRequestResult(msg);
-                            break;
-                        case 'roomRemoved':
-                            somfy.procRoomRemoved(msg);
-                            break;
-                        case 'roomAdded':
-                            somfy.procRoomAdded(msg);
-                            break;
-                        // Another client changed the lists.  This one's own edits
-                        // refresh them when their result comes in.
-                        case 'shadeRemoved':
-                        case 'shadeAdded':
-                            if (!editsPending()) somfy.updateShadeList();
-                            break;
-                        case 'groupRemoved':
-                        case 'groupAdded':
-                            if (!editsPending()) somfy.updateGroupList();
-                            break;
-                        case 'ethernet':
-                            wifi.procEthernet(msg);
-                            break;
-                        case 'wifiStrength':
-                            wifi.procWifiStrength(msg);
-                            break;
-                        case 'packetPulses':
-                            console.log(msg);
-                            break;
-                        case 'frequencyScan':
-                            somfy.procFrequencyScan(msg);
-                            break;
-
-                    }
-                } catch (err) {
-                    console.log({ eventName: eventName, data: data, err: err });
-                }
-            }
-        };
-        socket.onopen = (evt) => {
-            if (tConnect) clearTimeout(tConnect);
-            tConnect = null;
-            console.log({ msg: 'open', evt: evt });
-            sockIsOpen = true;
-            connecting = false;
-            connects++;
-            connectFailed = 0;
-            let wms = document.getElementsByClassName('socket-wait');
-            for (let i = 0; i < wms.length; i++) {
-                wms[i].remove();
-            }
-            let errs = document.getElementsByClassName('socket-error');
-            for (let i = 0; i < errs.length; i++)
-                errs[i].remove();
-            if (general.reloadApp) {
-                general.reload();
-            }
-            else {
-                (async () => {
-                    ui.clearErrors();
-                    await general.loadGeneral();
-                    await wifi.loadNetwork();
-                    await somfy.loadSomfy();
-                    await mqtt.loadMQTT();
-                    if (ui.isConfigOpen()) socket.send('join:0');
-
-                    //await general.init();
-                    //await somfy.init();
-                    //await mqtt.init();
-                    //await wifi.init();
-                })();
-            }
-        };
-        socket.onclose = (evt) => {
-            wifi.procWifiStrength({ ssid: '', channel: -1, strength: -100 });
-            wifi.procEthernet({ connected: false, speed: 0, fullduplex: false });
-            if (document.getElementsByClassName('socket-wait').length === 0)
-                ui.waitMessage(document.getElementById('divContainer')).classList.add('socket-wait');
-            if (evt.wasClean) {
-                console.log({ msg: 'close-clean', evt: evt });
-                connectFailed = 0;
-                tConnect = setTimeout(async () => { await reopenSocket(); }, 7000);
-                console.log('Reconnecting socket in 7 seconds');
-            }
-            else {
-                console.log({ msg: 'close-died', reason: evt.reason, evt: evt, sock: socket });
-                if (connects > 0) {
-                    console.log('Reconnecting socket in 3 seconds');
-                    tConnect = setTimeout(async () => { await reopenSocket(); }, 3000);
-                }
-                else {
-                    if (connecting) {
-                        connectFailed++;
-                        let timeout = Math.min(connectFailed * 500, 10000);
-                        console.log(`Initial socket did not connect try again (server was busy and timed out ${connectFailed} times)`);
-                        tConnect = setTimeout(async () => { await reopenSocket(); }, timeout);
-                        if (connectFailed === 5) {
-                            ui.socketError('Too many clients connected.  A maximum of 5 clients may be connected at any one time.  Close some connections to the ESP Somfy RTS device to proceed.');
-                        }
-                        let spanAttempts = document.getElementById('spanSocketAttempts');
-                        if (spanAttempts) spanAttempts.innerHTML = connectFailed.fmt("#,##0");
-
-                    }
-                    else {
-                        console.log('Connecting socket in .5 seconds');
-                        tConnect = setTimeout(async () => { await reopenSocket(); }, 500);
-                    }
-
-                }
-
-            }
-            connecting = false;
-        };
-        socket.onerror = (evt) => {
-            console.log({ msg: 'socket error', evt: evt, sock: socket });
-        };
-    } catch (err) {
-        console.log({
-            msg: 'Websocket connection error', err: err
-        });
-        tConnect = setTimeout(async () => { await reopenSocket(); }, 5000);
-    }
+function renderAll() {
+    renderPending = { rooms: true, shades: true, groups: true, repeaters: true };
+    render('rooms');
 }
-async function reopenSocket() {
-    if (tConnect) clearTimeout(tConnect);
-    tConnect = null;
-    await initSockets();
+function showSocketWait() {
+    if (document.getElementsByClassName('socket-wait').length === 0)
+        ui.waitMessage(document.getElementById('divContainer')).classList.add('socket-wait');
+}
+function clearSocketWait() {
+    for (let el of [...document.getElementsByClassName('socket-wait')]) el.remove();
+    for (let el of [...document.getElementsByClassName('socket-error')]) el.remove();
+}
+function showStatus(status) {
+    firmware.procMemoryStatus({ free: status.freeHeap, max: status.maxHeap, min: status.minHeap, uptime: status.uptime });
+    if (proto.model.header.connType === 'Ethernet') wifi.procEthernet({ connected: status.connected, speed: status.speed, fullduplex: status.fullDuplex });
+    else wifi.procWifiStrength({ ssid: status.ssid, channel: status.channel, strength: status.strength });
+}
+// The feeds the config panel shows: received frames and the frequency scan.
+function subscribeConfigFeeds(on) {
+    if (!proto || !protoSynced) return;
+    for (let feed of ['frames', 'frequencyScan']) (on ? proto.subscribe(feed) : proto.unsubscribe(feed)).catch((err) => console.log(err));
+}
+// A received frame as the frames list and remote linking read it.
+function frameView(d) {
+    let f = proto.schema.fill(Object.assign({}, d), ['encKey', 'remoteAddress', 'lastRollingCode', 'command', 'rawCmd', 'rssi', 'bits', 'proto', 'valid', 'stepSize', 'pulses']);
+    return { encKey: f.encKey, address: f.remoteAddress, rcode: f.lastRollingCode, command: f.command, rawCmd: f.rawCmd, rssi: f.rssi,
+        bits: f.bits, proto: f.proto, valid: f.valid, stepSize: d.stepSize, pulses: f.pulses };
+}
+function scanView(d) {
+    let s = proto.schema.fill(Object.assign({}, d), ['scanning', 'testFreq', 'testRssi', 'frequency', 'rssi']);
+    return { scanning: s.scanning, testFreq: s.testFreq, testRSSI: s.testRssi, frequency: s.frequency, RSSI: s.rssi };
+}
+function showVersionMismatch(v) {
+    if (document.getElementById('divVersionMismatch')) return;
+    let div = document.createElement('div');
+    div.id = 'divVersionMismatch';
+    div.className = 'version-banner';
+    div.innerHTML = `This page speaks protocol ${v.client} but the device speaks ${v.device}.  Update the application files, or reload the page.`;
+    document.body.prepend(div);
+}
+// Opens the socket, or opens it again with the token a login gave.
+function startSocket() {
+    if (proto) {
+        proto.setToken(security.apiKey);
+        return;
+    }
+    let host = window.location.protocol === 'file:' ? hst : window.location.host;
+    proto = new ProtoClient({ host: host, token: security.apiKey });
+    proto.on('synced', () => {
+        let first = !protoSynced;
+        protoSynced = true;
+        connectFailed = 0;
+        clearSocketWait();
+        if (general.reloadApp) {
+            general.reload();
+            return;
+        }
+        if (!first) return;
+        ui.clearErrors();
+        general.loadGeneral();
+        wifi.loadNetwork();
+        somfy.loadSomfy();
+        mqtt.loadMQTT();
+        showStatus(proto.model.status);
+        if (ui.isConfigOpen()) subscribeConfigFeeds(true);
+    });
+    let lost = (refused) => {
+        protoSynced = false;
+        wifi.procWifiStrength({ ssid: '', channel: -1, strength: -100 });
+        wifi.procEthernet({ connected: false, speed: 0, fullduplex: false });
+        showSocketWait();
+        if (++connectFailed === 5)
+            ui.socketError('The device does not answer, or 5 clients are connected to it already.  Close some connections to the ESP Somfy RTS device to proceed.');
+        let spanAttempts = document.getElementById('spanSocketAttempts');
+        if (spanAttempts) spanAttempts.innerHTML = connectFailed.fmt('#,##0');
+        if (refused) security.socketRefused();
+    };
+    proto.on('closed', () => lost(false));
+    proto.on('refused', () => lost(true));
+    proto.on('versionMismatch', showVersionMismatch);
+    proto.on('shadeState', (d) => {
+        let shade = proto.model.shades.get(d.shadeId);
+        if (shade) somfy.procShadeState(shade);
+    });
+    proto.on('groupState', (d) => {
+        let group = proto.model.groups.get(d.groupId);
+        if (group) somfy.procGroupState(group);
+    });
+    for (let e of ['room', 'roomRemoved', 'roomOrder']) proto.on(e, () => render('rooms'));
+    for (let e of ['shade', 'shadeRemoved', 'shadeOrder']) proto.on(e, () => render('shades'));
+    for (let e of ['group', 'groupRemoved', 'groupOrder']) proto.on(e, () => render('groups'));
+    proto.on('repeaters', () => render('repeaters'));
+    proto.on('memory', () => showStatus(proto.model.status));
+    proto.on('wifi', () => showStatus(proto.model.status));
+    proto.on('ethernet', () => showStatus(proto.model.status));
+    proto.on('frame', (d) => somfy.procRemoteFrame(frameView(d)));
+    proto.on('frequencyScan', (d) => somfy.procFrequencyScan(scanView(d)));
+    proto.on('shadeCommanded', (d) => console.log(d));
+    // Another client saved settings: show them as they are now.
+    proto.on('settingsChanged', (d) => {
+        switch (d.section) {
+            case 'general': general.loadGeneral(); break;
+            case 'network': wifi.loadNetwork(); break;
+            case 'mqtt': mqtt.loadMQTT(); break;
+            case 'radio': somfy.loadRadio(); break;
+        }
+    });
+    proto.on('error', (err) => console.log(err));
+    showSocketWait();
+    proto.connect();
 }
 async function init() {
     await security.init();
@@ -1213,17 +1051,8 @@ class UIBinder {
         divHome.style.display = 'none';
         divCfg.style.display = '';
         document.getElementById('icoConfig').className = 'icss-home';
-        if (sockIsOpen) socket.send('join:0');
-        let overlay = ui.waitMessage(document.getElementById('divSecurityOptions'));
-        overlay.style.borderRadius = '5px';
-        getJSON('/getSecurity', (err, security) => {
-            overlay.remove();
-            if (err) ui.serviceError(err);
-            else {
-                console.log(security);
-                general.setSecurityConfig(security);
-            }
-        });
+        subscribeConfigFeeds(true);
+        general.loadSecurity();
     }
     setHomePanel() {
         if (!this.isConfigOpen()) return;
@@ -1232,8 +1061,8 @@ class UIBinder {
         divHome.style.display = '';
         divCfg.style.display = 'none';
         document.getElementById('icoConfig').className = 'icss-gear';
-        if (sockIsOpen) socket.send('leave:0');
-        general.setSecurityConfig({ type: 0, username: '', permissions: 0 });
+        subscribeConfigFeeds(false);
+        general.setSecurityConfig({ securityType: 0, username: '' });
     }
     toggleConfig() {
         if (this.isConfigOpen())
@@ -1257,20 +1086,56 @@ class Security {
     type = 0;
     authenticated = false;
     apiKey = '';
-    permissions = 0;
+    checkingRefusal = false;
+    // The token lives as long as the tab: a reload keeps it, closing the tab
+    // drops it (docs/SECURITY_PLAN.md).
+    static TOKEN_KEY = 'espsomfyToken';
+    loadToken() {
+        try { return sessionStorage.getItem(Security.TOKEN_KEY) || ''; } catch (e) { return ''; }
+    }
+    setToken(token) {
+        this.apiKey = token || '';
+        try {
+            if (this.apiKey) sessionStorage.setItem(Security.TOKEN_KEY, this.apiKey);
+            else sessionStorage.removeItem(Security.TOKEN_KEY);
+        } catch (e) { /* No storage: a reload asks for the login again. */ }
+    }
+    showApp() {
+        document.getElementById('divUnauthenticated').style.display = 'none';
+        document.getElementById('divAuthenticated').style.display = '';
+        document.getElementById('divContainer').setAttribute('data-auth', true);
+    }
     async init() {
-        let fld = document.getElementById('divUnauthenticated').querySelector('.pin-digit[data-bind="security.pin.d0"]');
         document.getElementById('divUnauthenticated').querySelector('.pin-digit[data-bind="login.pin.d3"]').addEventListener('digitentered', (evt) => {
             security.login();
         });
         await this.loadContext();
-        if (this.type === 0 || (this.permissions & 0x01) === 0x01) { // No login required or only the config is protected.
-            if (typeof socket === 'undefined' || !socket) (async () => { await initSockets(); })();
-            //ui.setMode(mode);
-            document.getElementById('divUnauthenticated').style.display = 'none';
-            document.getElementById('divAuthenticated').style.display = '';
-            document.getElementById('divContainer').setAttribute('data-auth', true);
+        this.apiKey = this.loadToken();
+        // Under Secured the socket needs a token; one kept from earlier in this
+        // tab is tried, and a refusal brings the login back.
+        if (this.type === 0 || this.apiKey) {
+            this.authenticated = this.type !== 0;
+            this.showApp();
+            startSocket();
         }
+    }
+    // The socket closed before it opened.  A browser can't tell a refused
+    // token from a device that is down, so ask the device: if it answers and
+    // wants a login, stop retrying and show the login.
+    socketRefused() {
+        if (this.checkingRefusal) return;
+        this.checkingRefusal = true;
+        getJSON('/loginContext', (err, ctx) => {
+            this.checkingRefusal = false;
+            if (err || ctx.type === 0) return;
+            proto.close();
+            clearSocketWait();
+            this.setToken('');
+            this.authenticated = false;
+            this.type = ctx.type;
+            this.authUser();
+            document.getElementById('btnCancelLogin').style.display = 'none';
+        });
     }
     async loadContext() {
         let pnl = document.getElementById('divUnauthenticated');
@@ -1286,7 +1151,6 @@ class Security {
                     console.log(ctx);
                     document.getElementById('divContainer').setAttribute('data-securitytype', ctx.type);
                     this.type = ctx.type;
-                    this.permissions = ctx.permissions;
                     switch (ctx.type) {
                         case 1:
                             pnl.querySelector('#divLoginPin').style.display = '';
@@ -1351,14 +1215,10 @@ class Security {
                             navigator.credentials.store(cred);
                         } catch (e) { /* ignore; browsers without support fall back to the form-submit heuristic */ }
                     }
-                    if (typeof socket === 'undefined' || !socket) (async () => { await initSockets(); })();
-                    //ui.setMode(mode);
-
-                    document.getElementById('divUnauthenticated').style.display = 'none';
-                    document.getElementById('divAuthenticated').style.display = '';
-                    document.getElementById('divContainer').setAttribute('data-auth', true);
-                    this.apiKey = log.apiKey;
+                    this.setToken(log.apiKey);
                     this.authenticated = true;
+                    this.showApp();
+                    startSocket();
                     let evt2 = new CustomEvent('afterlogin', { detail: { authenticated: true } });
                     document.getElementById('divContainer').dispatchEvent(evt2);
                 }
@@ -1397,7 +1257,6 @@ class General {
         if (this.initialized) return;
         this.setAppVersion();
         this.setTimeZones();
-        if (sockIsOpen && ui.isConfigOpen()) socket.send('join:0');
         ui.toElement(document.getElementById('divSystemSettings'), { general: { hostname: 'ESPSomfyRTS', username: '', password: '', posixZone: 'UTC0', ntpServer: 'pool.ntp.org' } });
         this.initialized = true;
     }
@@ -1528,44 +1387,25 @@ class General {
     ];
     loadGeneral() {
         let pnl = document.getElementById('divSystemOptions');
-        getJSONSync('/modulesettings', (err, settings) => {
-            if (err) {
-                console.log(err);
-            }
-            else {
-                console.log(settings);
-                document.getElementById('spanFwVersion').innerText = settings.fwVersion;
-                document.getElementById('spanHwVersion').innerText = settings.chipModel.length > 0 ? '-' + settings.chipModel : '';
-                document.getElementById('divContainer').setAttribute('data-chipmodel', settings.chipModel);
-                somfy.initPins();
-                general.setAppVersion();
-                ui.toElement(pnl, { general: settings });
-            }
+        // The firmware and the chip come with the sync.
+        let header = proto.model.header;
+        document.getElementById('spanFwVersion').innerText = header.fw;
+        document.getElementById('spanHwVersion').innerText = header.chipModel.length > 0 ? '-' + header.chipModel : '';
+        document.getElementById('divContainer').setAttribute('data-chipmodel', header.chipModel);
+        somfy.initPins();
+        general.setAppVersion();
+        sendOp('getSettings', { section: 'general' }, (err, settings) => {
+            if (err) console.log(err);
+            else ui.toElement(pnl, { general: settings });
         });
     }
-    loadLogin() {
-        getJSONSync('/loginContext', (err, ctx) => {
+    loadSecurity() {
+        let overlay = ui.waitMessage(document.getElementById('divSecurityOptions'));
+        overlay.style.borderRadius = '5px';
+        sendOp('getSettings', { section: 'security' }, (err, security) => {
+            overlay.remove();
             if (err) ui.serviceError(err);
-            else {
-                console.log(ctx);
-                let pnl = document.getElementById('divContainer');
-                pnl.setAttribute('data-securitytype', ctx.type);
-                let fld;
-                switch (ctx.type) {
-                    case 1:
-                        document.getElementById('divPinSecurity').style.display = '';
-                        fld = document.getElementById('divPinSecurity').querySelector('.pin-digit[data-bind="security.pin.d0"]');
-                        document.getElementById('divPinSecurity').querySelector('.pin-digit[data-bind="security.pin.d3"]').addEventListener('digitentered', (evt) => {
-                            general.login();
-                        });
-                        break;
-                    case 2:
-                        document.getElementById('divPasswordSecurity').style.display = '';
-                        fld = document.getElementById('fldUsername');
-                        break;
-                }
-                if (fld) fld.focus();
-            }
+            else general.setSecurityConfig(security);
         });
     }
     async setAppVersion() {
@@ -1607,20 +1447,21 @@ class General {
             valid = false;
         }
         if (valid) {
-            putJSONSync('/setgeneral', obj, (err, response) => {
+            sendOp('saveSettings', { section: 'general', hostname: obj.hostname, ssdpBroadcast: obj.ssdpBroadcast, ntpServer: obj.ntpServer,
+                posixZone: obj.posixZone }, (err, response) => {
                 if (err) ui.serviceError(err);
                 console.log(response);
-            });
+            }, true);
         }
     }
+    // security: the security section's settings.
     setSecurityConfig(security) {
         // The device never returns the stored password or PIN, only whether one is set.
-        this.savedSecurity = { type: security.type, username: security.username, hasPassword: makeBool(security.hasPassword), hasPin: makeBool(security.hasPin) };
+        this.savedSecurity = { type: security.securityType, username: security.username, hasPassword: makeBool(security.hasPassword), hasPin: makeBool(security.hasPin) };
         // We need to transform the security object so that it can be set to the configuration.
         let obj = {
             security: {
-                type: security.type, username: security.username, password: '', repeatpassword: '',
-                permissions: { configOnly: makeBool(security.permissions & 0x01) },
+                type: security.securityType, username: security.username, password: '', repeatpassword: '',
                 pin: { d0: '', d1: '', d2: '', d3: '' }
             }
         };
@@ -1634,10 +1475,9 @@ class General {
     }
     rebootDevice() {
         ui.promptMessage(document.getElementById('divContainer'), 'Are you sure you want to reboot the device?', () => {
-            if(typeof socket !== 'undefined') socket.close(3000, 'reboot');
-            putJSONSync('/reboot', {}, (err, response) => {
+            sendOp('reboot', {}, (err, response) => {
                 document.getElementById('btnSaveGeneral').classList.remove('disabled');
-                console.log(response);
+                if (err) ui.serviceError(err);
             });
             ui.clearErrors();
         });
@@ -1647,17 +1487,14 @@ class General {
         let sec = ui.fromElement(pnl).security;
         switch (sec.type) {
             case 0:
-                pnl.querySelector('#divPermissions').style.display = 'none';
                 pnl.querySelector('#divPinSecurity').style.display = 'none';
                 pnl.querySelector('#divPasswordSecurity').style.display = 'none';
                 break;
             case 1:
-                pnl.querySelector('#divPermissions').style.display = '';
                 pnl.querySelector('#divPinSecurity').style.display = '';
                 pnl.querySelector('#divPasswordSecurity').style.display = 'none';
                 break;
             case 2:
-                pnl.querySelector('#divPermissions').style.display = '';
                 pnl.querySelector('#divPinSecurity').style.display = 'none';
                 pnl.querySelector('#divPasswordSecurity').style.display = '';
                 break;
@@ -1667,12 +1504,11 @@ class General {
     saveSecurity() {
         let security = ui.fromElement(document.getElementById('divSecurityOptions')).security;
         console.log(security);
-        let sec = { type: security.type, username: security.username, password: security.password, pin: '', perm: 0 };
+        let sec = { type: security.type, username: security.username, password: security.password, pin: '' };
         // Pin entry.
         for (let i = 0; i < 4; i++) {
             sec.pin += security.pin[`d${i}`];
         }
-        sec.permissions |= security.permissions.configOnly ? 0x01 : 0x00;
         // Blank secret fields keep the stored value while the type (and username) stay the same.
         let saved = this.savedSecurity || {};
         let keepPin = security.type === 1 && sec.pin === '' && saved.hasPin && saved.type === 1;
@@ -1722,13 +1558,20 @@ class General {
             confirm = '<p>Please keep your password safe and above all remember it.  The only way to recover a password is to completely reload the onboarding firmware which will wipe out your configuration.</p><p>Have you stored your username and password in a safe place?</p>';
         }
         let prompt = ui.promptMessage('Confirm Security', () => {
-            putJSONSync('/saveSecurity', sec, (err, objApiKey) => {
+            let fields = { section: 'security', securityType: sec.type, username: sec.username, password: sec.password, pin: sec.pin };
+            sendOp('saveSettings', fields, (err, reply) => {
                 prompt.remove();
-                if (err) ui.serviceError(err);
-                else {
-                    console.log(objApiKey);
+                if (err) {
+                    ui.serviceError(err);
+                    return;
                 }
-            });
+                // The device closes every socket once a save leaves it Secured;
+                // this one comes back with the token in the reply.
+                security.type = sec.type;
+                security.authenticated = sec.type !== 0;
+                security.setToken(reply.apiKey);
+                startSocket();
+            }, true);
         });
         prompt.querySelector('.sub-message').innerHTML = confirm;
 
@@ -1801,16 +1644,38 @@ class Wifi {
         }
     }
     onDHCPClicked(cb) { document.getElementById('divStaticIP').style.display = cb.checked ? 'none' : ''; }
+    static NETWORK_FIELDS = ['connMode', 'hasEthernet', 'ssid', 'hasPassphrase', 'roaming', 'hidden', 'boardType', 'phyType', 'CLKMode',
+        'phyAddress', 'PWRPin', 'MDCPin', 'MDIOPin', 'dhcp', 'ip', 'gateway', 'subnet', 'dns1', 'dns2'];
+    static ETHERNET_FIELDS = ['boardType', 'phyType', 'CLKMode', 'phyAddress', 'PWRPin', 'MDCPin', 'MDIOPin'];
+    // The network section as the panel binds it: WiFi, Ethernet and the
+    // address each in an object of its own.
+    networkView(n) {
+        n = proto.schema.fill(Object.assign({}, n), Wifi.NETWORK_FIELDS);
+        let view = { connType: n.connMode, hasEthernet: n.hasEthernet, wifi: {}, ethernet: {}, ip: {} };
+        for (let name of ['ssid', 'hasPassphrase', 'roaming', 'hidden']) view.wifi[name] = n[name];
+        for (let name of Wifi.ETHERNET_FIELDS) view.ethernet[name] = n[name];
+        for (let name of ['dhcp', 'ip', 'gateway', 'subnet', 'dns1', 'dns2']) view.ip[name] = n[name];
+        return view;
+    }
+    // Saves part of the network section; the device may restart for it.
+    saveNetworkSection(fields, done) {
+        sendOp('saveSettings', Object.assign({ section: 'network' }, fields), (err, reply) => {
+            if (err) ui.serviceError(err);
+            else if (reply.rebooting) ui.infoMessage('The device is restarting with the new network settings.');
+            if (typeof done === 'function') done(err, reply);
+        }, true);
+    }
     loadNetwork() {
         let pnl = document.getElementById('divNetAdapter');
-        getJSONSync('/networksettings', (err, settings) => {
-            console.log(settings);
+        sendOp('getSettings', { section: 'network' }, (err, reply) => {
             if (err) {
                 ui.serviceError(err);
             }
             else {
-                // Firmware older than hasEthernet always built Ethernet in.
-                let hasEthernet = settings.hasEthernet !== false;
+                let settings = this.networkView(reply);
+                console.log(settings);
+                let hasEthernet = settings.hasEthernet;
+                this.hasEthernet = hasEthernet;
                 document.getElementById('divHardwired').style.display = hasEthernet ? '' : 'none';
                 document.getElementById('cbHardwired').checked = hasEthernet && settings.connType >= 2;
                 document.getElementById('cbFallbackWireless').checked = hasEthernet && settings.connType === 3;
@@ -1861,17 +1726,14 @@ class Wifi {
         if (document.getElementById('btnScanAPs').classList.contains('disabled')) return;
         document.getElementById('divAps').innerHTML = '<div style="display:flex;justify-content:center;align-items:center;"><div class="lds-roller"><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div></div></div>';
         document.getElementById('btnScanAPs').classList.add('disabled');
-        //document.getElementById('btnConnectWiFi').classList.add('disabled');
-        getJSON('/scanaps', (err, aps) => {
+        let done = (networks) => {
             document.getElementById('btnScanAPs').classList.remove('disabled');
-            //document.getElementById('btnConnectWiFi').classList.remove('disabled');
-            console.log(aps);
-            if (err) {
-                this.displayAPs({ connected: { name: '' }, accessPoints: [] });
-            }
-            else {
-                this.displayAPs(aps);
-            }
+            this.displayAPs({ accessPoints: networks.map((n) => ({ name: n.ssid, channel: n.channel || 0, strength: n.strength || 0, macAddress: n.macAddress || '' })) });
+        };
+        // The scan takes a few seconds; its networks come as an event.
+        sendOp('scanWifi', {}, (err) => {
+            if (err) done([]);
+            else proto.waitFor('wifiNetworks', null, 20000).then((d) => done(d && d.networks ? d.networks : []));
         });
     }
     displayAPs(aps) {
@@ -1962,12 +1824,9 @@ class Wifi {
                 return;
             }
         }
-        putJSONSync('/setIP', obj, (err, response) => {
-            if (err) {
-                ui.serviceError(err);
-            }
-            console.log(response);
-        });
+        // With DHCP the static address stays as it was.
+        if (obj.dhcp) this.saveNetworkSection({ dhcp: true });
+        else this.saveNetworkSection({ dhcp: false, ip: obj.ip, subnet: obj.subnet, gateway: obj.gateway, dns1: obj.dns1, dns2: obj.dns2 });
     }
     saveNetwork() {
         let pnl = document.getElementById('divNetAdapter');
@@ -2012,12 +1871,10 @@ class Wifi {
     // A blank passphrase for the saved SSID keeps the stored one; for a new SSID it means an open network.
     keepSavedPassphrase(ssid, passphrase) { return passphrase === '' && ssid === this.savedSsid; }
     sendNetworkSettings(obj) {
-        putJSONSync('/setNetwork', obj, (err, response) => {
-            if (err) {
-                ui.serviceError(err);
-            }
-            console.log(response);
-        });
+        let fields = { connMode: obj.connType, ssid: obj.wifi.ssid, passphrase: obj.wifi.passphrase, roaming: obj.wifi.roaming, hidden: obj.wifi.hidden };
+        // A device without Ethernet refuses its settings.
+        if (this.hasEthernet) for (let name of Wifi.ETHERNET_FIELDS) fields[name] = obj.ethernet[name];
+        this.saveNetworkSection(fields);
     }
     connectWiFi() {
         if (document.getElementById('btnConnectWiFi').classList.contains('disabled')) return;
@@ -2035,14 +1892,8 @@ class Wifi {
             return;
         }
         if (this.keepSavedPassphrase(obj.ssid, obj.passphrase)) delete obj.passphrase;
-
-
-        let overlay = ui.waitMessage(document.getElementById('divNetAdapter'));
-        putJSON('/connectwifi', obj, (err, response) => {
-            overlay.remove();
+        this.saveNetworkSection({ ssid: obj.ssid, passphrase: obj.passphrase }, () => {
             document.getElementById('btnConnectWiFi').classList.remove('disabled');
-            console.log(response);
-
         });
     }
     procWifiStrength(strength) {
@@ -2108,31 +1959,31 @@ class Somfy {
         this.loadPins('out', document.getElementById('selShadeGPIODown'));
         this.loadPins('out', document.getElementById('selShadeGPIOMy'));
     }
-    async loadSomfy() {
-        getJSONSync('/controller', (err, somfy) => {
+    // The shade model from the sync, and the radio's settings.
+    loadSomfy() {
+        let header = proto.model.header;
+        document.getElementById('spanMaxRooms').innerText = header.maxRooms;
+        document.getElementById('spanMaxShades').innerText = header.maxShades;
+        document.getElementById('spanMaxGroups').innerText = header.maxGroups;
+        renderAll();
+        firmware.procFwStatus({ fwVersion: { name: header.fw } });
+        this.loadRadio();
+    }
+    static RADIO_FIELDS = ['bitLength', 'proto', 'enabled', 'TXPin', 'RXPin', 'SCKPin', 'MOSIPin', 'MISOPin', 'CSNPin', 'frequency',
+        'rxBandwidth', 'deviation', 'txPower', 'noiseDetection', 'radioInit'];
+    // The radio section as the panel binds it, where the bit length is the
+    // radio's type.
+    loadRadio() {
+        sendOp('getSettings', { section: 'radio' }, (err, radio) => {
             if (err) {
-                console.log(err);
                 ui.serviceError(err);
+                return;
             }
-            else {
-                console.log(somfy);
-                document.getElementById('spanMaxRooms').innerText = somfy.maxRooms || 0;
-                document.getElementById('spanMaxShades').innerText = somfy.maxShades;
-                document.getElementById('spanMaxGroups').innerText = somfy.maxGroups;
-                ui.toElement(document.getElementById('divTransceiverSettings'), somfy);
-                if (somfy.transceiver.config.radioInit) {
-                    document.getElementById('divRadioError').style.display = 'none';
-                }
-                else {
-                    document.getElementById('divRadioError').style.display = '';
-                }
-                // Create the shades list.
-                this.setRoomsList(somfy.rooms);
-                this.setShadesList(somfy.shades);
-                this.setGroupsList(somfy.groups);
-                this.setRepeaterList(somfy.repeaters);
-                if (typeof somfy.version !== 'undefined') firmware.procFwStatus(somfy.version);
-            }
+            let config = proto.schema.fill(Object.assign({}, radio), Somfy.RADIO_FIELDS);
+            config.type = config.bitLength;
+            delete config.bitLength;
+            ui.toElement(document.getElementById('divTransceiverSettings'), { transceiver: { config: config } });
+            document.getElementById('divRadioError').style.display = config.radioInit ? 'none' : '';
         });
     }
     saveRadio() {
@@ -2180,20 +2031,18 @@ class Somfy {
             if (valid) valid = fnValDup(trans.config, 'TXPin');
             if (valid) valid = fnValDup(trans.config, 'RXPin');
             if (valid) {
-                putJSONSync('/saveRadio', trans, (err, trans) => {
-                    if (err)
-                        ui.serviceError(err);
+                let fields = { section: 'radio', bitLength: trans.config.type };
+                for (let name of Somfy.RADIO_FIELDS) {
+                    if (name !== 'bitLength' && name !== 'radioInit') fields[name] = trans.config[name];
+                }
+                sendOp('saveSettings', fields, (err) => {
+                    if (err) ui.serviceError(err);
                     else {
                         document.getElementById('btnSaveRadio').classList.remove('disabled');
-                        if (trans.config.radioInit) {
-                            document.getElementById('divRadioError').style.display = 'none';
-                        }
-                        else {
-                            document.getElementById('divRadioError').style.display = '';
-                        }
+                        // Whether the radio came up with them.
+                        this.loadRadio();
                     }
-                    console.log(trans);
-                });
+                }, true);
             }
         }
     }
@@ -2242,8 +2091,9 @@ class Somfy {
         }
         if (initScan) {
             div.setAttribute('data-initscan', true);
-            putJSONSync('/beginFrequencyScan', {}, (err, trans) => {
-                if (!err) {
+            sendOp('beginFrequencyScan', {}, (err) => {
+                if (err) ui.serviceError(err);
+                else {
                     document.getElementById('btnStopScanning').style.display = '';
                     document.getElementById('btnRestartScanning').style.display = 'none';
                     document.getElementById('btnCopyFrequency').style.display = 'none';
@@ -2267,7 +2117,7 @@ class Somfy {
             div.remove();
         }
         else {
-            putJSONSync('/endFrequencyScan', {}, (err, trans) => {
+            sendOp('endFrequencyScan', {}, (err) => {
                 if (err) ui.serviceError(err);
                 else {
                     let freq = parseFloat(div.getAttribute('data-frequency'));
@@ -2281,39 +2131,6 @@ class Somfy {
     }
     btnDown = null;
     btnTimer = null;
-    procRoomAdded(room) {
-        let r = _rooms.find(x => x.roomId === room.roomId);
-        if (typeof r === 'undefined' || !r) {
-            _rooms.push(room);
-            _rooms.sort((a, b) => { return a.sortOrder - b.sortOrder });
-            this.setRoomsList(_rooms);
-        }
-    }
-    procRoomRemoved(room) {
-        if (room.roomId === 0) return;
-        let r = _rooms.find(x => x.roomId === room.roomId);
-        if (typeof r !== 'undefined' && r.roomId === room.roomId) {
-            _rooms = _rooms.filter(x => x.roomId !== room.roomId);
-            _rooms.sort((a, b) => { return a.sortOrder - b.sortOrder });
-            this.setRoomsList(_rooms);
-            let rs = document.getElementById('divRoomSelector');
-            let ss = document.getElementById('divShadeControls');
-            let gs = document.getElementById('divGroupControls');
-            let ctls = ss.querySelectorAll('.somfyShadeCtl');
-            for (let i = 0; i < ctls.length; i++) {
-                let x = ctls[i];
-                if (parseInt(x.getAttribute('data-roomid'), 10) === room.roomId)
-                    x.setAttribute('data-roomid', '0');
-            }
-            ctls = gs.querySelectorAll('.somfyGroupCtl');
-            for (let i = 0; i < ctls.length; i++) {
-                let x = ctls[i];
-                if (parseInt(x.getAttribute('data-roomid'), 10) === room.roomId)
-                    x.setAttribute('data-roomid', '0');
-            }
-            if (parseInt(rs.getAttribute('data-roomid'), 10) === room.roomId) this.selectRoom(0);
-        }
-    }
     selectRoom(roomId) {
         let room = _rooms.find(x => x.roomId === roomId) || { roomId: 0, name: '' };
         let rs = document.getElementById('divRoomSelector');
@@ -2371,9 +2188,8 @@ class Somfy {
                 order.push(parseInt(items[i].getAttribute('data-roomid'), 10));
                 // Reorder the shades on the main page.
             }
-            editJSON('/roomSortOrder', order, null, (err) => {
+            sendEdit('roomSortOrder', { ids: order }, null, (err) => {
                 if (err) ui.serviceError(err);
-                else this.updateRoomsList();
             });
         });
     }
@@ -2567,13 +2383,8 @@ class Somfy {
                 order.push(parseInt(items[i].getAttribute('data-shadeid'), 10));
                 // Reorder the shades on the main page.
             }
-            editJSON('/shadeSortOrder', order, null, (err) => {
-                for (let i = order.length - 1; i >= 0; i--) {
-                    let el = shadeControls.querySelector(`.somfyShadeCtl[data-shadeid="${order[i]}"`);
-                    if (el) {
-                        shadeControls.prepend(el);
-                    }
-                }
+            sendEdit('shadeSortOrder', { ids: order }, null, (err) => {
+                if (err) ui.serviceError(err);
             });
         });
     }
@@ -2812,13 +2623,8 @@ class Somfy {
                 order.push(parseInt(items[i].getAttribute('data-groupid'), 10));
                 // Reorder the shades on the main page.
             }
-            editJSON('/groupSortOrder', order, null, (err) => {
-                for (let i = order.length - 1; i >= 0; i--) {
-                    let el = groupControls.querySelector(`.somfyGroupCtl[data-groupid="${order[i]}"`);
-                    if (el) {
-                        groupControls.prepend(el);
-                    }
-                }
+            sendEdit('groupSortOrder', { ids: order }, null, (err) => {
+                if (err) ui.serviceError(err);
             });
         });
 
@@ -2911,12 +2717,10 @@ class Somfy {
     }
     sendShadeMyPosition(shadeId, pos, tilt) {
         console.log(`Sending My Position for shade id ${shadeId} to ${pos} and ${tilt}`);
-        let overlay = ui.waitMessage(document.getElementById('divContainer'));
-        putJSON('/setMyPosition', { shadeId: shadeId, pos: pos, tilt: tilt }, (err, response) => {
+        sendOp('setMyPosition', { shadeId: shadeId, myPos: pos, myTiltPos: tilt }, (err) => {
             this.closeShadePositioners();
-            overlay.remove();
-            console.log(response);
-        });
+            if (err) ui.serviceError(err);
+        }, true);
     }
     setLinkedRemotesList(shade) {
         let divCfg = '';
@@ -3019,22 +2823,21 @@ class Somfy {
             let obj = {
                 shadeId: parseInt(lnk.dataset.shadeid, 10),
                 remoteAddress: frame.address,
-                rollingCode: frame.rcode
+                lastRollingCode: frame.rcode
             };
-            editJSON('/linkRemote', obj, (id) => `/shade?shadeId=${id}`, (err, shade) => {
-                console.log(shade);
-                lnk.remove();
+            // The frames keep coming while the edit runs: link it once.
+            lnk.remove();
+            sendEdit('linkRemote', obj, editedItem('shade', () => obj.shadeId), (err, shade) => {
                 if (err) ui.serviceError(err);
-                else this.setLinkedRemotesList(shade);
+                else if (shade) this.setLinkedRemotesList(shade);
             });
         }
         else {
             lnk = document.getElementById('divLinkRepeater');
             if (lnk) {
-                editJSON(`/linkRepeater`, {address:frame.address}, () => '/repeaters', (err, repeaters) => {
-                    lnk.remove();
+                lnk.remove();
+                sendEdit('linkRepeater', { remoteAddress: frame.address }, null, (err) => {
                     if (err) ui.serviceError(err);
-                    else this.setRepeaterList(repeaters);
                 });
             }
         }
@@ -3151,11 +2954,12 @@ class Somfy {
         
         if (typeof roomId === 'undefined') {
             document.getElementById('btnSaveRoom').innerText = 'Add Room';
-            getJSONSync('/getNextRoom', (err, room) => {
+            sendOp('getNextRoom', {}, (err, room) => {
                 document.getElementById('spanRoomId').innerText = '*';
                 if (err) ui.serviceError(err);
                 else {
-                    console.log(room);
+                    // What the reply leaves out is a new room's default.
+                    room = proto.schema.fill(room, ProtoModel.FIELDS.room);
                     let elRoom = document.getElementById('somfyRoom');
                     room.name = '';
                     ui.toElement(elRoom, room);
@@ -3165,22 +2969,20 @@ class Somfy {
         }
         else {
             document.getElementById('btnSaveRoom').innerText = 'Save Room';
-            getJSONSync(`/room?roomId=${roomId}`, (err, room) => {
-                if (err) ui.serviceError(err);
-                else {
-                    console.log(room);
-                    document.getElementById('spanRoomId').innerText = roomId;
-                    ui.toElement(document.getElementById('somfyRoom'), room);
-                    this.showEditRoom(true);
-                    document.getElementById('btnSaveRoom').style.display = 'inline-block';
-                }
-            });
+            let room = proto.model.rooms.get(roomId);
+            if (!room) ui.errorMessage('The room is no longer there.');
+            else {
+                document.getElementById('spanRoomId').innerText = roomId;
+                ui.toElement(document.getElementById('somfyRoom'), room);
+                this.showEditRoom(true);
+                document.getElementById('btnSaveRoom').style.display = 'inline-block';
+            }
 
         }
     }
     openEditShade(shadeId) {
         if (typeof shadeId === 'undefined') {
-            getJSONSync('/getNextShade', (err, shade) => {
+            sendOp('getNextShade', {}, (err, shade) => {
                 document.getElementById('btnPairShade').style.display = 'none';
                 document.getElementById('btnUnpairShade').style.display = 'none';
                 document.getElementById('btnLinkRemote').style.display = 'none';
@@ -3195,7 +2997,8 @@ class Somfy {
                     ui.serviceError(err);
                 }
                 else {
-                    console.log(shade);
+                    // What the reply leaves out is a new shade's default.
+                    shade = proto.schema.fill(shade, ProtoModel.FIELDS.shade);
                     let elShade = document.getElementById('somfyShade');
                     shade.name = '';
                     shade.downTime = shade.upTime = 10000;
@@ -3217,7 +3020,7 @@ class Somfy {
 
             document.getElementById('btnSaveShade').innerText = 'Save Shade';
             document.getElementById('spanShadeId').innerText = shadeId;
-            getJSONSync(`/shade?shadeId=${shadeId}`, (err, shade) => {
+            let fnShow = (err, shade) => {
                 if (err) {
                     ui.serviceError(err);
                 }
@@ -3252,13 +3055,15 @@ class Somfy {
                     }
                     this.setLinkedRemotesList(shade);
                 }
-            });
+            };
+            let shade = proto.model.shades.get(shadeId);
+            fnShow(shade ? null : { service: 'shade', desc: 'The shade is no longer there.' }, shade);
         }
     }
     openEditGroup(groupId) {
         document.getElementById('btnLinkShade').style.display = 'none';
         if (typeof groupId === 'undefined') {
-            getJSONSync('/getNextGroup', (err, group) => {
+            sendOp('getNextGroup', {}, (err, group) => {
                 document.getElementById('btnSaveGroup').innerText = 'Add Group';
                 document.getElementById('spanGroupId').innerText = '*';
                 document.getElementById('divLinkedShadeList').innerHTML = '';
@@ -3267,7 +3072,7 @@ class Somfy {
                     ui.serviceError(err);
                 }
                 else {
-                    console.log(group);
+                    group = proto.schema.fill(group, ProtoModel.FIELDS.group);
                     group.name = '';
                     group.flipCommands = false;
                     ui.toElement(document.getElementById('somfyGroup'), group);
@@ -3280,20 +3085,16 @@ class Somfy {
             document.getElementById('btnSaveGroup').style.display = 'none';
             document.getElementById('btnSaveGroup').innerText = 'Save Group';
             document.getElementById('spanGroupId').innerText = groupId;
-            getJSONSync(`/group?groupId=${groupId}`, (err, group) => {
-                if (err) {
-                    ui.serviceError(err);
-                }
-                else {
-                    console.log(group);
-                    ui.toElement(document.getElementById('somfyGroup'), group);
-                    this.showEditGroup(true);
-                    document.getElementById('btnSaveGroup').style.display = 'inline-block';
-                    document.getElementById('btnLinkShade').style.display = '';
-                    document.getElementById('btnSetRollingCode').style.display = 'inline-block';
-                    this.setLinkedShadesList(group);
-                }
-            });
+            let group = groupView(proto.model.groups.get(groupId));
+            if (!group) ui.errorMessage('The group is no longer there.');
+            else {
+                ui.toElement(document.getElementById('somfyGroup'), group);
+                this.showEditGroup(true);
+                document.getElementById('btnSaveGroup').style.display = 'inline-block';
+                document.getElementById('btnLinkShade').style.display = '';
+                document.getElementById('btnSetRollingCode').style.display = 'inline-block';
+                this.setLinkedShadesList(group);
+            }
         }
     }
     showEditRoom(bShow) {
@@ -3362,7 +3163,7 @@ class Somfy {
         if (valid) {
             if (isNaN(roomId) || roomId === 0) {
                 // We are adding.
-                editJSON('/addRoom', obj, (id) => `/room?roomId=${id}`, (err, room) => {
+                sendEdit('addRoom', obj, editedItem('room', (r) => r.roomId), (err, room) => {
                     if (err) {
                         ui.serviceError(err);
                         console.log(err);
@@ -3372,16 +3173,13 @@ class Somfy {
                         document.getElementById('spanRoomId').innerText = room.roomId;
                         document.getElementById('btnSaveRoom').innerText = 'Save Room';
                         document.getElementById('btnSaveRoom').style.display = 'inline-block';
-                        this.updateRoomsList();
                     }
                 });
             }
             else {
                 obj.roomId = roomId;
-                editJSON('/saveRoom', obj, (id) => `/room?roomId=${id}`, (err, room) => {
+                sendEdit('saveRoom', obj, null, (err) => {
                     if (err) ui.serviceError(err);
-                    else this.updateRoomsList();
-                    console.log(room);
                 });
             }
         }
@@ -3435,7 +3233,7 @@ class Somfy {
         if (valid) {
             if (isNaN(shadeId) || shadeId >= 255) {
                 // We are adding.
-                editJSON('/addShade', obj, (id) => `/shade?shadeId=${id}`, (err, shade) => {
+                sendEdit('addShade', obj, editedItem('shade', (r) => r.shadeId), (err, shade) => {
                     if (err) {
                         ui.serviceError(err);
                         console.log(err);
@@ -3448,19 +3246,17 @@ class Somfy {
                         document.getElementById('btnLinkRemote').style.display = '';
                         document.getElementById(shade.paired ? 'btnUnpairShade' : 'btnPairShade').style.display = 'inline-block';
                         document.getElementById('btnSetRollingCode').style.display = 'inline-block';
-                        this.updateShadeList();
                     }
                 });
             }
             else {
                 obj.shadeId = shadeId;
-                editJSON('/saveShade', obj, (id) => `/shade?shadeId=${id}`, (err, shade) => {
+                sendEdit('saveShade', obj, editedItem('shade', () => shadeId), (err, shade) => {
                     if (err) {
                         ui.serviceError(err);
                         return;
                     }
-                    this.updateShadeList();
-                    console.log(shade);
+                    if (!shade) return;
                     let ico = document.getElementById('icoShade');
                     let tilt = ico.parentElement.querySelector('i.icss-window-tilt');
                     tilt.style.display = shade.tiltType !== 0 ? '' : 'none';
@@ -3490,7 +3286,7 @@ class Somfy {
         if (valid) {
             if (isNaN(groupId) || groupId >= 255) {
                 // We are adding.
-                editJSON('/addGroup', obj, (id) => `/group?groupId=${id}`, (err, group) => {
+                sendEdit('addGroup', obj, editedItem('group', (r) => r.groupId), (err, group) => {
                     if (err) ui.serviceError(err);
                     else {
                         console.log(group);
@@ -3498,68 +3294,22 @@ class Somfy {
                         document.getElementById('btnSaveGroup').innerText = 'Save Group';
                         document.getElementById('btnSaveGroup').style.display = 'inline-block';
                         document.getElementById('btnLinkShade').style.display = '';
-                        //document.getElementById('btnSetRollingCode').style.display = 'inline-block';
-                        this.updateGroupList();
                     }
                 });
             }
             else {
                 obj.groupId = groupId;
-                editJSON('/saveGroup', obj, (id) => `/group?groupId=${id}`, (err, shade) => {
+                sendEdit('saveGroup', obj, null, (err) => {
                     if (err) ui.serviceError(err);
-                    else this.updateGroupList();
-                    console.log(shade);
                 });
             }
         }
     }
-    updateRoomsList() {
-        getJSONSync('/rooms', (err, shades) => {
-            if (err) {
-                console.log(err);
-                ui.serviceError(err);
-            }
-            else {
-                this.setRoomsList(shades);
-                
-            }
-        });
-    }
-    updateShadeList() {
-        getJSONSync('/shades', (err, shades) => {
-            if (err) {
-                console.log(err);
-                ui.serviceError(err);
-            }
-            else {
-                //console.log(shades);
-                // Create the shades list.
-                this.setShadesList(shades);
-            }
-        });
-    }
-    updateGroupList() {
-        getJSONSync('/groups', (err, groups) => {
-            if (err) {
-                console.log(err);
-                ui.serviceError(err);
-            }
-            else {
-                console.log(groups);
-                // Create the groups list.
-                this.setGroupsList(groups);
-            }
-        });
-    }
-    updateRepeatList() {
-        getJSONSync('/repeaters', (err, repeaters) => {
-            if (err) {
-                console.log(err);
-                ui.serviceError(err);
-            }
-            else this.setRepeaterList(repeaters);
-        });
-    }
+    // The lists as the model has them; the device's events redraw them too.
+    updateRoomsList() { render('rooms'); }
+    updateShadeList() { render('shades'); }
+    updateGroupList() { render('groups'); }
+    updateRepeatList() { render('repeaters'); }
     deleteRoom(roomId) {
         let valid = true;
         if (isNaN(roomId) || roomId >= 255 || roomId <= 0) {
@@ -3567,21 +3317,18 @@ class Somfy {
             valid = false;
         }
         if (valid) {
-            getJSONSync(`/room?roomId=${roomId}`, (err, room) => {
-                if (err) ui.serviceError(err);
-                else {
-                    let prompt = ui.promptMessage(`Are you sure you want to delete this room?`, () => {
-                        ui.clearErrors();
-                        editJSON('/deleteRoom', { roomId: roomId }, null, (err, room) => {
-                            prompt.remove();
-                            if (err) ui.serviceError(err);
-                            else
-                                this.updateRoomsList();
-                        });
+            let room = proto.model.rooms.get(roomId);
+            if (!room) ui.errorMessage('The room is no longer there.');
+            else {
+                let prompt = ui.promptMessage(`Are you sure you want to delete this room?`, () => {
+                    ui.clearErrors();
+                    sendEdit('deleteRoom', { roomId: roomId }, null, (err) => {
+                        prompt.remove();
+                        if (err) ui.serviceError(err);
                     });
-                    prompt.querySelector('.sub-message').innerHTML = `<p>If this room was previously selected for motors or groups, they will be automatically assigned to the Home room.</p>`;
-                }
-            });
+                });
+                prompt.querySelector('.sub-message').innerHTML = `<p>If this room was previously selected for motors or groups, they will be automatically assigned to the Home room.</p>`;
+            }
         }
     }
     deleteShade(shadeId) {
@@ -3591,21 +3338,19 @@ class Somfy {
             valid = false;
         }
         if (valid) {
-            getJSONSync(`/shade?shadeId=${shadeId}`, (err, shade) => {
-                if (err) ui.serviceError(err);
-                else if (shade.inGroup) ui.errorMessage(`You may not delete this shade because it is a member of a group.`);
-                else {
-                    let prompt = ui.promptMessage(`Are you sure you want to delete this shade?`, () => {
-                        ui.clearErrors();
-                        editJSON('/deleteShade', { shadeId: shadeId }, null, (err, shade) => {
-                            prompt.remove();
-                            if (err) ui.serviceError(err);
-                            this.updateShadeList();
-                        });
+            let shade = proto.model.shades.get(shadeId);
+            if (!shade) ui.errorMessage('The shade is no longer there.');
+            else if (shade.inGroup) ui.errorMessage(`You may not delete this shade because it is a member of a group.`);
+            else {
+                let prompt = ui.promptMessage(`Are you sure you want to delete this shade?`, () => {
+                    ui.clearErrors();
+                    sendEdit('deleteShade', { shadeId: shadeId }, null, (err) => {
+                        prompt.remove();
+                        if (err) ui.serviceError(err);
                     });
-                    prompt.querySelector('.sub-message').innerHTML = `<p>If this shade was previously paired with a motor, you should first unpair it from the motor and remove it from any groups.  Otherwise its address will remain in the motor memory.</p><p>Press YES to delete ${shade.name} or NO to cancel this operation.</p>`;
-                }
-            });
+                });
+                prompt.querySelector('.sub-message').innerHTML = `<p>If this shade was previously paired with a motor, you should first unpair it from the motor and remove it from any groups.  Otherwise its address will remain in the motor memory.</p><p>Press YES to delete ${shade.name} or NO to cancel this operation.</p>`;
+            }
         }
     }
     deleteGroup(groupId) {
@@ -3615,110 +3360,36 @@ class Somfy {
             valid = false;
         }
         if (valid) {
-            getJSONSync(`/group?groupId=${groupId}`, (err, group) => {
-                if (err) ui.serviceError(err);
-                else {
-                    if (group.linkedShades.length > 0) {
-                        ui.errorMessage('You may not delete this group until all shades have been removed from it.');
-                    }
-                    else {
-                        let prompt = ui.promptMessage(`Are you sure you want to delete this group?`, () => {
-                            editJSON('/deleteGroup', { groupId: groupId }, null, (err, g) => {
-                                if (err) ui.serviceError(err);
-                                this.updateGroupList();
-                                prompt.remove();
-                            });
-
-                        });
-                        prompt.querySelector('.sub-message').innerHTML = `<p>Press YES to delete the ${group.name} group or NO to cancel this operation.</p>`;
-                        
-                    }
-                }
-            });
+            let group = proto.model.groups.get(groupId);
+            if (!group) ui.errorMessage('The group is no longer there.');
+            else if (group.linkedShades.length > 0) {
+                ui.errorMessage('You may not delete this group until all shades have been removed from it.');
+            }
+            else {
+                let prompt = ui.promptMessage(`Are you sure you want to delete this group?`, () => {
+                    sendEdit('deleteGroup', { groupId: groupId }, null, (err) => {
+                        if (err) ui.serviceError(err);
+                        prompt.remove();
+                    });
+                });
+                prompt.querySelector('.sub-message').innerHTML = `<p>Press YES to delete the ${group.name} group or NO to cancel this operation.</p>`;
+            }
         }
     }
-    sendPairCommand(shadeId) {
-        putJSON('/pairShade', { shadeId: shadeId }, (err, shade) => {
-            if (err) {
-                console.log(err);
-            }
-            else {
-                console.log(shade);
-                document.getElementById('somfyMain').style.display = 'none';
-                document.getElementById('somfyShade').style.display = '';
-                document.getElementById('btnSaveShade').style.display = 'inline-block';
-                document.getElementById('btnLinkRemote').style.display = '';
-                document.getElementsByName('shadeAddress')[0].value = shade.remoteAddress;
-                document.getElementsByName('shadeName')[0].value = shade.name;
-                document.getElementsByName('shadeUpTime')[0].value = shade.upTime;
-                document.getElementsByName('shadeDownTime')[0].value = shade.downTime;
-                let ico = document.getElementById('icoShade');
-                ico.style.setProperty('--shade-position', `${shade.flipPosition ? 100 - shade.position : shade.position}%`);
-                ico.style.setProperty('--fpos', `${shade.position}%`);
-                //ico.style.setProperty('--shade-position', `${shade.position}%`);
-                ico.setAttribute('data-shadeid', shade.shadeId);
-                if (shade.paired) {
-                    document.getElementById('btnUnpairShade').style.display = 'inline-block';
-                    document.getElementById('btnPairShade').style.display = 'none';
-                }
-                else {
-                    document.getElementById('btnPairShade').style.display = 'inline-block';
-                    document.getElementById('btnUnpairShade').style.display = 'none';
-                }
-                this.setLinkedRemotesList(shade);
-                document.getElementById('divPairing').remove();
-            }
-
-        });
-    }
-    sendUnpairCommand(shadeId) {
-        putJSON('/unpairShade', { shadeId: shadeId }, (err, shade) => {
-            if (err) {
-                console.log(err);
-            }
-            else {
-                console.log(shade);
-                document.getElementById('somfyMain').style.display = 'none';
-                document.getElementById('somfyShade').style.display = '';
-                document.getElementById('btnSaveShade').style.display = 'inline-block';
-                document.getElementById('btnLinkRemote').style.display = '';
-                document.getElementsByName('shadeAddress')[0].value = shade.remoteAddress;
-                document.getElementsByName('shadeName')[0].value = shade.name;
-                document.getElementsByName('shadeUpTime')[0].value = shade.upTime;
-                document.getElementsByName('shadeDownTime')[0].value = shade.downTime;
-                let ico = document.getElementById('icoShade');
-                ico.style.setProperty('--shade-position', `${shade.flipPosition ? 100 - shade.position : shade.position}%`);
-                ico.style.setProperty('--fpos', `${shade.position}%`);
-                //ico.style.setProperty('--shade-position', `${shade.position}%`);
-                ico.setAttribute('data-shadeid', shade.shadeId);
-                if (shade.paired) {
-                    document.getElementById('btnUnpairShade').style.display = 'inline-block';
-                    document.getElementById('btnPairShade').style.display = 'none';
-                }
-                else {
-                    document.getElementById('btnPairShade').style.display = 'inline-block';
-                    document.getElementById('btnUnpairShade').style.display = 'none';
-                }
-                this.setLinkedRemotesList(shade);
-                document.getElementById('divPairing').remove();
-            }
-        });
-    }
     setRollingCode(shadeId, rollingCode) {
-        putJSONSync('/setRollingCode', { shadeId: shadeId, rollingCode: rollingCode }, (err, shade) => {
+        sendOp('setRollingCode', { shadeId: shadeId, lastRollingCode: rollingCode }, (err) => {
             if (err) ui.serviceError(document.getElementById('divSomfySettings'), err);
             else {
                 let dlg = document.getElementById('divRollingCode');
                 if (dlg) dlg.remove();
             }
-        });
+        }, true);
     }
     openSetRollingCode(shadeId) {
-        let overlay = ui.waitMessage(document.getElementById('divContainer'));
-        getJSON(`/shade?shadeId=${shadeId}`, (err, shade) => {
-            overlay.remove();
-            if (err) {
-                ui.serviceError(err);
+        let shade = proto.model.shades.get(shadeId);
+        {
+            if (!shade) {
+                ui.errorMessage('The shade is no longer there.');
             }
             else {
                 console.log(shade);
@@ -3740,19 +3411,17 @@ class Somfy {
                 div.innerHTML = html;
                 document.getElementById('somfyShade').appendChild(div);
             }
-        });
+        }
     }
     setPaired(shadeId, paired) {
         let obj = { shadeId: shadeId, paired: paired || false };
         let div = document.getElementById('divPairing');
-        let overlay = typeof div === 'undefined' ? undefined : ui.waitMessage(div);
-        editJSON('/setPaired', obj, (id) => `/shade?shadeId=${id}`, (err, shade) => {
-            if (overlay) overlay.remove();
+        sendEdit('setPaired', obj, editedItem('shade', () => shadeId), (err, shade) => {
             if (err) {
                 console.log(err);
-                ui.errorMessage(err.message);
+                ui.errorMessage(err.desc);
             }
-            else if (div) {
+            else if (div && shade) {
                 console.log(shade);
                 this.showEditShade(true);
                 document.getElementById('btnSaveShade').style.display = 'inline-block';
@@ -3887,55 +3556,26 @@ class Somfy {
 
         return div;
     }
+    // A command, or a position to move to.  shadeId may instead be an object
+    // with shadeId, command, repeat and stepSize, as the virtual remote sends.
+    // cb(err, reply): the reply carries no state; the shade's state events
+    // follow as it moves.
     sendCommand(shadeId, command, repeat, cb) {
-        let obj = {};
-        if (typeof shadeId.shadeId !== 'undefined') {
-            obj = shadeId;
-            cb = command;
-            shadeId = obj.shadeId;
-            repeat = obj.repeat;
-            command = obj.command;
-        }
-        else {
-            obj = { shadeId: shadeId };
-            if (isNaN(parseInt(command, 10))) obj.command = command;
-            else obj.target = parseInt(command, 10);
-            if (typeof repeat === 'number') obj.repeat = parseInt(repeat);
-        }
-        putJSON('/shadeCommand', obj, (err, shade) => {
-            if (typeof cb === 'function') cb(err, shade);
-        });
+        let o = typeof shadeId === 'object' ? shadeId : { shadeId: shadeId, command: command, repeat: repeat };
+        if (typeof shadeId === 'object') cb = command;
+        let fields = { shadeId: o.shadeId, repeat: typeof o.repeat === 'number' ? o.repeat : undefined, stepSize: o.stepSize };
+        if (isNaN(parseInt(o.command, 10))) fields.command = o.command;
+        else fields.target = parseInt(o.command, 10);
+        sendOp('shadeCommand', fields, cb);
     }
+    // The last frame again when it was this command, otherwise the command.
     sendCommandRepeat(shadeId, command, repeat, cb) {
-        //console.log(`Sending Shade command ${shadeId}-${command}`);
-        let obj = {};
-        if (typeof shadeId.shadeId !== 'undefined') {
-            obj = shadeId;
-            cb = command;
-            shadeId = obj.shadeId;
-            repeat = obj.repeat;
-            command = obj.command;
-        }
-        else {
-            obj = { shadeId: shadeId, command: command };
-            if (typeof repeat === 'number') obj.repeat = parseInt(repeat);
-        }
-        putJSON('/repeatCommand', obj, (err, shade) => {
-            if (typeof cb === 'function') cb(err, shade);
-        });
-
-        /*
-        putJSON(`/repeatCommand?shadeId=${shadeId}&command=${command}`, null, (err, shade) => {
-            if(typeof cb === 'function') cb(err, shade);
-        });
-        */
+        let o = typeof shadeId === 'object' ? shadeId : { shadeId: shadeId, command: command, repeat: repeat };
+        if (typeof shadeId === 'object') cb = command;
+        sendOp('repeatCommand', { shadeId: o.shadeId, command: o.command, repeat: typeof o.repeat === 'number' ? o.repeat : undefined, stepSize: o.stepSize }, cb);
     }
     sendGroupRepeat(groupId, command, repeat, cb) {
-        let obj = { groupId: groupId, command: command };
-        if (typeof repeat === 'number') obj.repeat = parseInt(repeat);
-        putJSON(`/repeatCommand?groupId=${groupId}&command=${command}`, null, (err, group) => {
-            if (typeof cb === 'function') cb(err, group);
-        });
+        sendOp('repeatCommand', { groupId: groupId, command: command, repeat: typeof repeat === 'number' ? repeat : undefined }, cb);
     }
     sendVRCommand(el) {
         let pnl = document.getElementById('divVirtualRemote');
@@ -3981,30 +3621,21 @@ class Somfy {
         else
             somfy.sendCommand(o, (err, shade) => { fnRepeatCommand(err, shade); });
     }
+    // obj: a shade's or a group's id, and sunny, windy or both.
     sendSetSensor(obj, cb) {
-        putJSON('/setSensor', obj, (err, device) => {
-            if (typeof cb === 'function') cb(err, device);
-        });
+        let fields = { sunny: obj.sunny, windy: obj.windy, repeat: typeof obj.repeat === 'number' ? obj.repeat : undefined };
+        if (typeof obj.groupId === 'number' && !isNaN(obj.groupId)) fields.groupId = obj.groupId;
+        else fields.shadeId = obj.shadeId;
+        sendOp('setSensor', fields, cb);
     }
     sendGroupCommand(groupId, command, repeat, cb) {
         console.log(`Sending Group command ${groupId}-${command}`);
-        let obj = { groupId: groupId };
-        if (isNaN(parseInt(command, 10))) obj.command = command;
-        if (typeof repeat === 'number') obj.repeat = parseInt(repeat);
-        putJSON('/groupCommand', obj, (err, group) => {
-            if (typeof cb === 'function') cb(err, group);
-        });
+        sendOp('groupCommand', { groupId: groupId, command: command, repeat: typeof repeat === 'number' ? repeat : undefined }, cb);
     }
     sendTiltCommand(shadeId, command, cb) {
         console.log(`Sending Tilt command ${shadeId}-${command}`);
-        if (isNaN(parseInt(command, 10)))
-            putJSON('/tiltCommand', { shadeId: shadeId, command: command }, (err, shade) => {
-                if (typeof cb === 'function') cb(err, shade);
-            });
-        else
-            putJSON('/tiltCommand', { shadeId: shadeId, target: parseInt(command, 10) }, (err, shade) => {
-                if (typeof cb === 'function') cb(err, shade);
-            });
+        if (isNaN(parseInt(command, 10))) sendOp('tiltCommand', { shadeId: shadeId, command: command }, cb);
+        else sendOp('tiltCommand', { shadeId: shadeId, target: parseInt(command, 10) }, cb);
     }
     linkRemote(shadeId) {
         let div = document.createElement('div');
@@ -4083,7 +3714,7 @@ class Somfy {
         btnOpenMemory.addEventListener('click', (evt) => {
             let obj = ui.fromElement(div);
             console.log(obj);
-            putJSONSync('/shadeCommand', { shadeId: obj.shadeId, command: 'prog', repeat: 40 }, (err, shade) => {
+            sendOp('shadeCommand', { shadeId: obj.shadeId, command: 'prog', repeat: 40 }, (err) => {
                 if (err) ui.serviceError(err);
                 else {
                     let prompt = ui.promptMessage('Confirm Motor Response', () => {
@@ -4119,11 +3750,9 @@ class Somfy {
             mouseDown = false;
             let obj = ui.fromElement(div);
             let prompt = ui.promptMessage('Confirm Motor Response', () => {
-                editJSON('/linkToGroup', { groupId: groupId, shadeId: obj.shadeId }, (id) => `/group?groupId=${id}`, (err, group) => {
-                    console.log(group);
+                sendEdit('linkToGroup', { groupId: groupId, shadeId: obj.shadeId }, editedItem('group', () => groupId), (err, group) => {
                     if (err) ui.serviceError(err);
-                    else somfy.setLinkedShadesList(group);
-                    this.updateGroupList();
+                    else if (group) somfy.setLinkedShadesList(group);
                 });
                 prompt.remove();
                 div.remove();
@@ -4131,13 +3760,15 @@ class Somfy {
             prompt.querySelector('.sub-message').innerHTML = `<hr></hr><p>Did the shade jog?  If the shade jogged press the YES button and your shade will be linked to the group.  If it did not press the NO button and try again.</p></p><p>Once the shade has jogged the shade will be added to the group and this process will be finished.</p>`;
 
         });
-        getJSONSync(`/groupOptions?groupId=${groupId}`, (err, options) => {
+        sendOp('groupOptions', { groupId: groupId }, (err, reply) => {
             if (err) {
                 div.remove();
                 ui.serviceError(err);
             }
             else {
-                console.log(options);
+                // The shades the group doesn't have yet, by name from the model.
+                let group = proto.model.groups.get(groupId) || { name: '' };
+                let options = { name: group.name, availShades: (reply.ids || []).map((id) => proto.model.shades.get(id)).filter((x) => x) };
                 if (options.availShades.length > 0) {
                     // Add in all the available shades.
                     let selAvail = div.querySelector('#selAvailShades');
@@ -4196,7 +3827,7 @@ class Somfy {
         btnOpenMemory.addEventListener('click', (evt) => {
             let obj = ui.fromElement(div);
             console.log(obj);
-            putJSONSync('/shadeCommand', { shadeId: shadeId, command: 'prog', repeat: 40 }, (err, shade) => {
+            sendOp('shadeCommand', { shadeId: shadeId, command: 'prog', repeat: 40 }, (err) => {
                 if (err) ui.serviceError(err);
                 else {
                     let prompt = ui.promptMessage('Confirm Motor Response', () => {
@@ -4210,15 +3841,13 @@ class Somfy {
         let btnUnpairFromGroup = div.querySelector('#btnUnpairFromGroup');
         btnUnpairFromGroup.addEventListener('click', (evt) => {
             let obj = ui.fromElement(div);
-            putJSONSync('/groupCommand', { groupId: groupId, command: 'prog', repeat: 1 }, (err, shade) => {
+            sendOp('groupCommand', { groupId: groupId, command: 'prog', repeat: 1 }, (err) => {
                 if (err) ui.serviceError(err);
                 else {
                     let prompt = ui.promptMessage('Confirm Motor Response', () => {
-                        editJSON('/unlinkFromGroup', { groupId: groupId, shadeId: shadeId }, (id) => `/group?groupId=${id}`, (err, group) => {
-                            console.log(group);
+                        sendEdit('unlinkFromGroup', { groupId: groupId, shadeId: shadeId }, editedItem('group', () => groupId), (err, group) => {
                             if (err) ui.serviceError(err);
-                            else somfy.setLinkedShadesList(group);
-                            this.updateGroupList();
+                            else if (group) somfy.setLinkedShadesList(group);
                         });
                         prompt.remove();
                         div.remove();
@@ -4227,14 +3856,13 @@ class Somfy {
                 }
             });
         });
-        getJSONSync(`/group?groupId=${groupId}`, (err, group) => {
-            if (err) {
+        {
+            let group = groupView(proto.model.groups.get(groupId));
+            if (!group) {
                 div.remove();
-                ui.serviceError(err);
+                ui.errorMessage('The group is no longer there.');
             }
             else {
-                console.log(group);
-                console.log(shadeId);
                 let shade = group.linkedShades.find((x) => { return shadeId === x.shadeId; });
                 if (typeof shade !== 'undefined') {
                     // Add in all the available shades.
@@ -4248,14 +3876,13 @@ class Somfy {
                     ui.errorMessage('The specified shade could not be found in this group.');
                 }
             }
-        });
+        }
         return div;
     }
     unlinkRepeater(address) {
         let prompt = ui.promptMessage('Are you sure you want to stop repeating frames from this address?', () => {
-            editJSON('/unlinkRepeater', { address: address }, () => '/repeaters', (err, repeaters) => {
+            sendEdit('unlinkRepeater', { remoteAddress: address }, null, (err) => {
                 if (err) ui.serviceError(err);
-                else this.setRepeaterList(repeaters);
                 prompt.remove();
             });
 
@@ -4268,11 +3895,10 @@ class Somfy {
                 shadeId: shadeId,
                 remoteAddress: remoteAddress
             };
-            editJSON('/unlinkRemote', obj, (id) => `/shade?shadeId=${id}`, (err, shade) => {
-                console.log(shade);
+            sendEdit('unlinkRemote', obj, editedItem('shade', () => shadeId), (err, shade) => {
                 prompt.remove();
                 if (err) ui.serviceError(err);
-                else this.setLinkedRemotesList(shade);
+                else if (shade) this.setLinkedRemotesList(shade);
             });
 
         });
@@ -4378,12 +4004,13 @@ var somfy = new Somfy();
 class MQTT {
     initialized = false;
     init() { this.initialized = true; }
-    async loadMQTT() {
-        getJSONSync('/mqttsettings', (err, settings) => {
-            if (err) 
+    static FIELDS = ['enabled', 'pubDisco', 'protocol', 'hostname', 'port', 'username', 'hasPassword', 'rootTopic', 'discoTopic'];
+    loadMQTT() {
+        sendOp('getSettings', { section: 'mqtt' }, (err, reply) => {
+            if (err)
                 console.log(err);
             else {
-                console.log(settings);
+                let settings = proto.schema.fill(Object.assign({}, reply), MQTT.FIELDS);
                 ui.toElement(document.getElementById('divMQTT'), { mqtt: settings });
                 // The device never returns the stored password; leave the field blank to keep it.
                 this.savedUsername = settings.username;
@@ -4425,10 +4052,12 @@ class MQTT {
                 return;
             }
         }
-        putJSONSync('/connectmqtt', obj.mqtt, (err, response) => {
+        let fields = { section: 'mqtt' };
+        for (let name of MQTT.FIELDS) if (name !== 'hasPassword') fields[name] = obj.mqtt[name];
+        fields.password = obj.mqtt.password;
+        sendOp('saveSettings', fields, (err) => {
             if (err) ui.serviceError(err);
-            console.log(response);
-        });
+        }, true);
     }
 }
 var mqtt = new MQTT();
@@ -4498,6 +4127,8 @@ class Firmware {
                 reject({ htmlError: status, service: 'GET /backup' });
             };
             xhr.open('GET', baseUrl.length > 0 ? `${baseUrl}/backup?attach=true` : '/backup?attach=true', true);
+            // Under Secured the file transfers need the token too.
+            xhr.setRequestHeader('apikey', security.apiKey);
             xhr.send();
         });
     }
@@ -4684,8 +4315,8 @@ class Firmware {
         prog.style.display = '';
         btnSelectFile.style.visibility = 'hidden';
         let xhr = new XMLHttpRequest();
-        //xhr.open('POST', service, true);
         xhr.open('POST', baseUrl.length > 0 ? `${baseUrl}${service}` : service, true);
+        xhr.setRequestHeader('apikey', security.apiKey);
         xhr.upload.onprogress = function (evt) {
             let pct = evt.total ? Math.round((evt.loaded / evt.total) * 100) : 0;
             prog.style.setProperty('--progress', `${pct}%`);
