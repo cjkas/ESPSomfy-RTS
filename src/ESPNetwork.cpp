@@ -57,6 +57,7 @@ void ESPNetwork::end() {
   SSDP.end();
   mqtt.end();
   sockEmit.end();
+  protoSocket.end();
   delay(100);
 }
 bool ESPNetwork::setup() {

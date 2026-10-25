@@ -266,9 +266,11 @@ static void markEdited(const model_edit_t &edit, const edit_result_t &result) {
 void runModelEdit(model_edit_t *edit) {
   const edit_result_t result = applyModelEdit(*edit);
   if(!result.ok) ESP_LOGW(TAG, "Edit %u refused: %s", static_cast<uint8_t>(edit->type), result.desc);
-  else markEdited(*edit, result);
+  // The reply first: the edit's events follow it (docs/PROTOCOL.md), so a
+  // client that waits for the reply doesn't read past them.
   if(edit->replyTo.client) protoSocket.replyEdit(edit->replyTo, edit->type, result);
   else emitRequestResult(edit->requestId, result);
+  if(result.ok) markEdited(*edit, result);
   cancelModelEdit(edit);
 }
 

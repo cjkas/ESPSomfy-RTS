@@ -24,6 +24,9 @@ class ProtoSocket {
     void begin(AsyncWebServer &server);
     // Moves each client's sync on.  loop() only.
     void loop();
+    // Closes every client, before a reboot: a restart drops the connections
+    // without a word, so clients wouldn't know they had gone.
+    void end();
     bool hasClients() const;
     // The reply to a command op once loop() has run its shade request.
     void replyRequest(const proto_reply_to_t &to, const shade_request_t &req, shade_request_result_t result);

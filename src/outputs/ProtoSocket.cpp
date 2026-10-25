@@ -415,6 +415,7 @@ void ProtoSocket::begin(AsyncWebServer &server) {
   ws.onEvent(ProtoSocket::wsEvent);
   server.addHandler(&ws);
 }
+void ProtoSocket::end() { ws.closeAll(1001, "Restarting"); }
 bool ProtoSocket::hasClients() const {
   for(const proto_slot_t &s : slots)
     if(s.clientId.load()) return true;
