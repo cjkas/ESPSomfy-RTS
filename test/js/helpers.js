@@ -17,11 +17,11 @@ function recordedSchema() {
 }
 // The recorded sync's device sections, expanded, frame by frame.
 function deviceSections(schema) {
-    return sync.filter((f) => f.t === 4).map((f) => {
-        const d = {};
-        for (const k of Object.keys(f.d)) if (!['T', 'F', 'E', 'Q'].includes(k)) d[k] = f.d[k];
-        return schema.expand(d);
-    });
+    return sync.filter((f) => f.t === 4).map((f) => schema.expand(ProtoSchema.withoutRows(f.d)));
+}
+// The recorded sync as the device sends it to a client that has the schema.
+function syncWithoutSchema() {
+    return sync.map((f) => Object.assign({}, f, { d: ProtoSchema.withoutRows(f.d || {}) }));
 }
 // The recorded sync's items under their short keys.
 function recordedItems(key) {
@@ -36,7 +36,7 @@ class FakeSocket {
         this.sent = [];
         this.closed = false;
         FakeSocket.last = this;
-        FakeSocket.all.push(this);
+        FakeSocket.count++;
     }
     send(text) { this.sent.push(JSON.parse(text)); }
     close() {
@@ -49,8 +49,9 @@ class FakeSocket {
     // The device closing it, or refusing it before it opened.
     drop() { this.close(); }
 }
-FakeSocket.all = [];
-FakeSocket.reset = () => { FakeSocket.all = []; FakeSocket.last = null; };
+// How many the client has opened.
+FakeSocket.count = 0;
+FakeSocket.reset = () => { FakeSocket.count = 0; FakeSocket.last = null; };
 
 // Timers the test runs by hand.
 class FakeTimers {
@@ -64,9 +65,9 @@ class FakeTimers {
         };
         this.clearTimeout = (id) => { this.timers.delete(id); };
     }
-    // Runs every timer waiting, and returns their delays.
+    // Runs every timer waiting, the shortest first, and returns their delays.
     runAll() {
-        const due = [...this.timers.entries()];
+        const due = [...this.timers.entries()].sort((a, b) => a[1].ms - b[1].ms);
         this.timers.clear();
         for (const [, t] of due) t.fn();
         return due.map(([, t]) => t.ms);
@@ -79,4 +80,5 @@ class FakeStorage {
     setItem(key, value) { this.items[key] = String(value); }
 }
 
-module.exports = { hello, sync, schemaJson, recordedSchema, deviceSections, recordedItems, FakeSocket, FakeTimers, FakeStorage };
+module.exports = { hello, sync, schemaJson, recordedSchema, deviceSections, syncWithoutSchema, recordedItems, FakeSocket,
+    FakeTimers, FakeStorage };

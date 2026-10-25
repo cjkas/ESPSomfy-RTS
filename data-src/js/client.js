@@ -15,15 +15,15 @@ class ProtoError extends Error {
     }
 }
 class ProtoClient {
-    // opts: host, token, WebSocket, storage (getItem/setItem, for the schema),
-    // setTimeout/clearTimeout, opTimeoutMs.
+    // opts: host, token, WebSocket, storage (getItem/setItem for the schema;
+    // localStorage when there is one), setTimeout/clearTimeout, opTimeoutMs.
     constructor(opts) {
         const deps = ProtoClient.deps();
         this.Schema = deps.ProtoSchema;
         this.host = opts.host;
         this.token = opts.token || '';
         this.WebSocket = opts.WebSocket || (typeof WebSocket !== 'undefined' ? WebSocket : null);
-        this.storage = opts.storage || null;
+        this.storage = typeof opts.storage !== 'undefined' ? opts.storage : ProtoClient.browserStorage();
         this.setTimeout = opts.setTimeout || ((fn, ms) => setTimeout(fn, ms));
         this.clearTimeout = opts.clearTimeout || ((t) => clearTimeout(t));
         this.opTimeoutMs = opts.opTimeoutMs || 10000;
@@ -32,9 +32,12 @@ class ProtoClient {
         this.model.onChange((kind, id, item) => this.emit('change', { kind: kind, id: id, item: item }));
         this.listeners = {};
         this.pending = new Map();
+        this.feeds = new Set();
         this.nextId = 1;
         this.ws = null;
-        this.ready = false;
+        this.ready = false;        // synced: ops may go
+        this.schemaReady = false;  // frames can be read
+        this.helloHash = null;
         this.opened = false;
         this.stopped = true;
         this.retries = 0;
@@ -49,29 +52,41 @@ class ProtoClient {
             return { ProtoSchema: require('./schema.js').ProtoSchema, ProtoModel: require('./model.js').ProtoModel };
         return { ProtoSchema: ProtoSchema, ProtoModel: ProtoModel };
     }
+    static browserStorage() {
+        try {
+            return typeof localStorage !== 'undefined' ? localStorage : null;
+        } catch (err) {
+            return null;
+        }
+    }
 
     // cb(d) for a device event by its name (shadeState, frame ...), and for
-    // the client's own: open, hello, synced, change, refused (closed before it
-    // opened: the token may have been refused), closed, versionMismatch and
-    // error (a refusal the device couldn't tie to an op).
+    // the client's own: open, hello, synced, change, closed, versionMismatch,
+    // error (a refusal the device couldn't tie to an op) and refused.
+    // refused: the socket closed before it opened.  A browser can't tell a
+    // refused token from a device that is down, so the client tries again
+    // unless a listener calls close(), as the UI does once /loginContext says
+    // a login is needed (docs/SECURITY_PLAN.md).
     on(name, cb) { (this.listeners[name] = this.listeners[name] || []).push(cb); }
     emit(name, d) { for (const cb of this.listeners[name] || []) cb(d); }
 
     connect() {
+        if (!this.stopped && (this.ws || this.reconnectTimer)) return;
         this.stopped = false;
         this.open();
     }
     close() {
         this.stopped = true;
-        if (this.reconnectTimer) this.clearTimeout(this.reconnectTimer);
-        this.reconnectTimer = null;
+        this.cancelReconnect();
         if (this.ws) this.ws.close();
     }
-    // A new token, from a login: the device checks it as the socket opens.
+    // A new token, from a login: the device checks it as the socket opens, so
+    // the client connects again with it at once.
     setToken(token) {
         this.token = token || '';
-        if (this.ws) this.ws.close();
-        else if (!this.stopped) this.open();
+        this.stopped = false;
+        this.retries = 0;
+        this.open();
     }
     url() {
         const params = [];
@@ -79,28 +94,38 @@ class ProtoClient {
         if (this.schema.hash) params.push(`schema=${encodeURIComponent(this.schema.hash)}`);
         return `ws://${this.host}/ws${params.length ? '?' + params.join('&') : ''}`;
     }
-    open() {
+    cancelReconnect() {
+        if (this.reconnectTimer) this.clearTimeout(this.reconnectTimer);
         this.reconnectTimer = null;
+    }
+    // One socket at a time: one being replaced is let go without a word.
+    open() {
+        this.cancelReconnect();
+        if (this.ws) {
+            const old = this.ws;
+            this.ws = null;
+            this.lost();
+            old.close();
+        }
         this.ready = false;
+        this.schemaReady = false;
         this.opened = false;
         this.held = [];
         const ws = new this.WebSocket(this.url());
         this.ws = ws;
         ws.onopen = () => {
+            if (this.ws !== ws) return;
             this.opened = true;
             this.retries = 0;
             this.emit('open');
         };
-        ws.onmessage = (evt) => this.receive(evt.data);
+        ws.onmessage = (evt) => {
+            if (this.ws === ws) this.receive(evt.data);
+        };
         ws.onclose = () => {
             if (this.ws !== ws) return;
             this.ws = null;
-            this.ready = false;
-            for (const [, p] of this.pending) {
-                this.clearTimeout(p.timer);
-                p.reject(new ProtoError('closed', 'The connection closed'));
-            }
-            this.pending.clear();
+            this.lost();
             this.emit(this.opened ? 'closed' : 'refused');
             if (this.stopped) return;
             // Soon after a close, slower after each failure, at most 10 s.
@@ -108,12 +133,21 @@ class ProtoClient {
             this.reconnectTimer = this.setTimeout(() => this.open(), ms);
         };
     }
-    send(type, d, id) {
+    // The socket has gone: nothing waiting gets its reply.
+    lost() {
+        this.ready = false;
+        for (const [, p] of this.pending) {
+            this.clearTimeout(p.timer);
+            p.reject(new ProtoError('closed', 'The connection closed'));
+        }
+        this.pending.clear();
+    }
+    frame(type, d, id) {
         const frame = { v: ProtoClient.VERSION, t: this.schema.typeNumbers[type] };
         if (typeof frame.t === 'undefined') throw new ProtoError('unknownOp', `The device has no message ${type}`);
         if (id) frame.id = id;
         if (d) frame.d = d;
-        this.ws.send(JSON.stringify(frame));
+        return JSON.stringify(frame);
     }
 
     // Sends an op, or a control message that wants a reply, by its name with
@@ -126,25 +160,39 @@ class ProtoClient {
                 return;
             }
             const id = this.nextId++;
+            let text;
             try {
-                this.send(name, this.schema.pack(fields || {}), id);
+                text = this.frame(name, this.schema.pack(fields || {}), id);
             } catch (err) {
                 reject(err instanceof ProtoError ? err : new ProtoError('badRequest', err.message));
                 return;
             }
+            this.ws.send(text);
             const timer = this.setTimeout(() => {
                 this.pending.delete(id);
                 reject(new ProtoError('timeout', `No reply to ${name}`));
             }, this.opTimeoutMs);
-            this.pending.set(id, { resolve: resolve, reject: reject, timer: timer });
+            this.pending.set(id, { resolve: resolve, reject: reject, timer: timer, text: text, resends: 0 });
         });
     }
-    subscribe(feed) { return this.op('subscribe', { feed: this.schema.feedNumbers[feed] }); }
-    unsubscribe(feed) { return this.op('unsubscribe', { feed: this.schema.feedNumbers[feed] }); }
+    // Feeds stay subscribed across reconnects.
+    subscribe(feed) {
+        if (typeof this.schema.feedNumbers[feed] === 'undefined') return Promise.reject(new ProtoError('badRequest', `The device has no feed ${feed}`));
+        this.feeds.add(feed);
+        return this.op('subscribe', { feed: this.schema.feedNumbers[feed] });
+    }
+    unsubscribe(feed) {
+        this.feeds.delete(feed);
+        if (typeof this.schema.feedNumbers[feed] === 'undefined') return Promise.resolve();
+        return this.op('unsubscribe', { feed: this.schema.feedNumbers[feed] });
+    }
     // The shade model and status again, without the schema.
     resync() {
         this.model.beginSync();
-        return this.op('sync');
+        return this.op('sync').catch((err) => {
+            this.model.cancelSync();
+            throw err;
+        });
     }
 
     receive(text) {
@@ -159,67 +207,99 @@ class ProtoClient {
             return;
         }
         const d = frame.d || {};
-        // hello, the sync and syncEnd have fixed numbers: they come before the
-        // schema.
+        // These have fixed numbers: they come before the schema.
         switch (frame.t) {
-            case 1: this.hello(d); return;
-            case 4: this.syncFrame(d); return;
-            case 5: this.syncEnd(); return;
+            case ProtoClient.HELLO: this.hello(d); return;
+            case ProtoClient.SYNC: this.syncFrame(d); return;
+            case ProtoClient.SYNC_END: this.syncEnd(); return;
             default: break;
         }
-        if (!this.ready) this.held.push(frame);
+        // A frame the client can't read yet waits for the schema.
+        if (!this.schemaReady) this.held.push(frame);
         else this.dispatch(frame);
     }
     hello(d) {
         this.fw = d.fw;
-        // A schema cached for another firmware is no use: the device sends the
-        // one it has, as it didn't get its hash.
+        this.helloHash = d.sh;
+        // A schema the client kept for this one needn't come again; any other
+        // is no use, and the device sends the one it has.
         if (this.schema.hash !== d.sh) {
             this.schema = new this.Schema();
             this.model.schema = this.schema;
         }
-        this.schema.hash = d.sh;
         this.model.beginSync();
         this.emit('hello', d);
+        if (this.schema.hash === d.sh) this.readable();
     }
     syncFrame(d) {
         this.schema.add(d);
-        const device = {};
-        for (const key of Object.keys(d)) if (!['T', 'F', 'E', 'Q'].includes(key)) device[key] = d[key];
+        const device = this.Schema.withoutRows(d);
         // The schema's rows come first, so a frame with the device's sections
         // has the whole of it.
-        if (Object.keys(device).length) this.model.applySync(this.schema.expand(device));
-        this.ws.send(JSON.stringify({ v: ProtoClient.VERSION, t: 3 }));
+        if (Object.keys(device).length) {
+            this.readable();
+            this.model.applySync(this.schema.expand(device));
+        }
+        this.ws.send(JSON.stringify({ v: ProtoClient.VERSION, t: ProtoClient.NEXT }));
+    }
+    // The schema is whole: frames that waited for it go, in the order they
+    // came and ahead of the sync frames formatted after them.
+    readable() {
+        if (this.schemaReady) return;
+        this.schemaReady = true;
+        const held = this.held;
+        this.held = [];
+        for (const frame of held) this.dispatch(frame);
     }
     syncEnd() {
+        this.readable();
         this.model.endSync();
         if (!this.ready) {
             this.ready = true;
+            // Only a whole schema is kept, so a sync cut short gets it again.
+            this.schema.hash = this.helloHash;
             this.saveSchema();
-            const held = this.held;
-            this.held = [];
-            for (const frame of held) this.dispatch(frame);
+            for (const feed of this.feeds) this.op('subscribe', { feed: this.schema.feedNumbers[feed] }).catch(() => {});
         }
         this.emit('synced', this.model);
     }
     dispatch(frame) {
         const d = this.schema.expand(frame.d || {});
-        if (frame.t === 2) {
-            const p = typeof frame.id !== 'undefined' ? this.pending.get(frame.id) : null;
-            if (!p) {
-                if (!d.ok) this.emit('error', new ProtoError(this.schema.errors[d.code] || 'internal', d.desc, d));
-                return;
-            }
-            this.pending.delete(frame.id);
+        if (frame.t === ProtoClient.REPLY) this.reply(frame.id, d);
+        else {
+            const name = this.schema.types[frame.t];
+            if (!name) return;
+            this.model.applyEvent(name, d);
+            this.emit(name, d);
+        }
+    }
+    reply(id, d) {
+        const err = d.ok ? null : new ProtoError(this.schema.errors[d.code] || 'internal', d.desc, d);
+        const p = typeof id !== 'undefined' ? this.pending.get(id) : null;
+        if (p) {
+            this.pending.delete(id);
             this.clearTimeout(p.timer);
-            if (d.ok) p.resolve(d);
-            else p.reject(new ProtoError(this.schema.errors[d.code] || 'internal', d.desc, d));
+            if (err) p.reject(err);
+            else p.resolve(d);
             return;
         }
-        const name = this.schema.types[frame.t];
-        if (!name) return;
-        this.model.applyEvent(name, d);
-        this.emit(name, d);
+        if (!err) return;
+        // A long message the device couldn't take while it put another one
+        // together is refused without its id: the long ones waiting go again.
+        if (err.code === 'busy' && this.resendLong()) return;
+        this.emit('error', err);
+    }
+    resendLong() {
+        let any = false;
+        for (const [, p] of this.pending) {
+            if (p.text.length < ProtoClient.LONG_MESSAGE || p.resends >= 3) continue;
+            p.resends++;
+            any = true;
+            this.setTimeout(() => {
+                if (this.ws && [...this.pending.values()].includes(p)) this.ws.send(p.text);
+            }, 200 * p.resends);
+        }
+        return any;
     }
 
     loadSchema() {
@@ -238,5 +318,15 @@ class ProtoClient {
     }
 }
 ProtoClient.VERSION = 2;
+// The types a client reads before it has the schema, and next, which it sends
+// during the sync.
+ProtoClient.HELLO = 1;
+ProtoClient.REPLY = 2;
+ProtoClient.NEXT = 3;
+ProtoClient.SYNC = 4;
+ProtoClient.SYNC_END = 5;
+// A message longer than a TCP segment reaches the device in pieces
+// (docs/PROTOCOL.md).
+ProtoClient.LONG_MESSAGE = 1400;
 ProtoClient.SCHEMA_KEY = 'espsomfyProtoSchema';
 if (typeof module !== 'undefined' && module.exports) module.exports = { ProtoClient, ProtoError };

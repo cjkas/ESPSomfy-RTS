@@ -79,7 +79,26 @@ test('removals, orders and repeaters', () => {
     assert.equal(m.shades.get(second.shadeId).sortOrder, 0);
     m.applyEvent('repeaters', { repeaters: [7, 8] });
     assert.deepEqual(m.repeaters, [7, 8]);
-    assert.deepEqual(changes.map((c) => c[0]), ['shadeRemoved', 'order', 'repeaters']);
+    // An order says which list it is.
+    assert.deepEqual(changes.map((c) => c[0]), ['shadeRemoved', 'shadeOrder', 'repeaters']);
+});
+
+test('a sync without repeaters clears them, as the device leaves the list out when it has none', () => {
+    const m = synced();
+    m.applyEvent('repeaters', { repeaters: [7] });
+    m.beginSync();
+    for (const d of deviceSections(m.schema)) m.applySync(Object.assign({}, d, { repeaters: undefined }));
+    m.endSync();
+    assert.deepEqual(m.repeaters, []);
+});
+
+test('a sync that is called off removes nothing', () => {
+    const m = synced();
+    const shades = m.shades.size;
+    m.beginSync();
+    m.cancelSync();
+    m.endSync();
+    assert.equal(m.shades.size, shades);
 });
 
 test('a sync drops what it no longer lists, and keeps what an event added during it', () => {

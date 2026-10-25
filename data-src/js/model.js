@@ -17,21 +17,24 @@ class ProtoModel {
         this.listeners = [];
         this.seen = null;
     }
-    // cb(kind, id, item): kind is room, shade, group, roomRemoved,
-    // shadeRemoved, groupRemoved, order, repeaters, header or status.
+    // cb(kind, id, item): kind is room, shade or group for an item added or
+    // changed; roomRemoved, shadeRemoved or groupRemoved; roomOrder,
+    // shadeOrder or groupOrder (item: the ids in order); repeaters, header or
+    // status.
     onChange(cb) { this.listeners.push(cb); }
     changed(kind, id, item) { for (const cb of this.listeners) cb(kind, id, item); }
 
-    // A sync: the items it doesn't list are gone once it ends.
-    beginSync() { this.seen = { rooms: new Set(), shades: new Set(), groups: new Set() }; }
+    // A sync: what it doesn't list is gone once it ends, the repeaters too,
+    // which it leaves out when there are none.
+    beginSync() { this.seen = { rooms: new Set(), shades: new Set(), groups: new Set(), repeaters: false }; }
+    // A sync that won't come after all.
+    cancelSync() { this.seen = null; }
     applySync(d) {
         if (d.header) {
             this.header = this.schema.fill(Object.assign({}, d.header), ProtoModel.FIELDS.header);
             this.changed('header', 0, this.header);
         }
-        for (const r of d.rooms || []) this.putRoom(r);
-        for (const s of d.shades || []) this.putShade(s);
-        for (const g of d.groups || []) this.putGroup(g);
+        for (const kind of ProtoModel.ITEMS) for (const item of d[kind.list] || []) this.put(kind, item);
         if (d.repeaters) this.putRepeaters(d.repeaters);
         if (d.status) {
             this.putStatus(d.status, ProtoModel.FIELDS.memory);
@@ -40,30 +43,31 @@ class ProtoModel {
     }
     endSync() {
         if (!this.seen) return;
-        const lists = [['rooms', 'roomRemoved'], ['shades', 'shadeRemoved'], ['groups', 'groupRemoved']];
-        for (const [list, removed] of lists) {
-            for (const id of [...this[list].keys()]) {
-                if (this.seen[list].has(id)) continue;
-                this[list].delete(id);
-                this.changed(removed, id);
+        for (const kind of ProtoModel.ITEMS) {
+            const map = this[kind.list];
+            for (const id of [...map.keys()]) {
+                if (this.seen[kind.list].has(id)) continue;
+                map.delete(id);
+                this.changed(kind.removed, id);
             }
         }
+        if (!this.seen.repeaters && this.repeaters.length) this.putRepeaters([]);
         this.seen = null;
     }
-    // An event by its type's name; false for one that isn't about the model.
+    // An event by its type's name; false for one that isn't about the model,
+    // or that changed nothing.
     applyEvent(type, d) {
+        for (const kind of ProtoModel.ITEMS) {
+            const id = d[kind.id] || 0;
+            switch (type) {
+                case kind.name: this.put(kind, d); return true;
+                case kind.state: return this.mergeState(kind, id, d);
+                case kind.removed: return this.remove(kind, id);
+                case kind.order: return this.order(kind, d.ids || []);
+                default: break;
+            }
+        }
         switch (type) {
-            case 'room': this.putRoom(d); return true;
-            case 'shade': this.putShade(d); return true;
-            case 'group': this.putGroup(d); return true;
-            case 'shadeState': return this.mergeState(this.shades, 'shade', d.shadeId, d, ProtoModel.FIELDS.shadeState);
-            case 'groupState': return this.mergeState(this.groups, 'group', d.groupId, d, ProtoModel.FIELDS.groupState);
-            case 'roomRemoved': return this.remove(this.rooms, type, d.roomId || 0);
-            case 'shadeRemoved': return this.remove(this.shades, type, d.shadeId || 0);
-            case 'groupRemoved': return this.remove(this.groups, type, d.groupId || 0);
-            case 'roomOrder': return this.order(this.rooms, d.ids || []);
-            case 'shadeOrder': return this.order(this.shades, d.ids || []);
-            case 'groupOrder': return this.order(this.groups, d.ids || []);
             case 'repeaters': this.putRepeaters(d.repeaters || []); return true;
             case 'memory': this.putStatus(d, ProtoModel.FIELDS.memory); return true;
             case 'wifi': this.putStatus(d, ProtoModel.FIELDS.wifi); return true;
@@ -78,45 +82,42 @@ class ProtoModel {
     groupList() { return ProtoModel.sorted(this.groups); }
     static sorted(map) { return [...map.values()].sort((a, b) => a.sortOrder - b.sortOrder); }
 
-    putRoom(r) { this.put(this.rooms, 'room', r.roomId, r, ProtoModel.FIELDS.room, 'rooms'); }
-    putShade(s) {
-        // Its linked remotes leave out their defaults too.
-        const linked = (s.linkedRemotes || []).map((r) => this.schema.fill(Object.assign({}, r), ProtoModel.FIELDS.linkedRemote));
-        this.put(this.shades, 'shade', s.shadeId, Object.assign({}, s, { linkedRemotes: linked }), ProtoModel.FIELDS.shade, 'shades');
-    }
-    putGroup(g) { this.put(this.groups, 'group', g.groupId, g, ProtoModel.FIELDS.group, 'groups'); }
     // A whole item: what it had before is replaced.
-    put(map, kind, id, item, fields, list) {
-        id = id || 0;
-        const whole = this.schema.fill(Object.assign({}, item), fields);
-        map.set(id, whole);
-        if (this.seen) this.seen[list].add(id);
-        this.changed(kind, id, whole);
+    put(kind, item) {
+        const id = item[kind.id] || 0;
+        const whole = this.schema.fill(Object.assign({}, item), ProtoModel.FIELDS[kind.name]);
+        // A shade's linked remotes leave out their defaults too.
+        if (kind.name === 'shade')
+            whole.linkedRemotes = whole.linkedRemotes.map((r) => this.schema.fill(Object.assign({}, r), ProtoModel.FIELDS.linkedRemote));
+        this[kind.list].set(id, whole);
+        if (this.seen) this.seen[kind.list].add(id);
+        this.changed(kind.name, id, whole);
     }
     // Part of an item: only its state.  A state of an item not synced yet
     // waits for the item.
-    mergeState(map, kind, id, d, fields) {
-        const item = map.get(id || 0);
+    mergeState(kind, id, d) {
+        const item = this[kind.list].get(id);
         if (!item) return false;
-        Object.assign(item, this.schema.fill(Object.assign({}, d), fields));
-        this.changed(kind, item[`${kind}Id`], item);
+        Object.assign(item, this.schema.fill(Object.assign({}, d), ProtoModel.FIELDS[kind.state]));
+        this.changed(kind.name, id, item);
         return true;
     }
-    remove(map, kind, id) {
-        if (!map.delete(id)) return false;
-        this.changed(kind, id);
+    remove(kind, id) {
+        if (!this[kind.list].delete(id)) return false;
+        this.changed(kind.removed, id);
         return true;
     }
-    order(map, ids) {
+    order(kind, ids) {
         ids.forEach((id, i) => {
-            const item = map.get(id);
+            const item = this[kind.list].get(id);
             if (item) item.sortOrder = i;
         });
-        this.changed('order', 0, ids);
+        this.changed(kind.order, 0, ids);
         return true;
     }
     putRepeaters(list) {
         this.repeaters = list.slice();
+        if (this.seen) this.seen.repeaters = true;
         this.changed('repeaters', 0, this.repeaters);
     }
     putStatus(d, fields) {
@@ -126,9 +127,17 @@ class ProtoModel {
         this.changed('status', 0, this.status);
     }
 }
+// Rooms, shades and groups: their list, id, and the events about them.  Rooms
+// have no state of their own.
+ProtoModel.ITEMS = [
+    { name: 'room', list: 'rooms', id: 'roomId', state: null, removed: 'roomRemoved', order: 'roomOrder' },
+    { name: 'shade', list: 'shades', id: 'shadeId', state: 'shadeState', removed: 'shadeRemoved', order: 'shadeOrder' },
+    { name: 'group', list: 'groups', id: 'groupId', state: 'groupState', removed: 'groupRemoved', order: 'groupOrder' }
+];
 // The fields of each kind of item, as the device writes them
 // (src/ProtoSync.cpp, src/outputs/ProtoSocket.cpp): what a frame that leaves
-// one out means by it.
+// one out means by it.  The schema has each field's default, not which items
+// have it.
 ProtoModel.FIELDS = {
     header: ['maxRooms', 'maxShades', 'maxGroups', 'maxGroupedShades', 'maxLinkedRemotes', 'startingAddress', 'bitLength',
         'proto', 'serverId', 'hostname', 'model', 'chipModel', 'fw', 'connType'],

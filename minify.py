@@ -275,19 +275,23 @@ def minify_all():
         file_count += 1
 
     bundled = set()
+    # Inside data/, so it goes even when a bundle fails: left there, it would
+    # end up in the LittleFS image.
     work_dir = os.path.join(dst_dir, ".bundles")
     os.makedirs(work_dir, exist_ok=True)
-    for name, parts in BUNDLES.items():
-        joined = os.path.join(work_dir, name)
-        with open(joined, "w", encoding="utf-8") as out:
-            for part in parts:
-                with open(os.path.join(src_dir, part), "r", encoding="utf-8") as f:
-                    out.write(f.read())
-                # A file without a final newline would run into the next.
-                out.write("\n")
-                bundled.add(os.path.normpath(part))
-        report(f"{name} ({len(parts)} files)", process_file(joined, os.path.join(dst_dir, name)))
-    shutil.rmtree(work_dir)
+    try:
+        for name, parts in BUNDLES.items():
+            joined = os.path.join(work_dir, name)
+            with open(joined, "w", encoding="utf-8") as out:
+                for part in parts:
+                    with open(os.path.join(src_dir, part), "r", encoding="utf-8") as f:
+                        out.write(f.read())
+                    # A file without a final newline would run into the next.
+                    out.write("\n")
+                    bundled.add(os.path.normpath(part))
+            report(f"{name} ({len(parts)} files)", process_file(joined, os.path.join(dst_dir, name)))
+    finally:
+        shutil.rmtree(work_dir, ignore_errors=True)
 
     for root, dirs, files in os.walk(src_dir):
         for fname in sorted(files):

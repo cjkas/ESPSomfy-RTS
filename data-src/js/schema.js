@@ -11,9 +11,14 @@ class ProtoSchema {
         this.keys = {};         // name -> key
         this.errors = {};
         this.errorNumbers = {};
-        this.feeds = {};
         this.feedNumbers = {};
         this.rows = { T: [], F: [], E: [], Q: [] };
+    }
+    // A sync frame's payload without the schema's rows: the device's sections.
+    static withoutRows(d) {
+        const out = {};
+        for (const key of Object.keys(d)) if (!ProtoSchema.ROWS.includes(key)) out[key] = d[key];
+        return out;
     }
     // The schema's rows in a sync frame's payload: T types, F fields, E error
     // codes, Q feeds.  They may span several frames.
@@ -30,11 +35,8 @@ class ProtoSchema {
             this.errors[number] = name;
             this.errorNumbers[name] = number;
         }
-        for (const [number, name] of d.Q || []) {
-            this.feeds[number] = name;
-            this.feedNumbers[name] = number;
-        }
-        for (const k of ['T', 'F', 'E', 'Q']) if (d[k]) this.rows[k].push(...d[k]);
+        for (const [number, name] of d.Q || []) this.feedNumbers[name] = number;
+        for (const k of ProtoSchema.ROWS) if (d[k]) this.rows[k].push(...d[k]);
     }
     get empty() { return Object.keys(this.fields).length === 0; }
     // What a field left out of a frame is: its default.
@@ -93,4 +95,7 @@ class ProtoSchema {
         return s.empty ? null : s;
     }
 }
+// The keys of the schema's rows in a sync frame, fixed as a client needs them
+// before it has the schema.
+ProtoSchema.ROWS = ['T', 'F', 'E', 'Q'];
 if (typeof module !== 'undefined' && module.exports) module.exports = { ProtoSchema };
