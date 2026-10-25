@@ -118,10 +118,14 @@ def test_a_frequency_scan_starts_and_ends(connect, schema):
 def test_reboot(request, host, token, connect, schema):
     if not request.config.getoption("--reboot"):
         pytest.skip("reboots the device: pass --reboot")
-    c, _, _ = synced_model(connect, schema)
+    c = connect(schema=schema.hash)
+    _, frames, _ = run_sync(c)
+    uptime_before = uptime(schema, frames)
     assert is_ok(schema, op(c, schema, "reboot", {}))
     assert c.closed.wait(15), "the socket stayed open"
-    # Back once it answers a connect with hello again.
+    # The device closes its sockets just before it restarts, and may still
+    # take a connection in between: that one never gets its hello.
+    time.sleep(3)
     end = time.time() + 90
     while True:
         assert time.time() < end, "the device didn't come back"
@@ -132,9 +136,19 @@ def test_reboot(request, host, token, connect, schema):
             continue
         try:
             if back.status == 101:
-                hello, _, _ = run_sync(back)
+                hello, frames, _ = run_sync(back, timeout=10)
                 assert hello["d"]["sh"] == schema.hash
+                assert uptime(schema, frames) < uptime_before, "the device didn't restart"
                 return
+        except TimeoutError:
+            pass  # not back yet
         finally:
             back.close()
         time.sleep(2)
+
+
+def uptime(schema, frames):
+    """The uptime, in ms, from the status a sync ends with."""
+    key = schema.keys["status"]
+    status = next(f["d"][key] for f in frames if key in f["d"])
+    return schema.expand(status)["uptime"]

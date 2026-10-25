@@ -31,10 +31,9 @@ edit_changes_t editChanges(model_edit_type_t type, const edit_result_t &result) 
     case model_edit_type_t::unlink_repeater:
       c.repeaters = true;
       break;
-    case model_edit_type_t::delete_room:
-    case model_edit_type_t::delete_shade:
-    case model_edit_type_t::delete_group:
-      break;
+    case model_edit_type_t::delete_room: c.removedRoomId = result.id; break;
+    case model_edit_type_t::delete_shade: c.removedShadeId = result.id; break;
+    case model_edit_type_t::delete_group: c.removedGroupId = result.id; break;
   }
   return c;
 }

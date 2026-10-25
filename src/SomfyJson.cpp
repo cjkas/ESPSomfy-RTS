@@ -262,6 +262,9 @@ static void markEdited(const model_edit_t &edit, const edit_result_t &result) {
   if(room) protoSocket.room(*room);
   if(c.order != sort_list_t::none) protoSocket.order(c.order);
   if(c.repeaters) protoSocket.repeaters();
+  if(c.removedShadeId) protoSocket.shadeRemoved(c.removedShadeId);
+  if(c.removedGroupId) protoSocket.groupRemoved(c.removedGroupId);
+  if(c.removedRoomId) protoSocket.roomRemoved(c.removedRoomId);
 }
 void runModelEdit(model_edit_t *edit) {
   const edit_result_t result = applyModelEdit(*edit);
