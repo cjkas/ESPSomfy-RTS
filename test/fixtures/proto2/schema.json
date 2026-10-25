@@ -1,5 +1,5 @@
 {
- "hash": "0fa739cc",
+ "hash": "16fdffc7",
  "types": {
   "1": "hello",
   "2": "reply",
@@ -18,6 +18,35 @@
   "23": "unpairShade",
   "24": "setRollingCode",
   "25": "sendRemoteCommand",
+  "26": "addRoom",
+  "27": "addShade",
+  "28": "addGroup",
+  "29": "saveRoom",
+  "30": "saveShade",
+  "31": "saveGroup",
+  "32": "deleteRoom",
+  "33": "deleteShade",
+  "34": "deleteGroup",
+  "35": "linkRemote",
+  "36": "unlinkRemote",
+  "37": "linkToGroup",
+  "38": "unlinkFromGroup",
+  "39": "linkRepeater",
+  "40": "unlinkRepeater",
+  "41": "setPaired",
+  "42": "roomSortOrder",
+  "43": "shadeSortOrder",
+  "44": "groupSortOrder",
+  "45": "getNextRoom",
+  "46": "getNextShade",
+  "47": "getNextGroup",
+  "48": "groupOptions",
+  "49": "getSettings",
+  "50": "saveSettings",
+  "51": "scanWifi",
+  "52": "beginFrequencyScan",
+  "53": "endFrequencyScan",
+  "54": "reboot",
   "128": "shadeState",
   "129": "shade",
   "130": "shadeRemoved",
@@ -35,7 +64,9 @@
   "142": "ethernet",
   "143": "frame",
   "144": "frequencyScan",
-  "145": "repeaters"
+  "145": "repeaters",
+  "146": "settingsChanged",
+  "147": "wifiNetworks"
  },
  "fields": {
   "D": {
@@ -108,14 +139,29 @@
    "kind": "i",
    "default": 0
   },
+  "ak": {
+   "name": "apiKey",
+   "kind": "s",
+   "default": 0
+  },
   "bl": {
    "name": "bitLength",
    "kind": "i",
    "default": 56
   },
+  "bo": {
+   "name": "boardType",
+   "kind": "i",
+   "default": 0
+  },
   "bt": {
    "name": "bits",
    "kind": "i",
+   "default": 0
+  },
+  "bw": {
+   "name": "rxBandwidth",
+   "kind": "n",
    "default": 0
   },
   "c": {
@@ -128,9 +174,19 @@
    "kind": "i",
    "default": 0
   },
+  "ck": {
+   "name": "CLKMode",
+   "kind": "i",
+   "default": 0
+  },
   "cm": {
    "name": "command",
    "kind": "s",
+   "default": 0
+  },
+  "cn": {
+   "name": "connMode",
+   "kind": "i",
    "default": 0
   },
   "co": {
@@ -143,6 +199,11 @@
    "kind": "s",
    "default": 0
   },
+  "cs": {
+   "name": "CSNPin",
+   "kind": "i",
+   "default": 0
+  },
   "ct": {
    "name": "connType",
    "kind": "s",
@@ -153,6 +214,31 @@
    "kind": "i",
    "default": 0
   },
+  "d1": {
+   "name": "dns1",
+   "kind": "s",
+   "default": 0
+  },
+  "d2": {
+   "name": "dns2",
+   "kind": "s",
+   "default": 0
+  },
+  "dh": {
+   "name": "dhcp",
+   "kind": "b",
+   "default": 0
+  },
+  "dt": {
+   "name": "discoTopic",
+   "kind": "s",
+   "default": 0
+  },
+  "dv": {
+   "name": "deviation",
+   "kind": "n",
+   "default": 0
+  },
   "e": {
    "name": "code",
    "kind": "i",
@@ -161,6 +247,11 @@
   "ek": {
    "name": "encKey",
    "kind": "i",
+   "default": 0
+  },
+  "en": {
+   "name": "enabled",
+   "kind": "b",
    "default": 0
   },
   "f": {
@@ -228,9 +319,29 @@
    "kind": "i",
    "default": 0
   },
+  "gw": {
+   "name": "gateway",
+   "kind": "s",
+   "default": 0
+  },
   "h": {
    "name": "header",
    "kind": "o",
+   "default": 0
+  },
+  "hd": {
+   "name": "hidden",
+   "kind": "b",
+   "default": 0
+  },
+  "he": {
+   "name": "hasEthernet",
+   "kind": "b",
+   "default": 0
+  },
+  "hi": {
+   "name": "hasPin",
+   "kind": "b",
    "default": 0
   },
   "hn": {
@@ -238,9 +349,19 @@
    "kind": "s",
    "default": 0
   },
+  "hq": {
+   "name": "hasPassphrase",
+   "kind": "b",
+   "default": 0
+  },
   "hs": {
    "name": "hwsync",
    "kind": "i",
+   "default": 0
+  },
+  "hw": {
+   "name": "hasPassword",
+   "kind": "b",
    "default": 0
   },
   "i": {
@@ -251,6 +372,11 @@
   "ig": {
    "name": "inGroup",
    "kind": "b",
+   "default": 0
+  },
+  "ip": {
+   "name": "ip",
+   "kind": "s",
    "default": 0
   },
   "is": {
@@ -293,13 +419,38 @@
    "kind": "i",
    "default": -1
   },
+  "ma": {
+   "name": "macAddress",
+   "kind": "s",
+   "default": 0
+  },
+  "mc": {
+   "name": "MDCPin",
+   "kind": "i",
+   "default": 0
+  },
   "md": {
    "name": "model",
    "kind": "s",
    "default": 0
   },
+  "mi": {
+   "name": "MDIOPin",
+   "kind": "i",
+   "default": 0
+  },
   "mn": {
    "name": "minHeap",
+   "kind": "i",
+   "default": 0
+  },
+  "mo": {
+   "name": "MOSIPin",
+   "kind": "i",
+   "default": 0
+  },
+  "ms": {
+   "name": "MISOPin",
    "kind": "i",
    "default": 0
   },
@@ -313,6 +464,21 @@
    "kind": "s",
    "default": 0
   },
+  "nd": {
+   "name": "noiseDetection",
+   "kind": "b",
+   "default": 0
+  },
+  "ns": {
+   "name": "ntpServer",
+   "kind": "s",
+   "default": 0
+  },
+  "nw": {
+   "name": "networks",
+   "kind": "l",
+   "default": 0
+  },
   "o": {
    "name": "sortOrder",
    "kind": "i",
@@ -323,14 +489,64 @@
    "kind": "i",
    "default": 0
   },
+  "pa": {
+   "name": "phyAddress",
+   "kind": "i",
+   "default": 0
+  },
+  "pd": {
+   "name": "pubDisco",
+   "kind": "b",
+   "default": 0
+  },
+  "ph": {
+   "name": "phyType",
+   "kind": "i",
+   "default": 0
+  },
+  "pn": {
+   "name": "pin",
+   "kind": "s",
+   "default": 0
+  },
+  "po": {
+   "name": "port",
+   "kind": "i",
+   "default": 0
+  },
+  "pp": {
+   "name": "passphrase",
+   "kind": "s",
+   "default": 0
+  },
   "pr": {
    "name": "proto",
    "kind": "i",
    "default": 0
   },
+  "ps": {
+   "name": "password",
+   "kind": "s",
+   "default": 0
+  },
+  "pt": {
+   "name": "protocol",
+   "kind": "s",
+   "default": 0
+  },
   "pu": {
    "name": "pulses",
    "kind": "l",
+   "default": 0
+  },
+  "pw": {
+   "name": "PWRPin",
+   "kind": "i",
+   "default": 0
+  },
+  "pz": {
+   "name": "posixZone",
+   "kind": "s",
    "default": 0
   },
   "q": {
@@ -343,9 +559,24 @@
    "kind": "i",
    "default": 0
   },
+  "rb": {
+   "name": "rebooting",
+   "kind": "b",
+   "default": 0
+  },
   "re": {
    "name": "repeat",
    "kind": "i",
+   "default": 0
+  },
+  "ri": {
+   "name": "radioInit",
+   "kind": "b",
+   "default": 0
+  },
+  "ro": {
+   "name": "roaming",
+   "kind": "b",
    "default": 0
   },
   "rp": {
@@ -358,8 +589,18 @@
    "kind": "i",
    "default": 0
   },
+  "rt": {
+   "name": "rootTopic",
+   "kind": "s",
+   "default": 0
+  },
   "rw": {
    "name": "rawCmd",
+   "kind": "i",
+   "default": 0
+  },
+  "rx": {
+   "name": "RXPin",
    "kind": "i",
    "default": 0
   },
@@ -373,6 +614,11 @@
    "kind": "i",
    "default": 0
   },
+  "sb": {
+   "name": "ssdpBroadcast",
+   "kind": "b",
+   "default": 0
+  },
   "sc": {
    "name": "scanning",
    "kind": "b",
@@ -380,6 +626,11 @@
   },
   "sd": {
    "name": "ssid",
+   "kind": "s",
+   "default": 0
+  },
+  "se": {
+   "name": "section",
    "kind": "s",
    "default": 0
   },
@@ -391,6 +642,11 @@
   "sh": {
    "name": "schemaHash",
    "kind": "s",
+   "default": 0
+  },
+  "sk": {
+   "name": "SCKPin",
+   "kind": "i",
    "default": 0
   },
   "sm": {
@@ -428,9 +684,19 @@
    "kind": "i",
    "default": 0
   },
+  "su": {
+   "name": "subnet",
+   "kind": "s",
+   "default": 0
+  },
   "sv": {
    "name": "serverId",
    "kind": "s",
+   "default": 0
+  },
+  "sy": {
+   "name": "securityType",
+   "kind": "i",
    "default": 0
   },
   "t": {
@@ -448,14 +714,29 @@
    "kind": "i",
    "default": 0
   },
+  "tp": {
+   "name": "txPower",
+   "kind": "i",
+   "default": 0
+  },
   "tr": {
    "name": "testRssi",
+   "kind": "i",
+   "default": 0
+  },
+  "tx": {
+   "name": "TXPin",
    "kind": "i",
    "default": 0
   },
   "u": {
    "name": "tiltTarget",
    "kind": "i",
+   "default": 0
+  },
+  "un": {
+   "name": "username",
+   "kind": "s",
    "default": 0
   },
   "up": {
@@ -466,6 +747,11 @@
   "va": {
    "name": "valid",
    "kind": "b",
+   "default": 0
+  },
+  "vc": {
+   "name": "validation",
+   "kind": "i",
    "default": 0
   },
   "w": {
