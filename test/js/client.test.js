@@ -315,6 +315,21 @@ test('waitFor gives null when no event comes, and stops listening', async () => 
     assert.equal((c.listeners.room || []).length, 0);
 });
 
+test('off stops a listener, and one that removes itself mid-event leaves the others called', () => {
+    const { c, ws } = connected();
+    const seen = [];
+    const once = (d) => { seen.push('once'); c.off('memory', once); };
+    const always = () => seen.push('always');
+    const dropped = () => seen.push('dropped');
+    c.on('memory', once);
+    c.on('memory', always);
+    c.on('memory', dropped);
+    c.off('memory', dropped);
+    ws.deliver({ v: 2, t: T.memory, d: { fr: 1 } });
+    ws.deliver({ v: 2, t: T.memory, d: { fr: 2 } });
+    assert.deepEqual(seen, ['once', 'always', 'always']);
+});
+
 test('subscribe sends the feed number', () => {
     const { c, ws } = connected();
     c.subscribe('frames');

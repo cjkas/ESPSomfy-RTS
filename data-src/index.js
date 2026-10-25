@@ -356,82 +356,70 @@ function putJSONSync(url, data, cb) {
 // can't spare (docs/adr/0005-one-websocket-protocol.md).
 var proto = null;
 var protoSynced = false;
+var everSynced = false;
 var connectFailed = 0;
-// An op's refusal as ui.serviceError shows it.  A shade whose settings don't
-// add up carries the reason's number, which the errors table describes.
-function opError(name, err) {
-    let e = { htmlError: err.code, service: name, desc: err.desc };
-    if (err.data && typeof err.data.validation === 'number' && err.data.validation !== 0) e.code = err.data.validation;
-    return e;
+// An op as a promise of its reply, refused with what ui.serviceError shows.
+// retryBusy sends it again while the device says busy: it saves settings and
+// applies edits one at a time, whoever sent them.  A busy command is the
+// radio's queue or a moving shade, which the user decides about.
+function runOp(name, fields, retryBusy) {
+    return new Promise((resolve, reject) => {
+        if (!proto) {
+            reject(ProtoViews.opError(name, { code: 'notConnected', desc: 'Not connected to the device' }));
+            return;
+        }
+        let attempts = 0;
+        let send = () => proto.op(name, fields).then(resolve, (err) => {
+            if (retryBusy && err.code === 'busy' && ++attempts < 10) setTimeout(send, 300);
+            else reject(ProtoViews.opError(name, err));
+        });
+        send();
+    });
 }
-function notConnected(name) { return opError(name, { code: 'notConnected', desc: 'Not connected to the device' }); }
-// Sends an op; cb(err, reply) as the HTTP helpers did.  With wait the spinner
-// shows until the reply.  The device saves settings one at a time, so a save
-// that finds another running tries again; a busy command is the radio's queue
-// or a moving shade, which the user decides about.
+// cb(err, reply) as the HTTP helpers did.  With wait the spinner shows until
+// the reply.
 function sendOp(name, fields, cb, wait) {
     let overlay = wait ? ui.waitMessage(document.getElementById('divContainer')) : null;
-    let attempts = 0;
     let done = (err, d) => {
         if (overlay) overlay.remove();
         if (typeof cb === 'function') cb(err, d);
     };
-    if (!proto) {
-        done(notConnected(name), null);
-        return;
-    }
-    let send = () => proto.op(name, fields).then((d) => done(null, d), (err) => {
-        if (err.code === 'busy' && name === 'saveSettings' && ++attempts < 10) setTimeout(send, 300);
-        else done(opError(name, err), null);
-    });
-    send();
+    runOp(name, fields, name === 'saveSettings').then((d) => done(null, d), (err) => done(err, null));
 }
-// What an edit's cb gets: the room, shade or group as the edit's event left
-// it.  id picks the item's id from the reply (an add's new id) or the fields.
-function editedItem(kind, id) {
+// Where an edit's room, shade or group is once its event is in: the event to
+// wait for, and the item's id from the reply (an add's new id) or the fields.
+function editTarget(kind, idOf) {
     let key = `${kind}Id`;
     let map = { room: 'rooms', shade: 'shades', group: 'groups' }[kind];
-    return { event: kind, id: id, match: (d, i) => d[key] === i, read: (i) => kind === 'group' ? groupView(proto.model.groups.get(i)) : proto.model[map].get(i) };
+    return {
+        event: kind, idOf: idOf, match: (d, id) => d[key] === id,
+        read: (id) => kind === 'group' ? ProtoViews.group(proto.model, proto.model.groups.get(id)) : proto.model[map].get(id)
+    };
 }
-function editedRepeaters() { return { event: 'repeaters', id: () => 0, match: () => true, read: () => proto.model.repeaters.slice() }; }
-// An edit.  The device runs one at a time, so one that finds another running
-// tries again.  Its events follow the reply: with after, cb gets the item once
-// its event is in; without, the lists redraw from the events anyway.
-function sendEdit(name, fields, after, cb) {
-    if (!proto) {
-        cb(notConnected(name), null);
-        return;
-    }
+// An edit, with the spinner up until it is done.  Its events follow the
+// reply: with a target, cb gets the item once its event is in; without, the
+// lists redraw from the events anyway.
+function sendEdit(name, fields, target, cb) {
     let overlay = ui.waitMessage(document.getElementById('divContainer'));
-    let attempts = 0;
     let finish = (err, item) => {
         overlay.remove();
         if (typeof cb === 'function') cb(err, item);
     };
-    let send = () => {
-        proto.op(name, fields).then((reply) => {
-            if (!after) {
-                finish(null, reply);
-                return;
-            }
-            let id = after.id(reply);
-            // Without the event the reply is all there is, an add's new id in it.
-            proto.waitFor(after.event, (d) => after.match(d, id), 3000).then(() => finish(null, after.read(id) || reply));
-        }, (err) => {
-            if (err.code === 'busy' && ++attempts < 10) setTimeout(send, 300);
-            else finish(opError(name, err), null);
-        });
-    };
-    send();
+    runOp(name, fields, true).then((reply) => {
+        if (!target) {
+            finish(null, reply);
+            return;
+        }
+        let id = target.idOf(reply);
+        // Without the event the reply is all there is, an add's new id in it.
+        proto.waitFor(target.event, (d) => target.match(d, id), 3000).then(() => finish(null, target.read(id) || reply));
+    }, (err) => finish(err, null));
 }
-// A group as the UI shows it: its shades whole, where the device sends ids.
-function groupView(group) {
-    if (!group) return group;
-    let view = Object.assign({}, group);
-    view.linkedShades = group.linkedShades.map((id) => proto.model.shades.get(id) || { shadeId: id, name: `Shade ${id}`, remoteAddress: 0 });
-    return view;
-}
+// A command's repeat count, when the caller gave one.
+function repeatOf(repeat) { return typeof repeat === 'number' ? repeat : undefined; }
+function gone(what) { ui.errorMessage(`The ${what} is no longer there.`); }
 // The lists redraw from the model after events, a burst of them at once.
+// While the socket is down they wait for the next sync.
 var renderPending = {};
 var renderTimer = null;
 function render(part) {
@@ -444,7 +432,7 @@ function render(part) {
         // Shades and groups show their room's name.
         if (p.rooms) somfy.setRoomsList(proto.model.roomList());
         if (p.rooms || p.shades) somfy.setShadesList(proto.model.shadeList());
-        if (p.rooms || p.groups) somfy.setGroupsList(proto.model.groupList().map(groupView));
+        if (p.rooms || p.groups) somfy.setGroupsList(proto.model.groupList().map((g) => ProtoViews.group(proto.model, g)));
         if (p.repeaters) somfy.setRepeaterList(proto.model.repeaters);
     }, 20);
 }
@@ -466,19 +454,11 @@ function showStatus(status) {
     else wifi.procWifiStrength({ ssid: status.ssid, channel: status.channel, strength: status.strength });
 }
 // The feeds the config panel shows: received frames and the frequency scan.
+// The client keeps them across reconnects, so they are set even while the
+// socket is down.
 function subscribeConfigFeeds(on) {
-    if (!proto || !protoSynced) return;
-    for (let feed of ['frames', 'frequencyScan']) (on ? proto.subscribe(feed) : proto.unsubscribe(feed)).catch((err) => console.log(err));
-}
-// A received frame as the frames list and remote linking read it.
-function frameView(d) {
-    let f = proto.schema.fill(Object.assign({}, d), ['encKey', 'remoteAddress', 'lastRollingCode', 'command', 'rawCmd', 'rssi', 'bits', 'proto', 'valid', 'stepSize', 'pulses']);
-    return { encKey: f.encKey, address: f.remoteAddress, rcode: f.lastRollingCode, command: f.command, rawCmd: f.rawCmd, rssi: f.rssi,
-        bits: f.bits, proto: f.proto, valid: f.valid, stepSize: d.stepSize, pulses: f.pulses };
-}
-function scanView(d) {
-    let s = proto.schema.fill(Object.assign({}, d), ['scanning', 'testFreq', 'testRssi', 'frequency', 'rssi']);
-    return { scanning: s.scanning, testFreq: s.testFreq, testRSSI: s.testRssi, frequency: s.frequency, RSSI: s.rssi };
+    if (!proto) return;
+    for (let feed of ['frames', 'frequencyScan']) (on ? proto.subscribe(feed) : proto.unsubscribe(feed)).catch(() => {});
 }
 function showVersionMismatch(v) {
     if (document.getElementById('divVersionMismatch')) return;
@@ -496,8 +476,10 @@ function startSocket() {
     }
     let host = window.location.protocol === 'file:' ? hst : window.location.host;
     proto = new ProtoClient({ host: host, token: security.apiKey });
+    // Each sync, the first and after a reconnect: what changed meanwhile shows.
     proto.on('synced', () => {
-        let first = !protoSynced;
+        let first = !everSynced;
+        everSynced = true;
         protoSynced = true;
         connectFailed = 0;
         clearSocketWait();
@@ -505,14 +487,13 @@ function startSocket() {
             general.reload();
             return;
         }
-        if (!first) return;
-        ui.clearErrors();
+        if (first) ui.clearErrors();
         general.loadGeneral();
         wifi.loadNetwork();
         somfy.loadSomfy();
         mqtt.loadMQTT();
         showStatus(proto.model.status);
-        if (ui.isConfigOpen()) subscribeConfigFeeds(true);
+        if (first && ui.isConfigOpen()) subscribeConfigFeeds(true);
     });
     let lost = (refused) => {
         protoSynced = false;
@@ -543,8 +524,8 @@ function startSocket() {
     proto.on('memory', () => showStatus(proto.model.status));
     proto.on('wifi', () => showStatus(proto.model.status));
     proto.on('ethernet', () => showStatus(proto.model.status));
-    proto.on('frame', (d) => somfy.procRemoteFrame(frameView(d)));
-    proto.on('frequencyScan', (d) => somfy.procFrequencyScan(scanView(d)));
+    proto.on('frame', (d) => somfy.procRemoteFrame(ProtoViews.frame(proto.schema, d)));
+    proto.on('frequencyScan', (d) => somfy.procFrequencyScan(ProtoViews.scan(proto.schema, d)));
     proto.on('shadeCommanded', (d) => console.log(d));
     // Another client saved settings: show them as they are now.
     proto.on('settingsChanged', (d) => {
@@ -1128,14 +1109,19 @@ class Security {
         getJSON('/loginContext', (err, ctx) => {
             this.checkingRefusal = false;
             if (err || ctx.type === 0) return;
-            proto.close();
-            clearSocketWait();
-            this.setToken('');
-            this.authenticated = false;
             this.type = ctx.type;
-            this.authUser();
-            document.getElementById('btnCancelLogin').style.display = 'none';
+            this.tokenRefused();
         });
+    }
+    // The device refused the token: open the login, with no retry.  Logging
+    // in connects the socket again with the new one.
+    tokenRefused() {
+        if (proto) proto.close();
+        clearSocketWait();
+        this.setToken('');
+        this.authenticated = false;
+        this.authUser();
+        document.getElementById('btnCancelLogin').style.display = 'none';
     }
     async loadContext() {
         let pnl = document.getElementById('divUnauthenticated');
@@ -1396,7 +1382,7 @@ class General {
         general.setAppVersion();
         sendOp('getSettings', { section: 'general' }, (err, settings) => {
             if (err) console.log(err);
-            else ui.toElement(pnl, { general: settings });
+            else ui.toElement(pnl, { general: ProtoViews.settings(proto.schema, 'general', settings) });
         });
     }
     loadSecurity() {
@@ -1405,7 +1391,7 @@ class General {
         sendOp('getSettings', { section: 'security' }, (err, security) => {
             overlay.remove();
             if (err) ui.serviceError(err);
-            else general.setSecurityConfig(security);
+            else general.setSecurityConfig(ProtoViews.settings(proto.schema, 'security', security));
         });
     }
     async setAppVersion() {
@@ -1438,8 +1424,8 @@ class General {
             ui.errorMessage('Invalid Host Name').querySelector('.sub-message').innerHTML = 'The host name must only include numbers, letters, or dash.';
             valid = false;
         }
-        if (valid && obj.hostname.length > 32) {
-            ui.errorMessage('Invalid Host Name').querySelector('.sub-message').innerHTML = 'The maximum Host Name length is 32 characters.';
+        if (valid && obj.hostname.length > 31) {
+            ui.errorMessage('Invalid Host Name').querySelector('.sub-message').innerHTML = 'The maximum Host Name length is 31 characters.';
             valid = false;
         }
         if (valid && typeof obj.ntpServer === 'string' && obj.ntpServer.length > 64) {
@@ -1502,24 +1488,24 @@ class General {
         }
     }
     saveSecurity() {
-        let security = ui.fromElement(document.getElementById('divSecurityOptions')).security;
-        console.log(security);
-        let sec = { type: security.type, username: security.username, password: security.password, pin: '' };
+        let form = ui.fromElement(document.getElementById('divSecurityOptions')).security;
+        console.log(form);
+        let sec = { type: form.type, username: form.username, password: form.password, pin: '' };
         // Pin entry.
         for (let i = 0; i < 4; i++) {
-            sec.pin += security.pin[`d${i}`];
+            sec.pin += form.pin[`d${i}`];
         }
         // Blank secret fields keep the stored value while the type (and username) stay the same.
         let saved = this.savedSecurity || {};
-        let keepPin = security.type === 1 && sec.pin === '' && saved.hasPin && saved.type === 1;
-        let keepPassword = security.type === 2 && sec.password === '' && security.repeatpassword === '' &&
+        let keepPin = form.type === 1 && sec.pin === '' && saved.hasPin && saved.type === 1;
+        let keepPassword = form.type === 2 && sec.password === '' && form.repeatpassword === '' &&
             saved.hasPassword && saved.type === 2 && sec.username === saved.username;
         // Only send the secret for the selected type so the other one stays stored.
-        if (security.type !== 1 || keepPin) delete sec.pin;
-        if (security.type !== 2 || keepPassword) delete sec.password;
+        if (form.type !== 1 || keepPin) delete sec.pin;
+        if (form.type !== 2 || keepPassword) delete sec.password;
         let confirm = '';
         console.log(sec);
-        if (security.type === 1 && !keepPin) { // Pin Entry
+        if (form.type === 1 && !keepPin) { // Pin Entry
             // Make sure our pin is 4 digits.
             if (sec.pin.length !== 4) {
                 ui.errorMessage('Invalid Pin').querySelector('.sub-message').innerHTML = 'Pins must be exactly 4 alpha-numeric values in length.  Please enter a complete pin.';
@@ -1527,7 +1513,7 @@ class General {
             }
             confirm = '<p>Please keep your PIN safe and above all remember it.  The only way to recover a lost PIN is to completely reload the onboarding firmware which will wipe out your configuration.</p><p>Have you stored your PIN in a safe place?</p>';
         }
-        else if (security.type === 2) { // Password
+        else if (form.type === 2) { // Password
             if (sec.username.length === 0) {
                 ui.errorMessage('No Username Provided').querySelector('.sub-message').innerHTML = 'You must provide a username for password security.';
                 return;
@@ -1537,7 +1523,7 @@ class General {
                 return;
             }
         }
-        if (security.type === 2 && !keepPassword) { // Password
+        if (form.type === 2 && !keepPassword) { // Password
             if (sec.password.length === 0) {
                 ui.errorMessage('No Password Provided').querySelector('.sub-message').innerHTML = 'You must provide a password for password security.';
                 return;
@@ -1547,11 +1533,11 @@ class General {
                 return;
             }
 
-            if (security.repeatpassword.length === 0) {
+            if (form.repeatpassword.length === 0) {
                 ui.errorMessage('Re-enter Password').querySelector('.sub-message').innerHTML = 'You must re-enter the password in the Re-enter Password field.';
                 return;
             }
-            if (sec.password !== security.repeatpassword) {
+            if (sec.password !== form.repeatpassword) {
                 ui.errorMessage('Passwords do not Match').querySelector('.sub-message').innerHTML = 'Please re-enter the password exactly as you typed it in the Re-enter Password field.';
                 return;
             }
@@ -1565,12 +1551,14 @@ class General {
                     ui.serviceError(err);
                     return;
                 }
-                // The device closes every socket once a save leaves it Secured;
-                // this one comes back with the token in the reply.
+                // The device closes every socket when a save leaves it Secured or
+                // changes its mode; this one comes back with the token in the
+                // reply.  None to None closes nothing.
+                let closed = sec.type !== 0 || security.type !== 0;
                 security.type = sec.type;
                 security.authenticated = sec.type !== 0;
                 security.setToken(reply.apiKey);
-                startSocket();
+                if (closed) startSocket();
             }, true);
         });
         prompt.querySelector('.sub-message').innerHTML = confirm;
@@ -1644,19 +1632,6 @@ class Wifi {
         }
     }
     onDHCPClicked(cb) { document.getElementById('divStaticIP').style.display = cb.checked ? 'none' : ''; }
-    static NETWORK_FIELDS = ['connMode', 'hasEthernet', 'ssid', 'hasPassphrase', 'roaming', 'hidden', 'boardType', 'phyType', 'CLKMode',
-        'phyAddress', 'PWRPin', 'MDCPin', 'MDIOPin', 'dhcp', 'ip', 'gateway', 'subnet', 'dns1', 'dns2'];
-    static ETHERNET_FIELDS = ['boardType', 'phyType', 'CLKMode', 'phyAddress', 'PWRPin', 'MDCPin', 'MDIOPin'];
-    // The network section as the panel binds it: WiFi, Ethernet and the
-    // address each in an object of its own.
-    networkView(n) {
-        n = proto.schema.fill(Object.assign({}, n), Wifi.NETWORK_FIELDS);
-        let view = { connType: n.connMode, hasEthernet: n.hasEthernet, wifi: {}, ethernet: {}, ip: {} };
-        for (let name of ['ssid', 'hasPassphrase', 'roaming', 'hidden']) view.wifi[name] = n[name];
-        for (let name of Wifi.ETHERNET_FIELDS) view.ethernet[name] = n[name];
-        for (let name of ['dhcp', 'ip', 'gateway', 'subnet', 'dns1', 'dns2']) view.ip[name] = n[name];
-        return view;
-    }
     // Saves part of the network section; the device may restart for it.
     saveNetworkSection(fields, done) {
         sendOp('saveSettings', Object.assign({ section: 'network' }, fields), (err, reply) => {
@@ -1672,7 +1647,7 @@ class Wifi {
                 ui.serviceError(err);
             }
             else {
-                let settings = this.networkView(reply);
+                let settings = ProtoViews.network(proto.schema, reply);
                 console.log(settings);
                 let hasEthernet = settings.hasEthernet;
                 this.hasEthernet = hasEthernet;
@@ -1873,7 +1848,7 @@ class Wifi {
     sendNetworkSettings(obj) {
         let fields = { connMode: obj.connType, ssid: obj.wifi.ssid, passphrase: obj.wifi.passphrase, roaming: obj.wifi.roaming, hidden: obj.wifi.hidden };
         // A device without Ethernet refuses its settings.
-        if (this.hasEthernet) for (let name of Wifi.ETHERNET_FIELDS) fields[name] = obj.ethernet[name];
+        if (this.hasEthernet) for (let name of ProtoViews.ETHERNET) fields[name] = obj.ethernet[name];
         this.saveNetworkSection(fields);
     }
     connectWiFi() {
@@ -1969,19 +1944,13 @@ class Somfy {
         firmware.procFwStatus({ fwVersion: { name: header.fw } });
         this.loadRadio();
     }
-    static RADIO_FIELDS = ['bitLength', 'proto', 'enabled', 'TXPin', 'RXPin', 'SCKPin', 'MOSIPin', 'MISOPin', 'CSNPin', 'frequency',
-        'rxBandwidth', 'deviation', 'txPower', 'noiseDetection', 'radioInit'];
-    // The radio section as the panel binds it, where the bit length is the
-    // radio's type.
     loadRadio() {
         sendOp('getSettings', { section: 'radio' }, (err, radio) => {
             if (err) {
                 ui.serviceError(err);
                 return;
             }
-            let config = proto.schema.fill(Object.assign({}, radio), Somfy.RADIO_FIELDS);
-            config.type = config.bitLength;
-            delete config.bitLength;
+            let config = ProtoViews.radio(proto.schema, radio);
             ui.toElement(document.getElementById('divTransceiverSettings'), { transceiver: { config: config } });
             document.getElementById('divRadioError').style.display = config.radioInit ? 'none' : '';
         });
@@ -2031,11 +2000,7 @@ class Somfy {
             if (valid) valid = fnValDup(trans.config, 'TXPin');
             if (valid) valid = fnValDup(trans.config, 'RXPin');
             if (valid) {
-                let fields = { section: 'radio', bitLength: trans.config.type };
-                for (let name of Somfy.RADIO_FIELDS) {
-                    if (name !== 'bitLength' && name !== 'radioInit') fields[name] = trans.config[name];
-                }
-                sendOp('saveSettings', fields, (err) => {
+                sendOp('saveSettings', ProtoViews.radioSave(trans.config), (err) => {
                     if (err) ui.serviceError(err);
                     else {
                         document.getElementById('btnSaveRadio').classList.remove('disabled');
@@ -2827,7 +2792,7 @@ class Somfy {
             };
             // The frames keep coming while the edit runs: link it once.
             lnk.remove();
-            sendEdit('linkRemote', obj, editedItem('shade', () => obj.shadeId), (err, shade) => {
+            sendEdit('linkRemote', obj, editTarget('shade', () => obj.shadeId), (err, shade) => {
                 if (err) ui.serviceError(err);
                 else if (shade) this.setLinkedRemotesList(shade);
             });
@@ -2970,7 +2935,7 @@ class Somfy {
         else {
             document.getElementById('btnSaveRoom').innerText = 'Save Room';
             let room = proto.model.rooms.get(roomId);
-            if (!room) ui.errorMessage('The room is no longer there.');
+            if (!room) gone('room');
             else {
                 document.getElementById('spanRoomId').innerText = roomId;
                 ui.toElement(document.getElementById('somfyRoom'), room);
@@ -3057,7 +3022,8 @@ class Somfy {
                 }
             };
             let shade = proto.model.shades.get(shadeId);
-            fnShow(shade ? null : { service: 'shade', desc: 'The shade is no longer there.' }, shade);
+            if (shade) fnShow(null, shade);
+            else gone('shade');
         }
     }
     openEditGroup(groupId) {
@@ -3085,8 +3051,8 @@ class Somfy {
             document.getElementById('btnSaveGroup').style.display = 'none';
             document.getElementById('btnSaveGroup').innerText = 'Save Group';
             document.getElementById('spanGroupId').innerText = groupId;
-            let group = groupView(proto.model.groups.get(groupId));
-            if (!group) ui.errorMessage('The group is no longer there.');
+            let group = ProtoViews.group(proto.model, proto.model.groups.get(groupId));
+            if (!group) gone('group');
             else {
                 ui.toElement(document.getElementById('somfyGroup'), group);
                 this.showEditGroup(true);
@@ -3163,7 +3129,7 @@ class Somfy {
         if (valid) {
             if (isNaN(roomId) || roomId === 0) {
                 // We are adding.
-                sendEdit('addRoom', obj, editedItem('room', (r) => r.roomId), (err, room) => {
+                sendEdit('addRoom', obj, editTarget('room', (r) => r.roomId), (err, room) => {
                     if (err) {
                         ui.serviceError(err);
                         console.log(err);
@@ -3233,7 +3199,7 @@ class Somfy {
         if (valid) {
             if (isNaN(shadeId) || shadeId >= 255) {
                 // We are adding.
-                sendEdit('addShade', obj, editedItem('shade', (r) => r.shadeId), (err, shade) => {
+                sendEdit('addShade', obj, editTarget('shade', (r) => r.shadeId), (err, shade) => {
                     if (err) {
                         ui.serviceError(err);
                         console.log(err);
@@ -3251,7 +3217,7 @@ class Somfy {
             }
             else {
                 obj.shadeId = shadeId;
-                sendEdit('saveShade', obj, editedItem('shade', () => shadeId), (err, shade) => {
+                sendEdit('saveShade', obj, editTarget('shade', () => shadeId), (err, shade) => {
                     if (err) {
                         ui.serviceError(err);
                         return;
@@ -3286,7 +3252,7 @@ class Somfy {
         if (valid) {
             if (isNaN(groupId) || groupId >= 255) {
                 // We are adding.
-                sendEdit('addGroup', obj, editedItem('group', (r) => r.groupId), (err, group) => {
+                sendEdit('addGroup', obj, editTarget('group', (r) => r.groupId), (err, group) => {
                     if (err) ui.serviceError(err);
                     else {
                         console.log(group);
@@ -3305,11 +3271,6 @@ class Somfy {
             }
         }
     }
-    // The lists as the model has them; the device's events redraw them too.
-    updateRoomsList() { render('rooms'); }
-    updateShadeList() { render('shades'); }
-    updateGroupList() { render('groups'); }
-    updateRepeatList() { render('repeaters'); }
     deleteRoom(roomId) {
         let valid = true;
         if (isNaN(roomId) || roomId >= 255 || roomId <= 0) {
@@ -3318,7 +3279,7 @@ class Somfy {
         }
         if (valid) {
             let room = proto.model.rooms.get(roomId);
-            if (!room) ui.errorMessage('The room is no longer there.');
+            if (!room) gone('room');
             else {
                 let prompt = ui.promptMessage(`Are you sure you want to delete this room?`, () => {
                     ui.clearErrors();
@@ -3339,7 +3300,7 @@ class Somfy {
         }
         if (valid) {
             let shade = proto.model.shades.get(shadeId);
-            if (!shade) ui.errorMessage('The shade is no longer there.');
+            if (!shade) gone('shade');
             else if (shade.inGroup) ui.errorMessage(`You may not delete this shade because it is a member of a group.`);
             else {
                 let prompt = ui.promptMessage(`Are you sure you want to delete this shade?`, () => {
@@ -3361,7 +3322,7 @@ class Somfy {
         }
         if (valid) {
             let group = proto.model.groups.get(groupId);
-            if (!group) ui.errorMessage('The group is no longer there.');
+            if (!group) gone('group');
             else if (group.linkedShades.length > 0) {
                 ui.errorMessage('You may not delete this group until all shades have been removed from it.');
             }
@@ -3387,36 +3348,33 @@ class Somfy {
     }
     openSetRollingCode(shadeId) {
         let shade = proto.model.shades.get(shadeId);
-        {
-            if (!shade) {
-                ui.errorMessage('The shade is no longer there.');
-            }
-            else {
-                console.log(shade);
-                let div = document.createElement('div');
-                div.setAttribute('id', 'divRollingCode');
-                let html = `<div class="instructions" data-shadeid="${shadeId}">`;
-                html += '<div style="width:100%;color:red;text-align:center;font-weight:bold;"><span style="background:yellow;padding:10px;display:inline-block;border-radius:5px;background:white;">BEWARE ... WARNING ... DANGER<span></div>';
-                html += '<hr style="width:100%;margin:0px;"></hr>';
-                html += '<p style="font-size:14px;">If this shade is already paired with a motor then changing the rolling code WILL cause it to stop working.  Rolling codes are tied to the remote address and the Somfy motor expects these to be sequential.</p>';
-                html += '<p style="font-size:14px;">If you hesitated just a little bit do not press the red button.  Green represents safety so press it, wipe the sweat from your brow, and go through the normal pairing process.';
-                html += '<div class="field-group" style="border-radius:5px;background:white;width:50%;margin-left:25%;text-align:center">';
-                html += `<input id="fldNewRollingCode" min="0" max="65535" name="newRollingCode" type="number" length="12" style="text-align:center;font-size:24px;" placeholder="New Code" value="${shade.lastRollingCode}"></input>`;
-                html += '<label for="fldNewRollingCode">Rolling Code</label>';
-                html += '</div>';
-                html += `<div class="button-container">`;
-                html += `<button id="btnChangeRollingCode" type="button" style="padding-left:20px;padding-right:20px;display:inline-block;background:orangered;" onclick="somfy.setRollingCode(${shadeId}, parseInt(document.getElementById('fldNewRollingCode').value, 10));">Set Rolling Code</button>`;
-                html += `<button id="btnCancel" type="button" style="padding-left:20px;padding-right:20px;display:inline-block;background:lawngreen;color:gray" onclick="document.getElementById('divRollingCode').remove();">Cancel</button>`;
-                html += `</div>`;
-                div.innerHTML = html;
-                document.getElementById('somfyShade').appendChild(div);
-            }
+        if (!shade) {
+            gone('shade');
+            return;
         }
+        console.log(shade);
+        let div = document.createElement('div');
+        div.setAttribute('id', 'divRollingCode');
+        let html = `<div class="instructions" data-shadeid="${shadeId}">`;
+        html += '<div style="width:100%;color:red;text-align:center;font-weight:bold;"><span style="background:yellow;padding:10px;display:inline-block;border-radius:5px;background:white;">BEWARE ... WARNING ... DANGER<span></div>';
+        html += '<hr style="width:100%;margin:0px;"></hr>';
+        html += '<p style="font-size:14px;">If this shade is already paired with a motor then changing the rolling code WILL cause it to stop working.  Rolling codes are tied to the remote address and the Somfy motor expects these to be sequential.</p>';
+        html += '<p style="font-size:14px;">If you hesitated just a little bit do not press the red button.  Green represents safety so press it, wipe the sweat from your brow, and go through the normal pairing process.';
+        html += '<div class="field-group" style="border-radius:5px;background:white;width:50%;margin-left:25%;text-align:center">';
+        html += `<input id="fldNewRollingCode" min="0" max="65535" name="newRollingCode" type="number" length="12" style="text-align:center;font-size:24px;" placeholder="New Code" value="${shade.lastRollingCode}"></input>`;
+        html += '<label for="fldNewRollingCode">Rolling Code</label>';
+        html += '</div>';
+        html += `<div class="button-container">`;
+        html += `<button id="btnChangeRollingCode" type="button" style="padding-left:20px;padding-right:20px;display:inline-block;background:orangered;" onclick="somfy.setRollingCode(${shadeId}, parseInt(document.getElementById('fldNewRollingCode').value, 10));">Set Rolling Code</button>`;
+        html += `<button id="btnCancel" type="button" style="padding-left:20px;padding-right:20px;display:inline-block;background:lawngreen;color:gray" onclick="document.getElementById('divRollingCode').remove();">Cancel</button>`;
+        html += `</div>`;
+        div.innerHTML = html;
+        document.getElementById('somfyShade').appendChild(div);
     }
     setPaired(shadeId, paired) {
         let obj = { shadeId: shadeId, paired: paired || false };
         let div = document.getElementById('divPairing');
-        sendEdit('setPaired', obj, editedItem('shade', () => shadeId), (err, shade) => {
+        sendEdit('setPaired', obj, editTarget('shade', () => shadeId), (err, shade) => {
             if (err) {
                 console.log(err);
                 ui.errorMessage(err.desc);
@@ -3561,21 +3519,25 @@ class Somfy {
     // cb(err, reply): the reply carries no state; the shade's state events
     // follow as it moves.
     sendCommand(shadeId, command, repeat, cb) {
-        let o = typeof shadeId === 'object' ? shadeId : { shadeId: shadeId, command: command, repeat: repeat };
-        if (typeof shadeId === 'object') cb = command;
-        let fields = { shadeId: o.shadeId, repeat: typeof o.repeat === 'number' ? o.repeat : undefined, stepSize: o.stepSize };
-        if (isNaN(parseInt(o.command, 10))) fields.command = o.command;
-        else fields.target = parseInt(o.command, 10);
-        sendOp('shadeCommand', fields, cb);
+        let [cmd, done] = this.commandArgs(shadeId, command, repeat, cb);
+        let fields = { shadeId: cmd.shadeId, repeat: repeatOf(cmd.repeat), stepSize: cmd.stepSize };
+        if (isNaN(parseInt(cmd.command, 10))) fields.command = cmd.command;
+        else fields.target = parseInt(cmd.command, 10);
+        sendOp('shadeCommand', fields, done);
     }
     // The last frame again when it was this command, otherwise the command.
     sendCommandRepeat(shadeId, command, repeat, cb) {
-        let o = typeof shadeId === 'object' ? shadeId : { shadeId: shadeId, command: command, repeat: repeat };
-        if (typeof shadeId === 'object') cb = command;
-        sendOp('repeatCommand', { shadeId: o.shadeId, command: o.command, repeat: typeof o.repeat === 'number' ? o.repeat : undefined, stepSize: o.stepSize }, cb);
+        let [cmd, done] = this.commandArgs(shadeId, command, repeat, cb);
+        sendOp('repeatCommand', { shadeId: cmd.shadeId, command: cmd.command, repeat: repeatOf(cmd.repeat), stepSize: cmd.stepSize }, done);
+    }
+    // (shadeId, command, repeat, cb), or (object, cb) as the virtual remote
+    // calls it: the command and the callback.
+    commandArgs(shadeId, command, repeat, cb) {
+        if (typeof shadeId === 'object') return [shadeId, command];
+        return [{ shadeId: shadeId, command: command, repeat: repeat }, cb];
     }
     sendGroupRepeat(groupId, command, repeat, cb) {
-        sendOp('repeatCommand', { groupId: groupId, command: command, repeat: typeof repeat === 'number' ? repeat : undefined }, cb);
+        sendOp('repeatCommand', { groupId: groupId, command: command, repeat: repeatOf(repeat) }, cb);
     }
     sendVRCommand(el) {
         let pnl = document.getElementById('divVirtualRemote');
@@ -3623,14 +3585,14 @@ class Somfy {
     }
     // obj: a shade's or a group's id, and sunny, windy or both.
     sendSetSensor(obj, cb) {
-        let fields = { sunny: obj.sunny, windy: obj.windy, repeat: typeof obj.repeat === 'number' ? obj.repeat : undefined };
+        let fields = { sunny: obj.sunny, windy: obj.windy, repeat: repeatOf(obj.repeat) };
         if (typeof obj.groupId === 'number' && !isNaN(obj.groupId)) fields.groupId = obj.groupId;
         else fields.shadeId = obj.shadeId;
         sendOp('setSensor', fields, cb);
     }
     sendGroupCommand(groupId, command, repeat, cb) {
         console.log(`Sending Group command ${groupId}-${command}`);
-        sendOp('groupCommand', { groupId: groupId, command: command, repeat: typeof repeat === 'number' ? repeat : undefined }, cb);
+        sendOp('groupCommand', { groupId: groupId, command: command, repeat: repeatOf(repeat) }, cb);
     }
     sendTiltCommand(shadeId, command, cb) {
         console.log(`Sending Tilt command ${shadeId}-${command}`);
@@ -3750,7 +3712,7 @@ class Somfy {
             mouseDown = false;
             let obj = ui.fromElement(div);
             let prompt = ui.promptMessage('Confirm Motor Response', () => {
-                sendEdit('linkToGroup', { groupId: groupId, shadeId: obj.shadeId }, editedItem('group', () => groupId), (err, group) => {
+                sendEdit('linkToGroup', { groupId: groupId, shadeId: obj.shadeId }, editTarget('group', () => groupId), (err, group) => {
                     if (err) ui.serviceError(err);
                     else if (group) somfy.setLinkedShadesList(group);
                 });
@@ -3845,7 +3807,7 @@ class Somfy {
                 if (err) ui.serviceError(err);
                 else {
                     let prompt = ui.promptMessage('Confirm Motor Response', () => {
-                        sendEdit('unlinkFromGroup', { groupId: groupId, shadeId: shadeId }, editedItem('group', () => groupId), (err, group) => {
+                        sendEdit('unlinkFromGroup', { groupId: groupId, shadeId: shadeId }, editTarget('group', () => groupId), (err, group) => {
                             if (err) ui.serviceError(err);
                             else if (group) somfy.setLinkedShadesList(group);
                         });
@@ -3856,25 +3818,23 @@ class Somfy {
                 }
             });
         });
-        {
-            let group = groupView(proto.model.groups.get(groupId));
-            if (!group) {
-                div.remove();
-                ui.errorMessage('The group is no longer there.');
+        let group = ProtoViews.group(proto.model, proto.model.groups.get(groupId));
+        if (!group) {
+            div.remove();
+            gone('group');
+        }
+        else {
+            let shade = group.linkedShades.find((x) => { return shadeId === x.shadeId; });
+            if (typeof shade !== 'undefined') {
+                // Add in all the available shades.
+                let grpName = div.querySelector('#divGroupName');
+                if (grpName) grpName.innerHTML = group.name;
+                let divWizShadeName = div.querySelector('#divWizShadeName');
+                if (divWizShadeName) divWizShadeName.innerHTML = shade.name;
             }
             else {
-                let shade = group.linkedShades.find((x) => { return shadeId === x.shadeId; });
-                if (typeof shade !== 'undefined') {
-                    // Add in all the available shades.
-                    let grpName = div.querySelector('#divGroupName');
-                    if (grpName) grpName.innerHTML = group.name;
-                    let divWizShadeName = div.querySelector('#divWizShadeName');
-                    if (divWizShadeName) divWizShadeName.innerHTML = shade.name;
-                }
-                else {
-                    div.remove();
-                    ui.errorMessage('The specified shade could not be found in this group.');
-                }
+                div.remove();
+                ui.errorMessage('The specified shade could not be found in this group.');
             }
         }
         return div;
@@ -3895,7 +3855,7 @@ class Somfy {
                 shadeId: shadeId,
                 remoteAddress: remoteAddress
             };
-            sendEdit('unlinkRemote', obj, editedItem('shade', () => shadeId), (err, shade) => {
+            sendEdit('unlinkRemote', obj, editTarget('shade', () => shadeId), (err, shade) => {
                 prompt.remove();
                 if (err) ui.serviceError(err);
                 else if (shade) this.setLinkedRemotesList(shade);
@@ -4004,13 +3964,12 @@ var somfy = new Somfy();
 class MQTT {
     initialized = false;
     init() { this.initialized = true; }
-    static FIELDS = ['enabled', 'pubDisco', 'protocol', 'hostname', 'port', 'username', 'hasPassword', 'rootTopic', 'discoTopic'];
     loadMQTT() {
         sendOp('getSettings', { section: 'mqtt' }, (err, reply) => {
             if (err)
                 console.log(err);
             else {
-                let settings = proto.schema.fill(Object.assign({}, reply), MQTT.FIELDS);
+                let settings = ProtoViews.settings(proto.schema, 'mqtt', reply);
                 ui.toElement(document.getElementById('divMQTT'), { mqtt: settings });
                 // The device never returns the stored password; leave the field blank to keep it.
                 this.savedUsername = settings.username;
@@ -4053,7 +4012,7 @@ class MQTT {
             }
         }
         let fields = { section: 'mqtt' };
-        for (let name of MQTT.FIELDS) if (name !== 'hasPassword') fields[name] = obj.mqtt[name];
+        for (let name of ProtoViews.SETTINGS.mqtt) if (name !== 'hasPassword') fields[name] = obj.mqtt[name];
         fields.password = obj.mqtt.password;
         sendOp('saveSettings', fields, (err) => {
             if (err) ui.serviceError(err);
@@ -4098,7 +4057,11 @@ class Firmware {
             xhr.onload = (evt) => {
                 if (typeof overlay !== 'undefined') overlay.remove();
                 let status = xhr.status;
-                if (status !== 200) {
+                if (status === 401) {
+                    security.tokenRefused();
+                    reject({ htmlError: status, service: 'GET /backup', desc: 'Log in again, then back up' });
+                }
+                else if (status !== 200) {
                     let err = xhr.response || {};
                     err.htmlError = status;
                     err.service = `GET /backup`;
@@ -4331,6 +4294,15 @@ class Firmware {
         xhr.onload = function () {
             console.log('File upload load called');
             btnCancel.innerText = 'Close';
+            if (xhr.status === 401) {
+                el.remove();
+                security.tokenRefused();
+                return;
+            }
+            if (service !== '/restore' && (xhr.status < 200 || xhr.status >= 300)) {
+                ui.errorMessage(el, `The upload failed (${xhr.status}).`);
+                return;
+            }
             switch (service) {
                 case '/restore':
                     if (xhr.status < 200 || xhr.status >= 300) {
