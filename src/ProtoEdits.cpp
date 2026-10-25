@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "ProtoEdits.h"
+#include "ProtoParse.h"
 
 struct edit_op_t {
   proto_type_t type;
@@ -96,41 +97,9 @@ static const char *routeName(model_edit_type_t type, proto_field_t f) {
   if(type == model_edit_type_t::link_remote && f == proto_field_t::lastRollingCode) return "rollingCode";
   return protoField(f).name;
 }
-static const char *kindName(char kind) {
-  switch(kind) {
-    case 'b': return "boolean (1 or 0)";
-    case 'i': return "whole number";
-    case 'n': return "number";
-    case 's': return "string";
-    case 'l': return "list";
-    default: return "object";
-  }
-}
-
 // What the reply's desc points at; every parse runs on async_tcp, one at a
 // time.
 static char why[64];
-// One value under its field's kind: false when it isn't one.
-static bool expandValue(const proto_field_info_t &f, JsonVariantConst v, JsonVariant out) {
-  switch(f.kind) {
-    case 'b':
-      // Booleans are 1 and 0; the edit routes read true and false.
-      if(!v.is<int>() || (v.as<int>() != 0 && v.as<int>() != 1)) return false;
-      out.set(v.as<int>() == 1);
-      return true;
-    case 'i':
-      if(v.is<int64_t>() || v.is<uint64_t>()) return out.set(v);
-      return false;
-    case 'n':
-      if(v.is<float>()) return out.set(v);
-      return false;
-    case 's':
-      if(v.is<const char *>()) return out.set(v);
-      return false;
-    default:
-      return false;
-  }
-}
 const char *expandEditPayload(model_edit_type_t type, JsonObjectConst d, JsonDocument &doc) {
   doc.clear();
   switch(type) {
@@ -164,8 +133,8 @@ const char *expandEditPayload(model_edit_type_t type, JsonObjectConst d, JsonDoc
       snprintf(why, sizeof(why), "%s can't be set by this edit", f.name);
       return why;
     }
-    if(!expandValue(f, kv.value(), obj[routeName(type, field)].to<JsonVariant>())) {
-      snprintf(why, sizeof(why), "%s is not a %s", f.name, kindName(f.kind));
+    if(!protoRouteValue(f, kv.value(), obj[routeName(type, field)].to<JsonVariant>())) {
+      snprintf(why, sizeof(why), "%s is not a %s", f.name, protoKindName(f.kind));
       return why;
     }
   }

@@ -9,6 +9,7 @@
 #include "SomfyEditor.h"
 #include "Utils.h"
 #include "outputs/ProtoSocket.h"
+#include "DeviceOps.h"
 
 static const char *TAG = "LoopQueue";
 
@@ -85,7 +86,10 @@ void LoopQueue::drain() {
         runModelEdit(item.edit);
         break;
       case loop_item_type_t::proto_read:
-        protoSocket.replyRead(item.replyTo, item.readOp, item.groupId);
+        protoSocket.replyRead(item.replyTo, item.op, item.groupId);
+        break;
+      case loop_item_type_t::proto_device:
+        runDeviceOp(item);
         break;
     }
   }

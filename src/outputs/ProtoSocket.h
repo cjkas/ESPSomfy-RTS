@@ -31,6 +31,21 @@ class ProtoSocket {
     void replyEdit(const proto_reply_to_t &to, model_edit_type_t type, const edit_result_t &result);
     // The reply to a read op, from the shade model.  loop() only.
     void replyRead(const proto_reply_to_t &to, uint8_t op, uint8_t groupId);
+    // Any other reply formatted on loop(): ok, and the fields written between
+    // the two.  One too large for a frame goes as an internal error.
+    ProtoWriter beginReply(const proto_reply_to_t &to);
+    void endReply(const proto_reply_to_t &to);
+    void replyRefused(const proto_reply_to_t &to, proto_error_t code, const char *desc);
+    // settingsChanged, to every client but the one that saved them.
+    void settingsChanged(uint32_t savedBy, const char *section);
+    // Closes every client but keep, as a security save does: their tokens may
+    // no longer be good.
+    void closeAllBut(uint32_t keep);
+    // wifiNetworks goes to the clients that asked for a scan since the last
+    // one, once it is done: count is WiFi.scanComplete(), and the networks
+    // are WiFi's scan results.
+    void wantsWifiNetworks(uint32_t clientId);
+    void wifiNetworks(int16_t count);
     // Events, loop() only.
     void shadeState(SomfyShade &shade);
     void shade(SomfyShade &shade);
