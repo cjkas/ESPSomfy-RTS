@@ -39,8 +39,8 @@ The keys of `hello` (`fw`, `sh`) and of the schema itself (`T`, `F`, `E`, `Q`) n
 | Range | Sender | Types |
 |---|---|---|
 | 1–15 | control | `hello` 1, `reply` 2, `next` 3, `sync` 4, `syncEnd` 5, `subscribe` 6, `unsubscribe` 7 |
-| 16–127 | client ops | commands: `shadeCommand` 16, `groupCommand` 17, `tiltCommand` 18, `repeatCommand` 19, `setPositions` 20, `setSensor` 21, `setMyPosition` 22, `unpairShade` 23, `setRollingCode` 24, `sendRemoteCommand` 25; edits: 26–44 (`addRoom` … `groupSortOrder`); reads: `getNextRoom` 45, `getNextShade` 46, `getNextGroup` 47, `groupOptions` 48; settings follow |
-| 128–255 | device events | `shadeState`, `shade`, `shadeRemoved`, `group`, `groupState`, `groupRemoved`, `room`, `roomRemoved`, `roomOrder`, `shadeOrder`, `groupOrder`, `shadeCommanded`, `memory`, `wifi`, `ethernet`, `frame`, `frequencyScan`, `repeaters` |
+| 16–127 | client ops | commands: `shadeCommand` 16, `groupCommand` 17, `tiltCommand` 18, `repeatCommand` 19, `setPositions` 20, `setSensor` 21, `setMyPosition` 22, `unpairShade` 23, `setRollingCode` 24, `sendRemoteCommand` 25; edits: 26–44 (`addRoom` … `groupSortOrder`); reads: `getNextRoom` 45, `getNextShade` 46, `getNextGroup` 47, `groupOptions` 48; settings and the device: `getSettings` 49, `saveSettings` 50, `scanWifi` 51, `beginFrequencyScan` 52, `endFrequencyScan` 53, `reboot` 54 |
+| 128–255 | device events | `shadeState`, `shade`, `shadeRemoved`, `group`, `groupState`, `groupRemoved`, `room`, `roomRemoved`, `roomOrder`, `shadeOrder`, `groupOrder`, `shadeCommanded`, `memory`, `wifi`, `ethernet`, `frame`, `frequencyScan`, `repeaters`, `settingsChanged`, `wifiNetworks` |
 
 A number is never reused. A retired type stays reserved.
 
@@ -73,6 +73,8 @@ Events go out to every client from the moment it connects, so they can arrive du
 | `repeaters` | a repeater was linked or unlinked | the list |
 | `shadeCommanded` | a remote or the device commanded a shade | id, address, command, source, rolling code, source address |
 | `memory`, `wifi`, `ethernet` | every 30 s, WiFi only when the signal moved | |
+| `settingsChanged` | another client saved settings | `section` |
+| `wifiNetworks` | a WiFi scan this client asked for is done; to that client only | `networks`, each with `ssid`, `channel`, `strength`, `macAddress` |
 
 ## Commands
 
@@ -123,6 +125,48 @@ What an edit form needs before it is sent, worked out by the device as the edit 
 | `groupOptions` | `groupId` | the group's id, and in `ids` the shades it doesn't have yet |
 
 When every slot is taken the reply is a bad request; `groupOptions` for a group that doesn't exist is not found.
+
+## Settings
+
+The settings are in five sections. `getSettings` and `saveSettings` name one in `section`:
+
+| Section | Fields | The routes it replaces |
+|---|---|---|
+| `general` | `hostname`, `ssdpBroadcast`, `ntpServer`, `posixZone` | `/modulesettings`, `/setgeneral` |
+| `network` | `connMode`; WiFi: `ssid`, `passphrase`, `roaming`, `hidden`; Ethernet: `boardType`, `phyType`, `CLKMode`, `phyAddress`, `PWRPin`, `MDCPin`, `MDIOPin`; the address: `dhcp`, `ip`, `gateway`, `subnet`, `dns1`, `dns2` | `/networksettings`, `/setNetwork`, `/setIP`, `/connectwifi` |
+| `mqtt` | `enabled`, `pubDisco`, `protocol`, `hostname` (the broker's), `port`, `username`, `password`, `rootTopic`, `discoTopic` | `/mqttsettings`, `/connectmqtt` |
+| `security` | `securityType`, `username`, `password`, `pin` | `/getSecurity`, `/saveSecurity` |
+| `radio` | `bitLength`, `proto`, `enabled`, `TXPin`, `RXPin`, `SCKPin`, `MOSIPin`, `MISOPin`, `CSNPin`, `frequency`, `rxBandwidth`, `deviation`, `txPower`, `noiseDetection` | `/getRadio`, `/saveRadio` |
+
+- **Reading.** `getSettings` replies with the section's fields. A secret is never sent: `hasPassphrase`, `hasPassword` and `hasPin` say whether one is set. `network` also has `hasEthernet`, and has the Ethernet fields only on a device with Ethernet. `radio` also has `radioInit`.
+- `connMode` is the connection the settings ask for: 1 WiFi, 2 Ethernet, 3 Ethernet with WiFi as the fallback. The header's `connType` is the connection in use.
+- **Saving.** `saveSettings` takes the section and the fields to change. As with every op, a field left out stays as it is. A secret sent empty keeps the stored one, except alongside a new `ssid` or MQTT `username`, as on the routes.
+- Every field is checked before anything is saved:
+  - its kind;
+  - its range: `port` 1–65535, `txPower` -30–12, `bitLength` 56 or 80, `proto` 0, 1, 2, 8 or 9, a pin 0–48 (`PWRPin` and `phyAddress` may also be -1, for none), `frequency` 300–928, and so on;
+  - a string's length, which is what the setting holds: `hostname` 31, `pin` 4, and so on;
+  - an address: four numbers 0–255, or `""` for none.
+
+  A bad request also comes for a field the section doesn't save (a `has*` field, `radioInit`, a field of another section, Ethernet on a device without it), and for a save with no fields.
+- One save runs at a time, whichever client sent it: while one is waiting, another gets busy.
+- The reply comes once the settings are saved and applied, as their route applies them. A saved time zone takes effect at once, where the route waited for a reboot.
+  - `rebooting` 1 means the device restarts a second later for them. That happens for a new `connMode`, for a new SSID or passphrase while on WiFi with nobody on the soft AP, and for Ethernet settings while on Ethernet.
+  - A security save's reply has the client's new token in `apiKey`, or none under None.
+- The other clients get `settingsChanged` with the section.
+- A security save that leaves the device Secured, or changes its mode, closes every client instead, the one that saved it too, once its reply has gone. Under Secured the tokens may no longer be good, and a client that connected under None had none. The saver connects again with the token from its reply; the others log in when theirs is refused. A save from None to None closes nobody.
+- Where a section differs from its routes:
+  - `/connectwifi` refused an SSID the device couldn't hear; the save doesn't check. The check stalled the device for a scan, and a hidden network can't be heard anyway. A client offers the networks from `scanWifi`.
+  - `/modulesettings` and `/networksettings` also sent `fwVersion` and `chipModel`, which are in the header (`fw`, `chipModel`). Their `connType` is `connMode` in `network`, and `/networksettings`' hostname and `ssdpBroadcast` are in `general`.
+  - `/scanaps` also sent the network the device is on: that is the `wifi` event, and `status` in the sync.
+
+| Op | Payload | Reply |
+|---|---|---|
+| `scanWifi` | | ok at once. When the scan is done, `wifiNetworks` goes to each client that asked since the last one: the named networks that can be heard, at most 30. A failed scan lists none. |
+| `beginFrequencyScan` | | ok, or radio unavailable when the radio is disabled. The radio sends nothing until the scan ends. Subscribe to the `frequencyScan` feed to follow it. |
+| `endFrequencyScan` | | ok. A scan nobody ends stops after 5 minutes. |
+| `reboot` | | ok, and the device restarts half a second later. |
+
+These ops run on `loop()` like the rest. `endFrequencyScan` goes ahead of whatever is waiting in the loop queue: an unpair waits there for the radio to send again, which only the scan's end allows.
 
 ## Replies
 

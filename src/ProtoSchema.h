@@ -58,6 +58,12 @@
   TYPE(getNextShade, 46, 'c', 'r') \
   TYPE(getNextGroup, 47, 'c', 'r') \
   TYPE(groupOptions, 48, 'c', 'r') \
+  TYPE(getSettings, 49, 'c', 'd') \
+  TYPE(saveSettings, 50, 'c', 'd') \
+  TYPE(scanWifi, 51, 'c', 'd') \
+  TYPE(beginFrequencyScan, 52, 'c', 'd') \
+  TYPE(endFrequencyScan, 53, 'c', 'd') \
+  TYPE(reboot, 54, 'c', 'd') \
   TYPE(shadeState, 128, 'd', '-') \
   TYPE(shade, 129, 'd', '-') \
   TYPE(shadeRemoved, 130, 'd', '-') \
@@ -75,7 +81,9 @@
   TYPE(ethernet, 142, 'd', '-') \
   TYPE(frame, 143, 'd', '-') \
   TYPE(frequencyScan, 144, 'd', '-') \
-  TYPE(repeaters, 145, 'd', '-')
+  TYPE(repeaters, 145, 'd', '-') \
+  TYPE(settingsChanged, 146, 'd', '-') \
+  TYPE(wifiNetworks, 147, 'd', '-')
 
 // Fields, in one dictionary for every type.  FIELD(name, key, kind, default):
 // kind is b bool (sent as 1/0), i integer, n number with a fraction, s string,
@@ -187,7 +195,64 @@
   FIELD(scanning, "sc", 'b', 0) \
   FIELD(testFreq, "tf", 'n', 0) \
   FIELD(testRssi, "tr", 'i', 0) \
-  FIELD(frequency, "fq", 'n', 0)
+  FIELD(frequency, "fq", 'n', 0) \
+  /* the settings ops: which section, and what a save did */ \
+  FIELD(section, "se", 's', 0) \
+  FIELD(apiKey, "ak", 's', 0) \
+  FIELD(rebooting, "rb", 'b', 0) \
+  /* general */ \
+  FIELD(ssdpBroadcast, "sb", 'b', 0) \
+  FIELD(ntpServer, "ns", 's', 0) \
+  FIELD(posixZone, "pz", 's', 0) \
+  /* network: the connection the settings ask for (connType is the one in \
+     use), WiFi, Ethernet and the IP address */ \
+  FIELD(connMode, "cn", 'i', 0) \
+  FIELD(hasEthernet, "he", 'b', 0) \
+  FIELD(passphrase, "pp", 's', 0) \
+  FIELD(hasPassphrase, "hq", 'b', 0) \
+  FIELD(roaming, "ro", 'b', 0) \
+  FIELD(hidden, "hd", 'b', 0) \
+  FIELD(boardType, "bo", 'i', 0) \
+  FIELD(phyType, "ph", 'i', 0) \
+  FIELD(CLKMode, "ck", 'i', 0) \
+  FIELD(phyAddress, "pa", 'i', 0) \
+  FIELD(PWRPin, "pw", 'i', 0) \
+  FIELD(MDCPin, "mc", 'i', 0) \
+  FIELD(MDIOPin, "mi", 'i', 0) \
+  FIELD(dhcp, "dh", 'b', 0) \
+  FIELD(ip, "ip", 's', 0) \
+  FIELD(gateway, "gw", 's', 0) \
+  FIELD(subnet, "su", 's', 0) \
+  FIELD(dns1, "d1", 's', 0) \
+  FIELD(dns2, "d2", 's', 0) \
+  /* MQTT and security; hostname is the broker's in MQTT */ \
+  FIELD(enabled, "en", 'b', 0) \
+  FIELD(pubDisco, "pd", 'b', 0) \
+  FIELD(protocol, "pt", 's', 0) \
+  FIELD(port, "po", 'i', 0) \
+  FIELD(username, "un", 's', 0) \
+  FIELD(password, "ps", 's', 0) \
+  FIELD(hasPassword, "hw", 'b', 0) \
+  FIELD(rootTopic, "rt", 's', 0) \
+  FIELD(discoTopic, "dt", 's', 0) \
+  FIELD(securityType, "sy", 'i', 0) \
+  FIELD(pin, "pn", 's', 0) \
+  FIELD(hasPin, "hi", 'b', 0) \
+  /* the radio: bitLength, proto, frequency and enabled as above */ \
+  FIELD(TXPin, "tx", 'i', 0) \
+  FIELD(RXPin, "rx", 'i', 0) \
+  FIELD(SCKPin, "sk", 'i', 0) \
+  FIELD(MOSIPin, "mo", 'i', 0) \
+  FIELD(MISOPin, "ms", 'i', 0) \
+  FIELD(CSNPin, "cs", 'i', 0) \
+  FIELD(rxBandwidth, "bw", 'n', 0) \
+  FIELD(deviation, "dv", 'n', 0) \
+  FIELD(txPower, "tp", 'i', 0) \
+  FIELD(noiseDetection, "nd", 'b', 0) \
+  FIELD(radioInit, "ri", 'b', 0) \
+  /* wifiNetworks: each network has ssid, channel and strength as above */ \
+  FIELD(networks, "nw", 'l', 0) \
+  FIELD(macAddress, "ma", 's', 0)
 
 // Error codes in a reply.  ERR(name, number)
 #define PROTO_ERRORS(ERR) \
@@ -231,7 +296,8 @@ enum class proto_op_t : char {
   shadeRequest = 'q',  // a command: a shade request loop() runs
   remoteFrame = 'f',   // sendRemoteCommand: a frame that goes to the radio at once
   edit = 'e',          // an edit loop() applies
-  read = 'r'           // a read loop() answers from the shade model
+  read = 'r',          // a read loop() answers from the shade model
+  device = 'd'         // a settings, scan or reboot op loop() runs
 };
 const proto_field_info_t &protoField(proto_field_t field);
 const proto_field_info_t *protoFieldByKey(const char *key);

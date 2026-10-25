@@ -60,6 +60,12 @@ static void test_every_op_says_what_becomes_of_it() {
   TEST_ASSERT_EQUAL(proto_op_t::remoteFrame, protoOpKind(static_cast<uint8_t>(proto_type_t::sendRemoteCommand)));
   TEST_ASSERT_EQUAL(proto_op_t::edit, protoOpKind(static_cast<uint8_t>(proto_type_t::saveShade)));
   TEST_ASSERT_EQUAL(proto_op_t::read, protoOpKind(static_cast<uint8_t>(proto_type_t::groupOptions)));
+  TEST_ASSERT_EQUAL(proto_op_t::device, protoOpKind(static_cast<uint8_t>(proto_type_t::getSettings)));
+  TEST_ASSERT_EQUAL(proto_op_t::device, protoOpKind(static_cast<uint8_t>(proto_type_t::saveSettings)));
+  TEST_ASSERT_EQUAL(proto_op_t::device, protoOpKind(static_cast<uint8_t>(proto_type_t::scanWifi)));
+  TEST_ASSERT_EQUAL(proto_op_t::device, protoOpKind(static_cast<uint8_t>(proto_type_t::beginFrequencyScan)));
+  TEST_ASSERT_EQUAL(proto_op_t::device, protoOpKind(static_cast<uint8_t>(proto_type_t::endFrequencyScan)));
+  TEST_ASSERT_EQUAL(proto_op_t::device, protoOpKind(static_cast<uint8_t>(proto_type_t::reboot)));
   TEST_ASSERT_EQUAL(proto_op_t::none, protoOpKind(250));
 }
 static void test_a_field_by_its_key() {

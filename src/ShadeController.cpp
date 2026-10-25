@@ -6,7 +6,6 @@
 #include "ConfigFile.h"
 #include "ModelEditor.h"
 #include "ShadeChanges.h"
-#include "outputs/ProtoSocket.h"
 
 static const char *TAG = "Somfy";
 
@@ -291,7 +290,6 @@ bool SomfyShadeController::deleteShade(uint8_t shadeId) {
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
     if(this->shades[i].getShadeId() == shadeId) {
       shades[i].emitState("shadeRemoved");
-      protoSocket.shadeRemoved(shadeId);
       shades[i].unpublish();
       this->shades[i].clear();
     }
@@ -322,7 +320,6 @@ bool SomfyShadeController::deleteRoom(uint8_t roomId) {
         }
       }
       rooms[i].emitState("roomRemoved");
-      protoSocket.roomRemoved(roomId);
       this->rooms[i].clear();
     }
   }
@@ -338,7 +335,6 @@ bool SomfyShadeController::deleteGroup(uint8_t groupId) {
         if(shade) shade->configChanged();
       }
       groups[i].emitState("groupRemoved");
-      protoSocket.groupRemoved(groupId);
       groups[i].unpublish();
       this->groups[i].clear();
     }

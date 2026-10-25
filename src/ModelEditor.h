@@ -64,6 +64,10 @@ struct edit_changes_t {
   uint8_t roomId = 0;
   sort_list_t order = sort_list_t::none;
   bool repeaters = false;
+  // A delete: the id of what was removed.
+  uint8_t removedShadeId = 0;
+  uint8_t removedGroupId = 0;
+  uint8_t removedRoomId = 0;
 };
 edit_changes_t editChanges(model_edit_type_t type, const edit_result_t &result);
 

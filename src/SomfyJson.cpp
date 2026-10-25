@@ -262,13 +262,18 @@ static void markEdited(const model_edit_t &edit, const edit_result_t &result) {
   if(room) protoSocket.room(*room);
   if(c.order != sort_list_t::none) protoSocket.order(c.order);
   if(c.repeaters) protoSocket.repeaters();
+  if(c.removedShadeId) protoSocket.shadeRemoved(c.removedShadeId);
+  if(c.removedGroupId) protoSocket.groupRemoved(c.removedGroupId);
+  if(c.removedRoomId) protoSocket.roomRemoved(c.removedRoomId);
 }
 void runModelEdit(model_edit_t *edit) {
   const edit_result_t result = applyModelEdit(*edit);
   if(!result.ok) ESP_LOGW(TAG, "Edit %u refused: %s", static_cast<uint8_t>(edit->type), result.desc);
-  else markEdited(*edit, result);
+  // The reply first: the edit's events follow it (docs/PROTOCOL.md), so a
+  // client that waits for the reply doesn't read past them.
   if(edit->replyTo.client) protoSocket.replyEdit(edit->replyTo, edit->type, result);
   else emitRequestResult(edit->requestId, result);
+  if(result.ok) markEdited(*edit, result);
   cancelModelEdit(edit);
 }
 

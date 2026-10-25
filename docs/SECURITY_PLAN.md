@@ -37,6 +37,7 @@
 - **Handshake:** the socket is `ws://host/ws` on port 80. The token goes in `?apikey=<token>`, because browsers can't set headers on a websocket. `handleHandshake` checks it with the same comparison the HTTP routes use. `request->url()` is the path only, so the token doesn't reach the slow-request log.
 - **Rules:** under None anyone can connect. Under Secured the handshake needs a valid token, and a connection that has one may send every op and subscribe to every feed.
 - **Logging in with a socket already open:** the UI reconnects the socket with the token. There is no in-band upgrade message.
+- **Changing the security settings:** a `saveSettings` of the security section that leaves the device Secured, or changes its mode, closes every socket, since their tokens may no longer be good, and a socket opened under None had none. The client that saved is closed once its reply, which carries its new token, has gone, so no socket stays open on a check it never passed. The others log in when refused.
 - **Origin:** a handshake whose `Origin` header doesn't match `Host` is refused.
 
 ### CORS

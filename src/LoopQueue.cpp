@@ -9,6 +9,7 @@
 #include "SomfyEditor.h"
 #include "Utils.h"
 #include "outputs/ProtoSocket.h"
+#include "DeviceOps.h"
 
 static const char *TAG = "LoopQueue";
 
@@ -31,11 +32,12 @@ static restore_options_t restoreOptions(uint8_t parts) {
 void LoopQueue::begin() {
   if(!this->queue) this->queue = xQueueCreate(LOOP_QUEUE_SIZE, sizeof(loop_item_t));
 }
-bool LoopQueue::submit(const loop_item_t &item) {
+bool LoopQueue::submit(const loop_item_t &item, bool first) {
   if(!this->queue) return false;
   // async_tcp also services the sockets, so it must never wait on loop() or
   // the radio.
-  if(xQueueSend(static_cast<QueueHandle_t>(this->queue), &item, 0) != pdTRUE) {
+  QueueHandle_t q = static_cast<QueueHandle_t>(this->queue);
+  if((first ? xQueueSendToFront(q, &item, 0) : xQueueSend(q, &item, 0)) != pdTRUE) {
     ESP_LOGE(TAG, "Loop queue full, dropping item");
     return false;
   }
@@ -85,7 +87,10 @@ void LoopQueue::drain() {
         runModelEdit(item.edit);
         break;
       case loop_item_type_t::proto_read:
-        protoSocket.replyRead(item.replyTo, item.readOp, item.groupId);
+        protoSocket.replyRead(item.replyTo, item.op, item.groupId);
+        break;
+      case loop_item_type_t::proto_device:
+        runDeviceOp(item);
         break;
     }
   }

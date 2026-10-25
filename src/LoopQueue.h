@@ -26,20 +26,24 @@ enum class loop_item_type_t : uint8_t {
   load_shades,     // replace the shades with /shades.tmp
   snapshot_fill,   // fill a read's ModelSnapshot
   model_edit,      // apply an edit with ModelEditor
-  proto_read       // answer a protocol 2 read op from the shade model
+  proto_read,      // answer a protocol 2 read op from the shade model
+  proto_device     // run a protocol 2 settings op or the WiFi scan (DeviceOps)
 };
 struct model_edit_t;
+struct settings_save_t;
 struct loop_item_t {
   loop_item_type_t type = loop_item_type_t::shade_request;
   shade_request_t request;        // shade_request
   uint8_t restoreParts = 0;       // restore_shades: RESTORE_* bits
   uint8_t slot = 0;               // snapshot_fill: the SnapshotSlots slot
   model_edit_t *edit = nullptr;   // model_edit: loop() runs and frees it
-  // shade_request and proto_read from a protocol 2 client: loop() replies
-  // once it has run.
+  // shade_request, proto_read and proto_device from a protocol 2 client:
+  // loop() replies once it has run.
   proto_reply_to_t replyTo;
-  uint8_t readOp = 0;             // proto_read: the op's type
+  uint8_t op = 0;                 // proto_read and proto_device: the op's type
   uint8_t groupId = 0;            // proto_read: groupOptions' group
+  uint8_t section = 0;            // proto_device: getSettings' settings_section_t
+  settings_save_t *save = nullptr; // proto_device: saveSettings' save, which loop() frees
 };
 
 // Whether the item sends anything on air.
@@ -63,8 +67,10 @@ class LoopQueue {
   public:
     void begin();
     // Hands the item to loop() without waiting, so it is safe from any task,
-    // including async_tcp.  False when the queue is full.
-    bool submit(const loop_item_t &item);
+    // including async_tcp.  False when the queue is full.  first puts it
+    // ahead of everything waiting: an item that ends a frequency scan, which
+    // an unpair at the head waits for (holdLoopItem).
+    bool submit(const loop_item_t &item, bool first = false);
     // Runs the waiting items in order.  Only from loop().
     void drain();
   private:

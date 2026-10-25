@@ -205,16 +205,30 @@ static void test_a_repeater_edit_sends_the_repeaters() {
   TEST_ASSERT_TRUE(editChanges(model_edit_type_t::unlink_repeater, resultFor(0)).repeaters);
   TEST_ASSERT_FALSE(editChanges(model_edit_type_t::save_room, resultFor(1)).repeaters);
 }
-static void test_deletes_send_nothing_more() {
-  // Their removals go out as they happen.
-  for(model_edit_type_t t : {model_edit_type_t::delete_room, model_edit_type_t::delete_shade, model_edit_type_t::delete_group}) {
-    const edit_changes_t c = editChanges(t, resultFor(4));
+static void test_deletes_send_their_removal() {
+  // After the reply, as every edit's events are, so a client waiting for the
+  // reply doesn't read past it.
+  const edit_changes_t room = editChanges(model_edit_type_t::delete_room, resultFor(4));
+  const edit_changes_t shade = editChanges(model_edit_type_t::delete_shade, resultFor(5));
+  const edit_changes_t group = editChanges(model_edit_type_t::delete_group, resultFor(6));
+  TEST_ASSERT_EQUAL_UINT8(4, room.removedRoomId);
+  TEST_ASSERT_EQUAL_UINT8(5, shade.removedShadeId);
+  TEST_ASSERT_EQUAL_UINT8(6, group.removedGroupId);
+  for(const edit_changes_t &c : {room, shade, group}) {
+    // Nothing is left of it to send whole.
     TEST_ASSERT_EQUAL_UINT8(0, c.shadeId);
     TEST_ASSERT_EQUAL_UINT8(0, c.groupId);
     TEST_ASSERT_EQUAL_UINT8(0, c.roomId);
     TEST_ASSERT_EQUAL(sort_list_t::none, c.order);
     TEST_ASSERT_FALSE(c.repeaters);
   }
+  TEST_ASSERT_EQUAL_UINT8(0, room.removedShadeId + room.removedGroupId);
+  TEST_ASSERT_EQUAL_UINT8(0, shade.removedRoomId + shade.removedGroupId);
+  TEST_ASSERT_EQUAL_UINT8(0, group.removedRoomId + group.removedShadeId);
+}
+static void test_other_edits_remove_nothing() {
+  const edit_changes_t c = editChanges(model_edit_type_t::save_room, resultFor(4));
+  TEST_ASSERT_EQUAL_UINT8(0, c.removedRoomId + c.removedShadeId + c.removedGroupId);
 }
 
 int main(int argc, char **argv) {
@@ -249,6 +263,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_a_room_edit_sends_the_room);
   RUN_TEST(test_a_sort_edit_sends_its_list);
   RUN_TEST(test_a_repeater_edit_sends_the_repeaters);
-  RUN_TEST(test_deletes_send_nothing_more);
+  RUN_TEST(test_deletes_send_their_removal);
+  RUN_TEST(test_other_edits_remove_nothing);
   return UNITY_END();
 }

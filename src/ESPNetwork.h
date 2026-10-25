@@ -63,6 +63,10 @@ class ESPNetwork {
     //int getStrengthByMac(const char *mac);
     //int getStrengthBySSID(const char *ssid);
     void updateHostname();
+    // A scan of every network, hidden ones included, for the WiFi settings.
+    // It runs once no roaming scan is, and its networks go to the protocol 2
+    // clients that asked (ProtoSocket::wifiNetworks).  loop() only.
+    void scanForClients();
     bool setup();
     void loop();
     void end();

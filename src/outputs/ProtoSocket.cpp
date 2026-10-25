@@ -12,6 +12,8 @@
 #include "ProtoOps.h"
 #include "ProtoEdits.h"
 #include "ProtoAssembly.h"
+#include "ProtoSettings.h"
+#include "DeviceOps.h"
 #include "SomfyEditor.h"
 #include "LoopQueue.h"
 #include "SomfySnapshot.h"
@@ -213,11 +215,48 @@ static void queueEditOp(AsyncWebSocketClient *client, const proto_message_t &msg
 static void queueReadOp(AsyncWebSocketClient *client, const proto_message_t &msg, JsonObjectConst d) {
   loop_item_t item;
   item.type = loop_item_type_t::proto_read;
-  item.readOp = msg.type;
+  item.op = msg.type;
   const char *bad = parseReadPayload(msg.type, d, item.groupId);
   if(bad) { replyError(client, msg.id, proto_error_t::badRequest, bad); return; }
   item.replyTo = {client->id(), msg.id};
   if(!loopQueue.submit(item)) replyError(client, msg.id, proto_error_t::busy, "Command queue full");
+}
+// A settings op or the WiFi scan: loop() runs it and replies.
+static void queueDeviceOp(AsyncWebSocketClient *client, const proto_message_t &msg, JsonObjectConst d) {
+  loop_item_t item;
+  item.type = loop_item_type_t::proto_device;
+  item.op = msg.type;
+  item.replyTo = {client->id(), msg.id};
+  if(msg.type == static_cast<uint8_t>(proto_type_t::getSettings)) {
+    settings_section_t section;
+    const char *bad = parseSettingsSection(d, section);
+    if(bad) { replyError(client, msg.id, proto_error_t::badRequest, bad); return; }
+    item.section = static_cast<uint8_t>(section);
+  }
+  else if(msg.type == static_cast<uint8_t>(proto_type_t::saveSettings)) {
+    bool busy;
+    settings_save_t *save = newSettingsSave(busy);
+    if(!save) {
+      if(busy) replyError(client, msg.id, proto_error_t::busy, "Another save is running, send it again");
+      else replyError(client, msg.id, proto_error_t::internal, "Out of memory");
+      return;
+    }
+    const char *bad = expandSettingsPayload(d, HAS_ETHERNET, save->section, save->request);
+    if(bad) {
+      freeSettingsSave(save);
+      replyError(client, msg.id, proto_error_t::badRequest, bad);
+      return;
+    }
+    // A security save answers with the client's new token.
+    save->ip = client->remoteIP();
+    item.save = save;
+  }
+  // An unpair waits at the head of the queue while a frequency scan runs, so
+  // the scan's end goes ahead of it.
+  const bool first = msg.type == static_cast<uint8_t>(proto_type_t::endFrequencyScan);
+  if(loopQueue.submit(item, first)) return;
+  if(item.save) freeSettingsSave(item.save);
+  replyError(client, msg.id, proto_error_t::busy, "Command queue full");
 }
 static bool authorized(AsyncWebServerRequest *request) {
   if(settings.Security.type == security_types::None) return true;
@@ -304,8 +343,10 @@ static void onMessage(AsyncWebSocketClient *client, const char *text, size_t len
     case proto_op_t::read:
       queueReadOp(client, msg, doc["d"]);
       return;
+    case proto_op_t::device:
+      queueDeviceOp(client, msg, doc["d"]);
+      return;
     case proto_op_t::none:
-      // The settings ops arrive with the protocol core's next PR.
       replyError(client, msg.id, proto_error_t::unknownOp, "Unknown message type");
       return;
   }
@@ -374,6 +415,7 @@ void ProtoSocket::begin(AsyncWebServer &server) {
   ws.onEvent(ProtoSocket::wsEvent);
   server.addHandler(&ws);
 }
+void ProtoSocket::end() { ws.closeAll(1001, "Restarting"); }
 bool ProtoSocket::hasClients() const {
   for(const proto_slot_t &s : slots)
     if(s.clientId.load()) return true;
@@ -384,6 +426,7 @@ bool ProtoSocket::sending() const { return sockEmit.onLoopTask() && this->hasCli
 /*********************************************************************
  * loop(): syncs
  ********************************************************************/
+static void closeOnceSent();
 static void sendSyncFrame(proto_slot_t &s) {
   LiveSource src;
   char *buf = socketFrameBuffer();
@@ -424,6 +467,7 @@ void ProtoSocket::loop() {
     writeErrorReply(json, 0, proto_error_t::badRequest, "The message took too long to arrive");
     ws.text(stalled, buf, json.length());
   }
+  closeOnceSent();
   ws.cleanupClients(PROTO_MAX_CLIENTS);
 }
 
@@ -523,6 +567,27 @@ void ProtoSocket::replyRead(const proto_reply_to_t &to, uint8_t op, uint8_t grou
     writeErrorReply(json, id, code, refused);
   }
   else endFrame(json);
+  sendReply(to, json, buf, sizeof(buf));
+}
+
+ProtoWriter ProtoSocket::beginReply(const proto_reply_to_t &to) {
+  eventJson.setBuffer(socketFrameBuffer(), PROTO_MAX_FRAME);
+  beginFrame(eventJson, proto_type_t::reply, to.id);
+  ProtoWriter w(eventJson);
+  w.add(proto_field_t::ok, true);
+  return w;
+}
+void ProtoSocket::endReply(const proto_reply_to_t &to) {
+  if(!sockEmit.onLoopTask() || to.id == 0) return;
+  endFrame(eventJson);
+  sendReply(to, eventJson, socketFrameBuffer(), PROTO_MAX_FRAME);
+}
+void ProtoSocket::replyRefused(const proto_reply_to_t &to, proto_error_t code, const char *desc) {
+  if(!sockEmit.onLoopTask() || to.id == 0) return;
+  char buf[192];
+  BufferedJsonFormatter json;
+  json.setBuffer(buf, sizeof(buf));
+  writeErrorReply(json, to.id, code, desc);
   sendReply(to, json, buf, sizeof(buf));
 }
 
@@ -656,6 +721,84 @@ void ProtoSocket::ethernet() {
   ProtoWriter w(beginEvent(proto_type_t::ethernet));
   writeEthernet(w);
   sendEvent();
+}
+void ProtoSocket::settingsChanged(uint32_t savedBy, const char *section) {
+  if(!this->sending()) return;
+  ProtoWriter(beginEvent(proto_type_t::settingsChanged)).add(proto_field_t::section, section);
+  if(!finishEvent()) return;
+  for(proto_slot_t &s : slots) {
+    const uint32_t id = s.clientId.load();
+    if(id && id != savedBy) ws.text(id, socketFrameBuffer(), eventJson.length());
+  }
+}
+// The client that saved the security settings, closed once its reply has
+// gone: a close frame goes ahead of the messages waiting to be sent.
+// loop() only.
+static uint32_t closeWhenSent = 0;
+static uint32_t closeWhenSentSince = 0;
+#define CLOSE_WHEN_SENT_MAX_MS 2000
+void ProtoSocket::closeAll(uint32_t savedBy) {
+  if(!sockEmit.onLoopTask()) return;
+  for(proto_slot_t &s : slots) {
+    const uint32_t id = s.clientId.load();
+    if(id && id != savedBy) ws.close(id);
+  }
+  closeWhenSent = savedBy;
+  closeWhenSentSince = millis();
+}
+static void closeOnceSent() {
+  if(!closeWhenSent) return;
+  AsyncWebSocketClient *client = ws.client(closeWhenSent);
+  if(client && client->queueLen() > 0 && millis() - closeWhenSentSince < CLOSE_WHEN_SENT_MAX_MS) return;
+  if(client) client->close();
+  closeWhenSent = 0;
+}
+// The clients waiting for a WiFi scan.  loop() only.
+static uint32_t scanAskers[PROTO_MAX_CLIENTS];
+// The most networks wifiNetworks lists, so the event fits a frame.
+#define PROTO_MAX_NETWORKS 30
+void ProtoSocket::wantsWifiNetworks(uint32_t clientId) {
+  if(!sockEmit.onLoopTask()) return;
+  uint32_t *spare = nullptr;
+  for(uint32_t &id : scanAskers) {
+    if(id == clientId) return;
+    // A client that has gone is skipped when the event is sent, so its place
+    // can go to another.
+    if(!spare && (id == 0 || !slotOf(slots, PROTO_MAX_CLIENTS, id))) spare = &id;
+  }
+  if(spare) *spare = clientId;
+}
+void ProtoSocket::wifiNetworks(int16_t count) {
+  if(!sockEmit.onLoopTask()) return;
+  bool asked = false;
+  for(uint32_t id : scanAskers) asked |= id != 0;
+  if(!asked) return;
+  // Each asker was told the networks would follow, so when they don't fit
+  // fewer go: names that need escaping can make one five times longer.
+  bool fits = false;
+  for(uint8_t most = PROTO_MAX_NETWORKS; !fits && most > 0; most /= 2) {
+    ProtoWriter w(beginEvent(proto_type_t::wifiNetworks));
+    w.beginList(proto_field_t::networks);
+    uint8_t listed = 0;
+    for(int16_t i = 0; i < count && listed < most; i++) {
+      // As /scanaps lists them: named networks that can be heard.
+      if(WiFi.SSID(i).length() == 0 || WiFi.RSSI(i) < -95) continue;
+      w.beginItem();
+      w.add(proto_field_t::ssid, WiFi.SSID(i).c_str());
+      w.add(proto_field_t::channel, (int32_t)WiFi.channel(i));
+      w.add(proto_field_t::strength, (int32_t)WiFi.RSSI(i));
+      w.add(proto_field_t::macAddress, WiFi.BSSIDstr(i).c_str());
+      w.endItem();
+      listed++;
+    }
+    w.endList();
+    endFrame(eventJson);
+    fits = !eventJson.overflowed();
+  }
+  for(uint32_t &id : scanAskers) {
+    if(fits && id) ws.text(id, socketFrameBuffer(), eventJson.length());
+    id = 0;
+  }
 }
 bool ProtoSocket::subscribed(proto_feed_t feed) const {
   // The feed is formatted into the event buffer, which is loop()'s.
