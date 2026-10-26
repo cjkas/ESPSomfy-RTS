@@ -6,7 +6,6 @@
 #include "ConfigFile.h"
 #include "ModelEditor.h"
 #include "ShadeChanges.h"
-#include "outputs/ProtoSocket.h"
 
 static const char *TAG = "Somfy";
 
@@ -176,6 +175,15 @@ uint8_t SomfyShadeController::getNextGroupId() {
   const uint8_t id = firstFreeId(ids, SOMFY_MAX_GROUPS, SOMFY_MAX_GROUPS);
   return id == 0 ? 255 : id;
 }
+uint32_t SomfyShadeController::getNextRemoteAddress(uint8_t id) {
+  uint32_t used[SOMFY_MAX_SHADES + SOMFY_MAX_GROUPS];
+  size_t count = 0;
+  for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++)
+    if(this->shades[i].getShadeId() != 255) used[count++] = this->shades[i].getRemoteAddress();
+  for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++)
+    if(this->groups[i].getGroupId() != 255) used[count++] = this->groups[i].getRemoteAddress();
+  return offeredRemoteAddress(this->startingAddress, id, used, count);
+}
 uint8_t SomfyShadeController::getNextRoomId() {
   uint8_t ids[SOMFY_MAX_ROOMS];
   for(uint8_t i = 0; i < SOMFY_MAX_ROOMS; i++) ids[i] = this->rooms[i].roomId;
@@ -282,7 +290,6 @@ bool SomfyShadeController::deleteShade(uint8_t shadeId) {
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
     if(this->shades[i].getShadeId() == shadeId) {
       shades[i].emitState("shadeRemoved");
-      protoSocket.shadeRemoved(shadeId);
       shades[i].unpublish();
       this->shades[i].clear();
     }
@@ -313,7 +320,6 @@ bool SomfyShadeController::deleteRoom(uint8_t roomId) {
         }
       }
       rooms[i].emitState("roomRemoved");
-      protoSocket.roomRemoved(roomId);
       this->rooms[i].clear();
     }
   }
@@ -329,7 +335,6 @@ bool SomfyShadeController::deleteGroup(uint8_t groupId) {
         if(shade) shade->configChanged();
       }
       groups[i].emitState("groupRemoved");
-      protoSocket.groupRemoved(groupId);
       groups[i].unpublish();
       this->groups[i].clear();
     }

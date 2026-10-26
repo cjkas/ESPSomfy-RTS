@@ -15,43 +15,75 @@
 
 // Message types: 1-15 control, 16-127 client ops, 128-255 device events.  A
 // number is never reused; a retired type stays reserved.
-// TYPE(name, number, sender): sender is 'c' client, 'd' device, 'b' both.
+// TYPE(name, number, sender, op): sender is 'c' client, 'd' device, 'b' both;
+// op is what becomes of a client op (proto_op_t), '-' for the rest.
 #define PROTO_TYPES(TYPE) \
-  TYPE(hello, 1, 'd') \
-  TYPE(reply, 2, 'd') \
-  TYPE(next, 3, 'c') \
-  TYPE(sync, 4, 'b') \
-  TYPE(syncEnd, 5, 'd') \
-  TYPE(subscribe, 6, 'c') \
-  TYPE(unsubscribe, 7, 'c') \
-  TYPE(shadeCommand, 16, 'c') \
-  TYPE(groupCommand, 17, 'c') \
-  TYPE(tiltCommand, 18, 'c') \
-  TYPE(repeatCommand, 19, 'c') \
-  TYPE(setPositions, 20, 'c') \
-  TYPE(setSensor, 21, 'c') \
-  TYPE(setMyPosition, 22, 'c') \
-  TYPE(unpairShade, 23, 'c') \
-  TYPE(setRollingCode, 24, 'c') \
-  TYPE(sendRemoteCommand, 25, 'c') \
-  TYPE(shadeState, 128, 'd') \
-  TYPE(shade, 129, 'd') \
-  TYPE(shadeRemoved, 130, 'd') \
-  TYPE(group, 131, 'd') \
-  TYPE(groupState, 132, 'd') \
-  TYPE(groupRemoved, 133, 'd') \
-  TYPE(room, 134, 'd') \
-  TYPE(roomRemoved, 135, 'd') \
-  TYPE(roomOrder, 136, 'd') \
-  TYPE(shadeOrder, 137, 'd') \
-  TYPE(groupOrder, 138, 'd') \
-  TYPE(shadeCommanded, 139, 'd') \
-  TYPE(memory, 140, 'd') \
-  TYPE(wifi, 141, 'd') \
-  TYPE(ethernet, 142, 'd') \
-  TYPE(frame, 143, 'd') \
-  TYPE(frequencyScan, 144, 'd') \
-  TYPE(repeaters, 145, 'd')
+  TYPE(hello, 1, 'd', '-') \
+  TYPE(reply, 2, 'd', '-') \
+  TYPE(next, 3, 'c', '-') \
+  TYPE(sync, 4, 'b', '-') \
+  TYPE(syncEnd, 5, 'd', '-') \
+  TYPE(subscribe, 6, 'c', '-') \
+  TYPE(unsubscribe, 7, 'c', '-') \
+  TYPE(shadeCommand, 16, 'c', 'q') \
+  TYPE(groupCommand, 17, 'c', 'q') \
+  TYPE(tiltCommand, 18, 'c', 'q') \
+  TYPE(repeatCommand, 19, 'c', 'q') \
+  TYPE(setPositions, 20, 'c', 'q') \
+  TYPE(setSensor, 21, 'c', 'q') \
+  TYPE(setMyPosition, 22, 'c', 'q') \
+  TYPE(unpairShade, 23, 'c', 'q') \
+  TYPE(setRollingCode, 24, 'c', 'q') \
+  TYPE(sendRemoteCommand, 25, 'c', 'f') \
+  TYPE(addRoom, 26, 'c', 'e') \
+  TYPE(addShade, 27, 'c', 'e') \
+  TYPE(addGroup, 28, 'c', 'e') \
+  TYPE(saveRoom, 29, 'c', 'e') \
+  TYPE(saveShade, 30, 'c', 'e') \
+  TYPE(saveGroup, 31, 'c', 'e') \
+  TYPE(deleteRoom, 32, 'c', 'e') \
+  TYPE(deleteShade, 33, 'c', 'e') \
+  TYPE(deleteGroup, 34, 'c', 'e') \
+  TYPE(linkRemote, 35, 'c', 'e') \
+  TYPE(unlinkRemote, 36, 'c', 'e') \
+  TYPE(linkToGroup, 37, 'c', 'e') \
+  TYPE(unlinkFromGroup, 38, 'c', 'e') \
+  TYPE(linkRepeater, 39, 'c', 'e') \
+  TYPE(unlinkRepeater, 40, 'c', 'e') \
+  TYPE(setPaired, 41, 'c', 'e') \
+  TYPE(roomSortOrder, 42, 'c', 'e') \
+  TYPE(shadeSortOrder, 43, 'c', 'e') \
+  TYPE(groupSortOrder, 44, 'c', 'e') \
+  TYPE(getNextRoom, 45, 'c', 'r') \
+  TYPE(getNextShade, 46, 'c', 'r') \
+  TYPE(getNextGroup, 47, 'c', 'r') \
+  TYPE(groupOptions, 48, 'c', 'r') \
+  TYPE(getSettings, 49, 'c', 'd') \
+  TYPE(saveSettings, 50, 'c', 'd') \
+  TYPE(scanWifi, 51, 'c', 'd') \
+  TYPE(beginFrequencyScan, 52, 'c', 'd') \
+  TYPE(endFrequencyScan, 53, 'c', 'd') \
+  TYPE(reboot, 54, 'c', 'd') \
+  TYPE(shadeState, 128, 'd', '-') \
+  TYPE(shade, 129, 'd', '-') \
+  TYPE(shadeRemoved, 130, 'd', '-') \
+  TYPE(group, 131, 'd', '-') \
+  TYPE(groupState, 132, 'd', '-') \
+  TYPE(groupRemoved, 133, 'd', '-') \
+  TYPE(room, 134, 'd', '-') \
+  TYPE(roomRemoved, 135, 'd', '-') \
+  TYPE(roomOrder, 136, 'd', '-') \
+  TYPE(shadeOrder, 137, 'd', '-') \
+  TYPE(groupOrder, 138, 'd', '-') \
+  TYPE(shadeCommanded, 139, 'd', '-') \
+  TYPE(memory, 140, 'd', '-') \
+  TYPE(wifi, 141, 'd', '-') \
+  TYPE(ethernet, 142, 'd', '-') \
+  TYPE(frame, 143, 'd', '-') \
+  TYPE(frequencyScan, 144, 'd', '-') \
+  TYPE(repeaters, 145, 'd', '-') \
+  TYPE(settingsChanged, 146, 'd', '-') \
+  TYPE(wifiNetworks, 147, 'd', '-')
 
 // Fields, in one dictionary for every type.  FIELD(name, key, kind, default):
 // kind is b bool (sent as 1/0), i integer, n number with a fraction, s string,
@@ -124,6 +156,8 @@
   FIELD(repeat, "re", 'i', 0) \
   FIELD(sunny, "sn", 'b', 0) \
   FIELD(windy, "wn", 'b', 0) \
+  /* the edit ops */ \
+  FIELD(validation, "vc", 'i', 0) \
   /* the header */ \
   FIELD(maxRooms, "xr", 'i', 0) \
   FIELD(maxShades, "xs", 'i', 0) \
@@ -161,7 +195,64 @@
   FIELD(scanning, "sc", 'b', 0) \
   FIELD(testFreq, "tf", 'n', 0) \
   FIELD(testRssi, "tr", 'i', 0) \
-  FIELD(frequency, "fq", 'n', 0)
+  FIELD(frequency, "fq", 'n', 0) \
+  /* the settings ops: which section, and what a save did */ \
+  FIELD(section, "se", 's', 0) \
+  FIELD(apiKey, "ak", 's', 0) \
+  FIELD(rebooting, "rb", 'b', 0) \
+  /* general */ \
+  FIELD(ssdpBroadcast, "sb", 'b', 0) \
+  FIELD(ntpServer, "ns", 's', 0) \
+  FIELD(posixZone, "pz", 's', 0) \
+  /* network: the connection the settings ask for (connType is the one in \
+     use), WiFi, Ethernet and the IP address */ \
+  FIELD(connMode, "cn", 'i', 0) \
+  FIELD(hasEthernet, "he", 'b', 0) \
+  FIELD(passphrase, "pp", 's', 0) \
+  FIELD(hasPassphrase, "hq", 'b', 0) \
+  FIELD(roaming, "ro", 'b', 0) \
+  FIELD(hidden, "hd", 'b', 0) \
+  FIELD(boardType, "bo", 'i', 0) \
+  FIELD(phyType, "ph", 'i', 0) \
+  FIELD(CLKMode, "ck", 'i', 0) \
+  FIELD(phyAddress, "pa", 'i', 0) \
+  FIELD(PWRPin, "pw", 'i', 0) \
+  FIELD(MDCPin, "mc", 'i', 0) \
+  FIELD(MDIOPin, "mi", 'i', 0) \
+  FIELD(dhcp, "dh", 'b', 0) \
+  FIELD(ip, "ip", 's', 0) \
+  FIELD(gateway, "gw", 's', 0) \
+  FIELD(subnet, "su", 's', 0) \
+  FIELD(dns1, "d1", 's', 0) \
+  FIELD(dns2, "d2", 's', 0) \
+  /* MQTT and security; hostname is the broker's in MQTT */ \
+  FIELD(enabled, "en", 'b', 0) \
+  FIELD(pubDisco, "pd", 'b', 0) \
+  FIELD(protocol, "pt", 's', 0) \
+  FIELD(port, "po", 'i', 0) \
+  FIELD(username, "un", 's', 0) \
+  FIELD(password, "ps", 's', 0) \
+  FIELD(hasPassword, "hw", 'b', 0) \
+  FIELD(rootTopic, "rt", 's', 0) \
+  FIELD(discoTopic, "dt", 's', 0) \
+  FIELD(securityType, "sy", 'i', 0) \
+  FIELD(pin, "pn", 's', 0) \
+  FIELD(hasPin, "hi", 'b', 0) \
+  /* the radio: bitLength, proto, frequency and enabled as above */ \
+  FIELD(TXPin, "tx", 'i', 0) \
+  FIELD(RXPin, "rx", 'i', 0) \
+  FIELD(SCKPin, "sk", 'i', 0) \
+  FIELD(MOSIPin, "mo", 'i', 0) \
+  FIELD(MISOPin, "ms", 'i', 0) \
+  FIELD(CSNPin, "cs", 'i', 0) \
+  FIELD(rxBandwidth, "bw", 'n', 0) \
+  FIELD(deviation, "dv", 'n', 0) \
+  FIELD(txPower, "tp", 'i', 0) \
+  FIELD(noiseDetection, "nd", 'b', 0) \
+  FIELD(radioInit, "ri", 'b', 0) \
+  /* wifiNetworks: each network has ssid, channel and strength as above */ \
+  FIELD(networks, "nw", 'l', 0) \
+  FIELD(macAddress, "ma", 's', 0)
 
 // Error codes in a reply.  ERR(name, number)
 #define PROTO_ERRORS(ERR) \
@@ -197,9 +288,21 @@ struct proto_named_t {
   uint8_t number;
   const char *name;
   char sender;  // types only
+  char op;      // types only
+};
+// What becomes of a client op, from the TYPE table.
+enum class proto_op_t : char {
+  none = '-',          // not an op
+  shadeRequest = 'q',  // a command: a shade request loop() runs
+  remoteFrame = 'f',   // sendRemoteCommand: a frame that goes to the radio at once
+  edit = 'e',          // an edit loop() applies
+  read = 'r',          // a read loop() answers from the shade model
+  device = 'd'         // a settings, scan or reboot op loop() runs
 };
 const proto_field_info_t &protoField(proto_field_t field);
 const proto_field_info_t *protoFieldByKey(const char *key);
+// The field with that key; false when there is none.
+bool protoFieldOfKey(const char *key, proto_field_t &out);
 // The tables as the schema lists them, in declaration order.
 uint8_t protoTypeCount();
 const proto_named_t &protoTypeAt(uint8_t index);
@@ -210,6 +313,7 @@ const proto_named_t &protoFeedAt(uint8_t index);
 const char *protoTypeName(uint8_t number);
 // What a client may send: control messages it sends and the ops.
 bool protoClientMaySend(uint8_t type);
+proto_op_t protoOpKind(uint8_t type);
 // Hex FNV-1a of every row of the schema: 8 characters and a terminator.
 const char *protoSchemaHash();
 

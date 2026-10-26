@@ -31,10 +31,9 @@ edit_changes_t editChanges(model_edit_type_t type, const edit_result_t &result) 
     case model_edit_type_t::unlink_repeater:
       c.repeaters = true;
       break;
-    case model_edit_type_t::delete_room:
-    case model_edit_type_t::delete_shade:
-    case model_edit_type_t::delete_group:
-      break;
+    case model_edit_type_t::delete_room: c.removedRoomId = result.id; break;
+    case model_edit_type_t::delete_shade: c.removedShadeId = result.id; break;
+    case model_edit_type_t::delete_group: c.removedGroupId = result.id; break;
   }
   return c;
 }
@@ -62,6 +61,9 @@ uint32_t freeRemoteAddress(uint32_t candidate, const uint32_t *used, size_t coun
     }
   }
   return candidate;
+}
+uint32_t offeredRemoteAddress(uint32_t startingAddress, uint8_t id, const uint32_t *used, size_t count) {
+  return freeRemoteAddress(startingAddress + id, used, count);
 }
 
 template<typename T>

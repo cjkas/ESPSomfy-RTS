@@ -24,11 +24,40 @@ extern SomfyShadeController somfy;
 extern LoopStats loopStats;
 
 static bool _apScanning = false;
+// The scan for clients: asked for, then running.  WiFi holds the results of
+// one scan at a time, so it and the roaming scan never overlap.
+static bool _clientScanWanted = false;
+static bool _clientScanning = false;
 int connectRetries = 0;
+// A client that asks during a scan gets that scan's networks.
+void ESPNetwork::scanForClients() { if(!_clientScanning) _clientScanWanted = true; }
+static void clientScanLoop(ESPNetwork &net) {
+  if(_clientScanning) {
+    const int16_t n = WiFi.scanComplete();
+    if(n == WIFI_SCAN_RUNNING) return;
+    _clientScanning = false;
+    if(n < 0) ESP_LOGW(TAG, "WiFi scan failed");
+    else ESP_LOGI(TAG, "Scanned %d networks", n);
+    protoSocket.wifiNetworks(n);
+    WiFi.scanDelete();
+    return;
+  }
+  // Not in the middle of joining a network either, as the roaming scan isn't.
+  if(!_clientScanWanted || _apScanning || net.connecting()) return;
+  _clientScanWanted = false;
+  // As /scanaps does: the soft AP's connection attempts would get in its way.
+  if(net.softAPOpened) WiFi.disconnect(false);
+  if(WiFi.scanNetworks(true, true) == WIFI_SCAN_RUNNING) _clientScanning = true;
+  else {
+    ESP_LOGW(TAG, "WiFi scan didn't start");
+    protoSocket.wifiNetworks(WIFI_SCAN_FAILED);
+  }
+}
 void ESPNetwork::end() {
   SSDP.end();
   mqtt.end();
   sockEmit.end();
+  protoSocket.end();
   delay(100);
 }
 bool ESPNetwork::setup() {
@@ -86,6 +115,8 @@ void ESPNetwork::loop() {
   //    b. WiFi: Perform synchronous scan for APs related to the SSID.  If the SSID can be found then perform
   //       the connection process for the WiFi connection.
   //    c. SoftAP: This condition retains the Soft AP because no other connection method is available.
+  // Before the connection steps, which return early while connecting.
+  clientScanLoop(*this);
   conn_types_t ctype = this->preferredConnType();
   this->connect(ctype); // Connection timeout handled in connect function as well as the opening of the Soft AP if needed.
   if(this->connecting()) return; // If we are currently attempting to connect to something then we need to bail here.
@@ -119,7 +150,7 @@ void ESPNetwork::loop() {
       }
     }
   }
-  if(!this->connecting() && !settings.WIFI.hidden) {
+  if(!this->connecting() && !settings.WIFI.hidden && !_clientScanWanted && !_clientScanning) {
     if((this->softAPOpened && WiFi.softAPgetStationNum() == 0) ||
       (!this->connected() && ctype == conn_types_t::wifi)) {
       // If the Soft AP is opened and there are no clients connected then we need to scan for an AP.  If

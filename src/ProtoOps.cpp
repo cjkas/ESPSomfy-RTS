@@ -103,10 +103,6 @@ bool protoCommand(const char *name, somfy_commands &cmd) {
   return false;
 }
 
-bool protoIsShadeOp(uint8_t type) {
-  return type >= static_cast<uint8_t>(proto_type_t::shadeCommand) && type <= static_cast<uint8_t>(proto_type_t::setRollingCode);
-}
-
 // The repeat count and step size a command may carry.
 static void readRepeat(OpReader &r, shade_request_t &req) {
   int32_t n;

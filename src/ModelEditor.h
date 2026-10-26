@@ -26,9 +26,10 @@ enum class model_edit_type_t : uint8_t {
 // What an edit did, sent to the clients as requestResult.  id is the room,
 // shade or group it added or changed, 0 when none.  shadeId is the shade a
 // group gained or lost.  code is the validation error of a shade that wasn't
-// saved, 0 otherwise.
+// saved, 0 otherwise.  notFound: it was refused for an id that doesn't exist.
 struct edit_result_t {
   bool ok = true;
+  bool notFound = false;
   uint8_t id = 0;
   uint8_t shadeId = 0;
   int8_t code = 0;
@@ -40,7 +41,17 @@ struct edit_result_t {
     r.code = code;
     return r;
   }
+  static edit_result_t missing(const char *desc) {
+    edit_result_t r = error(desc);
+    r.notFound = true;
+    return r;
+  }
 };
+// Why an add, or the read that offers one, is refused when every slot of its
+// kind is taken.
+#define EDIT_ROOMS_FULL "Maximum number of rooms exceeded."
+#define EDIT_SHADES_FULL "Maximum number of shades exceeded."
+#define EDIT_GROUPS_FULL "Maximum number of groups exceeded."
 
 // The lists an edit can put in a new order.
 enum class sort_list_t : uint8_t { none, rooms, shades, groups };
@@ -53,6 +64,10 @@ struct edit_changes_t {
   uint8_t roomId = 0;
   sort_list_t order = sort_list_t::none;
   bool repeaters = false;
+  // A delete: the id of what was removed.
+  uint8_t removedShadeId = 0;
+  uint8_t removedGroupId = 0;
+  uint8_t removedRoomId = 0;
 };
 edit_changes_t editChanges(model_edit_type_t type, const edit_result_t &result);
 
@@ -64,6 +79,9 @@ int8_t nextSortOrder(const int8_t *orders, size_t count);
 // candidate, or the next address after it that isn't in used.  No two shades or
 // groups may share a remote address.
 uint32_t freeRemoteAddress(uint32_t candidate, const uint32_t *used, size_t count);
+// The remote address a new shade or group with that id is offered: the
+// starting address plus its id, or the next free one after it.
+uint32_t offeredRemoteAddress(uint32_t startingAddress, uint8_t id, const uint32_t *used, size_t count);
 
 // A list of ids or addresses with 0 for an empty slot, kept packed at the front.
 // Adding one that is already there changes nothing and succeeds; false when the

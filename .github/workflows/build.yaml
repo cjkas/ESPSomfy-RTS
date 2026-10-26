@@ -28,9 +28,26 @@ jobs:
       - name: Run native unit tests
         run: pio test -e native
 
+  webui:
+    name: Web UI tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # The protocol 2 client (data-src/js) against the recorded fixtures.
+      - name: Run web UI tests
+        run: node --test "test/js/*.test.js"
+
   build:
     # Don't build or publish firmware that fails its tests.
-    needs: test
+    needs: [test, webui]
     permissions: write-all
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest

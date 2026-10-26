@@ -29,4 +29,10 @@ bool protoBool(JsonObjectConst d, proto_field_t field);
 // nullptr when it was left out, as a string's default is "".
 const char *protoString(JsonObjectConst d, proto_field_t field);
 bool protoHas(JsonObjectConst d, proto_field_t field);
+
+// A value sent for field f, put into out as the HTTP route reads it: booleans
+// as true and false.  False when it isn't of the field's kind.
+bool protoRouteValue(const proto_field_info_t &f, JsonVariantConst v, JsonVariant out);
+// A kind as a bad request names it: "whole number", "string" ...
+const char *protoKindName(char kind);
 #endif

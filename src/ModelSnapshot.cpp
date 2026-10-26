@@ -145,7 +145,7 @@ uint32_t nextRemoteAddress(const model_snapshot_t &snap, uint8_t id) {
   size_t count = 0;
   for(uint8_t i = 0; i < snap.shadeCount; i++) used[count++] = snap.shades[i].remoteAddress;
   for(uint8_t i = 0; i < snap.groupCount; i++) used[count++] = snap.groups[i].remoteAddress;
-  return freeRemoteAddress(snap.startingAddress + id, used, count);
+  return offeredRemoteAddress(snap.startingAddress, id, used, count);
 }
 
 /*********************************************************************

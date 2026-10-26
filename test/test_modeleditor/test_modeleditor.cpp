@@ -31,6 +31,12 @@ static void test_free_remote_address_skips_every_taken_one() {
   TEST_ASSERT_EQUAL_UINT32(104, freeRemoteAddress(101, used, 4));
   TEST_ASSERT_EQUAL_UINT32(100, freeRemoteAddress(100, used, 4));
 }
+static void test_a_new_one_is_offered_the_starting_address_plus_its_id() {
+  TEST_ASSERT_EQUAL_UINT32(1005, offeredRemoteAddress(1000, 5, nullptr, 0));
+  // Taken by another shade or group, so the next free one.
+  const uint32_t used[] = { 1006, 1005 };
+  TEST_ASSERT_EQUAL_UINT32(1007, offeredRemoteAddress(1000, 5, used, 2));
+}
 
 /*********************************************************************
  * Lists
@@ -137,6 +143,23 @@ static void test_255_means_no_pin() {
 /*********************************************************************
  * What protocol 2 clients are sent after an edit
  ********************************************************************/
+/*********************************************************************
+ * Results
+ ********************************************************************/
+static void test_a_missing_id_is_not_found() {
+  const edit_result_t r = edit_result_t::missing("Shade Id not found.");
+  TEST_ASSERT_FALSE(r.ok);
+  TEST_ASSERT_TRUE(r.notFound);
+  TEST_ASSERT_EQUAL_STRING("Shade Id not found.", r.desc);
+}
+static void test_any_other_refusal_is_not_not_found() {
+  const edit_result_t r = edit_result_t::error("No shade id was supplied.", 3);
+  TEST_ASSERT_FALSE(r.ok);
+  TEST_ASSERT_FALSE(r.notFound);
+  TEST_ASSERT_EQUAL_INT8(3, r.code);
+  TEST_ASSERT_FALSE(edit_result_t().notFound);
+}
+
 static edit_result_t resultFor(uint8_t id, uint8_t shadeId = 0) {
   edit_result_t r;
   r.id = id;
@@ -182,16 +205,30 @@ static void test_a_repeater_edit_sends_the_repeaters() {
   TEST_ASSERT_TRUE(editChanges(model_edit_type_t::unlink_repeater, resultFor(0)).repeaters);
   TEST_ASSERT_FALSE(editChanges(model_edit_type_t::save_room, resultFor(1)).repeaters);
 }
-static void test_deletes_send_nothing_more() {
-  // Their removals go out as they happen.
-  for(model_edit_type_t t : {model_edit_type_t::delete_room, model_edit_type_t::delete_shade, model_edit_type_t::delete_group}) {
-    const edit_changes_t c = editChanges(t, resultFor(4));
+static void test_deletes_send_their_removal() {
+  // After the reply, as every edit's events are, so a client waiting for the
+  // reply doesn't read past it.
+  const edit_changes_t room = editChanges(model_edit_type_t::delete_room, resultFor(4));
+  const edit_changes_t shade = editChanges(model_edit_type_t::delete_shade, resultFor(5));
+  const edit_changes_t group = editChanges(model_edit_type_t::delete_group, resultFor(6));
+  TEST_ASSERT_EQUAL_UINT8(4, room.removedRoomId);
+  TEST_ASSERT_EQUAL_UINT8(5, shade.removedShadeId);
+  TEST_ASSERT_EQUAL_UINT8(6, group.removedGroupId);
+  for(const edit_changes_t &c : {room, shade, group}) {
+    // Nothing is left of it to send whole.
     TEST_ASSERT_EQUAL_UINT8(0, c.shadeId);
     TEST_ASSERT_EQUAL_UINT8(0, c.groupId);
     TEST_ASSERT_EQUAL_UINT8(0, c.roomId);
     TEST_ASSERT_EQUAL(sort_list_t::none, c.order);
     TEST_ASSERT_FALSE(c.repeaters);
   }
+  TEST_ASSERT_EQUAL_UINT8(0, room.removedShadeId + room.removedGroupId);
+  TEST_ASSERT_EQUAL_UINT8(0, shade.removedRoomId + shade.removedGroupId);
+  TEST_ASSERT_EQUAL_UINT8(0, group.removedRoomId + group.removedShadeId);
+}
+static void test_other_edits_remove_nothing() {
+  const edit_changes_t c = editChanges(model_edit_type_t::save_room, resultFor(4));
+  TEST_ASSERT_EQUAL_UINT8(0, c.removedRoomId + c.removedShadeId + c.removedGroupId);
 }
 
 int main(int argc, char **argv) {
@@ -203,6 +240,9 @@ int main(int argc, char **argv) {
   RUN_TEST(test_first_free_id_is_0_when_every_one_is_taken);
   RUN_TEST(test_next_sort_order_goes_after_the_last);
   RUN_TEST(test_free_remote_address_skips_every_taken_one);
+  RUN_TEST(test_a_new_one_is_offered_the_starting_address_plus_its_id);
+  RUN_TEST(test_a_missing_id_is_not_found);
+  RUN_TEST(test_any_other_refusal_is_not_not_found);
   RUN_TEST(test_add_goes_into_the_first_empty_slot);
   RUN_TEST(test_adding_one_already_there_changes_nothing);
   RUN_TEST(test_adding_to_a_full_list_fails);
@@ -223,6 +263,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_a_room_edit_sends_the_room);
   RUN_TEST(test_a_sort_edit_sends_its_list);
   RUN_TEST(test_a_repeater_edit_sends_the_repeaters);
-  RUN_TEST(test_deletes_send_nothing_more);
+  RUN_TEST(test_deletes_send_their_removal);
+  RUN_TEST(test_other_edits_remove_nothing);
   return UNITY_END();
 }

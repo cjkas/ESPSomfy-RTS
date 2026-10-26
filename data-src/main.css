@@ -868,3 +868,14 @@ div.frame-pulses {
         padding-right:14px;
     }
 }
+/* Shown when the device speaks another protocol version than this page. */
+.version-banner {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    padding: 8px 12px;
+    background: orangered;
+    color: white;
+    font-size: 14px;
+    text-align: center;
+}

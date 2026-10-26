@@ -34,3 +34,34 @@ const char *protoString(JsonObjectConst d, proto_field_t field) {
   return v.is<const char *>() ? v.as<const char *>() : nullptr;
 }
 bool protoHas(JsonObjectConst d, proto_field_t field) { return !d[protoField(field).key].isNull(); }
+
+bool protoRouteValue(const proto_field_info_t &f, JsonVariantConst v, JsonVariant out) {
+  switch(f.kind) {
+    case 'b':
+      // Booleans are 1 and 0; the routes read true and false.
+      if(!v.is<int>() || (v.as<int>() != 0 && v.as<int>() != 1)) return false;
+      out.set(v.as<int>() == 1);
+      return true;
+    case 'i':
+      if(v.is<int64_t>() || v.is<uint64_t>()) return out.set(v);
+      return false;
+    case 'n':
+      if(v.is<float>()) return out.set(v);
+      return false;
+    case 's':
+      if(v.is<const char *>()) return out.set(v);
+      return false;
+    default:
+      return false;
+  }
+}
+const char *protoKindName(char kind) {
+  switch(kind) {
+    case 'b': return "boolean (1 or 0)";
+    case 'i': return "whole number";
+    case 'n': return "number";
+    case 's': return "string";
+    case 'l': return "list";
+    default: return "object";
+  }
+}
