@@ -22,8 +22,10 @@ jobs:
           python-version: "3.12"
 
       # pioarduino's fork of PlatformIO Core, which the pioarduino platform needs.
+      # Pinned: 6.2.0.post1 reports itself as 6.2.0-post.1, which the
+      # platform's ">=6.2.0" reads as a pre-release and refuses.
       - name: Install PlatformIO
-        run: pip install pioarduino
+        run: pip install pioarduino==6.2.0
 
       - name: Run native unit tests
         run: pio test -e native
@@ -124,7 +126,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install PlatformIO and esptool
-        run: pip install pioarduino esptool
+        run: pip install pioarduino==6.2.0 esptool
 
       - name: Build LittleFS image
         run: pio run -e ${{ matrix.env }} -t buildfs
