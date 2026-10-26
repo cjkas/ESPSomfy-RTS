@@ -1187,7 +1187,10 @@ class Security {
         }
         sec.pin = pin;
         putJSONSync('/login', sec, (err, log) => {
-            if (err) ui.serviceError(err);
+            // Wrong credentials (401) or too many of them (429) say why in
+            // the panel, as an old 200 with success false did.
+            if (err && (err.htmlError === 401 || err.htmlError === 429) && err.msg) msg.innerHTML = err.msg;
+            else if (err) ui.serviceError(err);
             else {
                 console.log(log);
                 if (log.success) {

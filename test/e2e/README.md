@@ -13,6 +13,7 @@ Runs against a real device on your network, by hand, never in CI. It checks sock
 | `--radio --shade <id>` | also send real commands: that shade moves a little and back |
 | `--edit` | also add a room and delete it again |
 | `--reboot` | also reboot the device and wait for it to come back |
+| `--lockout` | on a Secured device, also fail `/login` until this PC is refused, then wait out the 30 s lockout |
 | `--record` | save hello, the sync and the schema to `test/fixtures/proto2/`, for the web UI and Home Assistant tests |
 
 A plain run sends nothing on air, changes no setting (it saves only values the device already has) and doesn't reboot the device. The command tests send ops that are refused before they reach the radio, and one `setPositions` that sets a shade to the position the sync gave: that drops the fraction of a percent the shade's believed position may have had. The edit tests send edits that are refused, and one shade sort order set to the order it has, which saves the shades again unchanged. The settings tests send saves that are refused, and one that saves the NTP server and time zone the device already has. The frequency scan test pauses the radio's sending for a second or two, as a scan does. It does fill every socket slot for a few seconds, and replays a page load.

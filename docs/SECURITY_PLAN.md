@@ -56,6 +56,10 @@
 
 ### Login throttling (PR C)
 - Per client IP: after 5 failed `/login` attempts, refuse that IP for 30 s, doubling each time up to 15 min. A success resets it.
+  - After the first lockout, each failure starts the next one, so an IP gets one try per lockout rather than five.
+  - An hour without a failure forgets the IP.
+  - A refused IP gets 429 with `Retry-After`, before its credentials are checked. Home Assistant tries again later instead of asking for new credentials.
+  - The device keeps 8 IPs ([src/LoginThrottle.h](../src/LoginThrottle.h)). While all of them hold recent failures, every other IP shares one more slot. That way many addresses don't each get five free tries, but an unknown IP may have to wait during such an attack.
 - Only `/login` is throttled. After PR B a token is a 256-bit HMAC with a secret key, so guessing one through `apikey` is hopeless.
 
 ### One server on port 80 ([ADR 0006](adr/0006-two-security-modes-eleven-http-routes.md))

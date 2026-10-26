@@ -19,6 +19,7 @@ def pytest_addoption(parser):
     parser.addoption("--shade", type=int, default=None, help="with --radio: the id of the shade the commands may move")
     parser.addoption("--edit", action="store_true", help="also run the edits that change the shade model, then undo them")
     parser.addoption("--reboot", action="store_true", help="also run the test that reboots the device")
+    parser.addoption("--lockout", action="store_true", help="also run the test that locks this PC out of /login for 30 s")
 
 
 @pytest.fixture(scope="session")
