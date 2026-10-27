@@ -5,7 +5,6 @@
 - [#77](https://github.com/cjkas/ESPSomfy-RTS/issues/77) Port 80 routes don't check login
 - [#78](https://github.com/cjkas/ESPSomfy-RTS/issues/78) CORS allows any origin
 - [#79](https://github.com/cjkas/ESPSomfy-RTS/issues/79) Websocket has no auth
-- [#80](https://github.com/cjkas/ESPSomfy-RTS/issues/80) API token key is public
 - [#82](https://github.com/cjkas/ESPSomfy-RTS/issues/82) A saved WiFi passphrase or MQTT password can't be cleared from the UI
 - [#83](https://github.com/cjkas/ESPSomfy-RTS/issues/83) Installing "Main" from the update dialog always fails
 - [#84](https://github.com/cjkas/ESPSomfy-RTS/issues/84) Transmitting a frame stops `loop()` for about 365 ms

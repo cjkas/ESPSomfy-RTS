@@ -5,6 +5,9 @@
 #include <esp_timer.h>
 #include "esp_log.h"
 #include "mbedtls/md.h"
+#include <Preferences.h>
+#include <esp_random.h>
+#include <bootloader_random.h>
 #include "ConfigSettings.h"
 #include "ConfigFile.h"
 #include "Utils.h"
@@ -59,6 +62,26 @@ static uint32_t loginKey(const IPAddress &ip) { return (uint32_t)ip; }
 // The throttle's clock, in ms, which doesn't wrap as millis() does.
 static uint64_t loginNow() { return (uint64_t)esp_timer_get_time() / 1000; }
 
+// The tokens' HMAC key.  It has its own NVS namespace, which no settings
+// save clears and no backup holds, so only erasing NVS replaces it.
+static uint8_t tokenKey[API_TOKEN_KEY_SIZE];
+// Reads the token key, or makes one on first boot.  Runs before either web
+// server starts, so no token is made with an empty key, and before WiFi, so
+// the hardware RNG takes its entropy from the bootloader's source: calling it
+// once the radio is on would disturb WiFi.
+static void loadTokenKey() {
+  Preferences pref;
+  if(!pref.begin("TOKEN")) ESP_LOGE(TAG, "Couldn't open the token key's NVS namespace: every token changes at the next boot");
+  if(pref.getBytes("key", tokenKey, sizeof(tokenKey)) != sizeof(tokenKey)) {
+    bootloader_random_enable();
+    esp_fill_random(tokenKey, sizeof(tokenKey));
+    bootloader_random_disable();
+    if(pref.putBytes("key", tokenKey, sizeof(tokenKey)) == sizeof(tokenKey)) ESP_LOGI(TAG, "Made a new token key");
+    else ESP_LOGE(TAG, "Couldn't store the new token key: every token changes at the next boot");
+  }
+  pref.end();
+}
+
 // Hands an item to loop(), which owns the shades.  When it can't be the
 // request is answered with the reason and false is returned.
 bool queueLoopItem(AsyncWebServerRequest *request, const loop_item_t &item) {
@@ -86,6 +109,7 @@ AsyncWebServer asyncServer(80);
 AsyncWebServer asyncApiServer(8081);
 void Web::startup() {
   ESP_LOGI(TAG, "Launching web server...");
+  loadTokenKey();
   asyncApiServer.begin();
   ESP_LOGI(TAG, "Async API server started on port 8081");
 }
@@ -98,10 +122,10 @@ bool Web::isAuthenticated(AsyncWebServerRequest *request, bool cfg) {
   else if(!cfg && (settings.Security.permissions & static_cast<uint8_t>(security_permissions::ConfigOnly)) == 0x01) return true;
   else if(request->hasHeader("apikey")) {
     ESP_LOGD(TAG, "Checking API Key...");
-    char token[65];
+    char token[API_TOKEN_SIZE];
     memset(token, 0x00, sizeof(token));
     this->createAPIToken(request->client()->remoteIP(), token);
-    if(String(token) != request->getHeader("apikey")->value()) {
+    if(!tokenMatches(token, request->getHeader("apikey")->value().c_str())) {
       request->send(401, _encoding_text, "Unauthorized API Key");
       return false;
     }
@@ -120,15 +144,24 @@ bool Web::createAPIPinToken(const IPAddress ipAddress, const char *pin, char *to
 bool Web::createAPIPasswordToken(const IPAddress ipAddress, const char *username, const char *password, char *token) {
   return this->createAPIToken((String(username) + ":" + String(password) + ":" + ipAddress.toString()).c_str(), token);
 }
+// Writes HMAC-SHA256(token key, payload) in hex to token, which holds
+// API_TOKEN_SIZE.  The payload is "username:password:ip" under a password,
+// "pin:ip" under a PIN and "ip" under None.  When mbedtls fails (it allocates
+// the HMAC context) token is left empty, which tokenMatches never accepts.
 bool Web::createAPIToken(const char *payload, char *token) {
     byte hmacResult[32];
     mbedtls_md_context_t ctx;
-    mbedtls_md_type_t md_type = MBEDTLS_MD_SHA256;
-    mbedtls_md_setup(&ctx, mbedtls_md_info_from_type(md_type), 1);
-    mbedtls_md_hmac_starts(&ctx, (const unsigned char *)settings.serverId, strlen(settings.serverId));
-    mbedtls_md_hmac_update(&ctx, (const unsigned char *)payload, strlen(payload)); 
-    mbedtls_md_hmac_finish(&ctx, hmacResult);
+    mbedtls_md_init(&ctx);
+    bool ok = mbedtls_md_setup(&ctx, mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), 1) == 0
+      && mbedtls_md_hmac_starts(&ctx, tokenKey, sizeof(tokenKey)) == 0
+      && mbedtls_md_hmac_update(&ctx, (const unsigned char *)payload, strlen(payload)) == 0
+      && mbedtls_md_hmac_finish(&ctx, hmacResult) == 0;
+    mbedtls_md_free(&ctx);
     token[0] = '\0';
+    if(!ok) {
+      ESP_LOGE(TAG, "Couldn't make a token");
+      return false;
+    }
     for(int i = 0; i < sizeof(hmacResult); i++){
         char str[3];
         sprintf(str, "%02x", (int)hmacResult[i]);
@@ -137,11 +170,9 @@ bool Web::createAPIToken(const char *payload, char *token) {
     return true;
 }
 bool Web::createAPIToken(const IPAddress ipAddress, char *token) {
-    String payload;
-    if(settings.Security.type == security_types::Password) createAPIPasswordToken(ipAddress, settings.Security.username, settings.Security.password, token);
-    else if(settings.Security.type == security_types::PinEntry) createAPIPinToken(ipAddress, settings.Security.pin, token);
-    else createAPIToken(ipAddress.toString().c_str(), token);
-    return true;
+    if(settings.Security.type == security_types::Password) return createAPIPasswordToken(ipAddress, settings.Security.username, settings.Security.password, token);
+    if(settings.Security.type == security_types::PinEntry) return createAPIPinToken(ipAddress, settings.Security.pin, token);
+    return createAPIToken(ipAddress.toString().c_str(), token);
 }
 // =====================================================
 // Async API Handlers
@@ -335,7 +366,7 @@ void Web::handleController(AsyncWebServerRequest *request) {
 }
 void Web::handleLogin(AsyncWebServerRequest *request, JsonVariant &json) {
   if(request->method() == HTTP_OPTIONS) { request->send(200); return; }
-  char token[65];
+  char token[API_TOKEN_SIZE];
   memset(&token, 0x00, sizeof(token));
   this->createAPIToken(request->client()->remoteIP(), token);
   if(settings.Security.type == security_types::None) {
@@ -373,19 +404,11 @@ void Web::handleLogin(AsyncWebServerRequest *request, JsonVariant &json) {
     if(!obj["password"].isNull()) strlcpy(password, obj["password"], sizeof(password));
     if(!obj["pin"].isNull()) strlcpy(pin, obj["pin"], sizeof(pin));
   }
-  bool success = false;
-  if(settings.Security.type == security_types::PinEntry) {
-    char ptok[65];
-    memset(ptok, 0x00, sizeof(ptok));
-    this->createAPIPinToken(request->client()->remoteIP(), pin, ptok);
-    if(String(ptok) == String(token)) success = true;
-  }
-  else if(settings.Security.type == security_types::Password) {
-    char ptok[65];
-    memset(ptok, 0x00, sizeof(ptok));
-    this->createAPIPasswordToken(request->client()->remoteIP(), username, password, ptok);
-    if(String(ptok) == String(token)) success = true;
-  }
+  // The token these credentials would get, against the stored ones'.
+  char ptok[API_TOKEN_SIZE] = "";
+  if(settings.Security.type == security_types::PinEntry) this->createAPIPinToken(ip, pin, ptok);
+  else if(settings.Security.type == security_types::Password) this->createAPIPasswordToken(ip, username, password, ptok);
+  bool success = tokenMatches(token, ptok);
   if(success) {
     loginThrottle.succeeded(key);
     snprintf(g_async_content, sizeof(g_async_content),

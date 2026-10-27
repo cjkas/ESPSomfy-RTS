@@ -160,7 +160,7 @@ static void runSave(const proto_reply_to_t &to, settings_save_t *save) {
   const settings_section_t section = save->section;
   const uint16_t parts = settingsParts(section, req);
   bool reboot = false;
-  char token[65] = "";
+  char token[API_TOKEN_SIZE] = "";
   const security_types securityBefore = settings.Security.type;
   switch(section) {
     case settings_section_t::general:

@@ -148,6 +148,10 @@ _Avoid_: Secure Config Only (removed)
 What logging in returns. It stands for the PIN or password, on one client address, and every request under Secured carries it.
 _Avoid_: session, API key (the name of the field it travels in)
 
+**Token key**
+The secret a token is made with: random bytes the device makes on first boot and never sends anywhere. Changing it refuses every token.
+_Avoid_: API key, server key
+
 **Login throttle**
 How the device slows down guessing: a client address with too many failed logins is refused for a while, and each refusal is a *lockout*, longer than the one before.
 _Avoid_: login backoff, rate limit

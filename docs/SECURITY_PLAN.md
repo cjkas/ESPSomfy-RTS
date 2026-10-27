@@ -1,6 +1,6 @@
 # Plan: authentication on every entry point, one HTTP server
 
-**Status:** agreed, nothing built yet.
+**Status:** steps 1 to 3, PR B and PR C built; step 4 next.
 **Written:** 2026-10-18, on top of PR #64 (stored secrets are write-only). **Revised:** 2026-10-22 for socket protocol 2: two security modes, eleven HTTP routes, the socket on port 80 ([ADR 0005](adr/0005-one-websocket-protocol.md), [ADR 0006](adr/0006-two-security-modes-eleven-http-routes.md)). Terms are defined in [GLOSSARY.md](../GLOSSARY.md).
 
 ## Why
@@ -50,8 +50,9 @@
 
 ### Token key (PR B)
 - The token keeps its shape, `HMAC(key, PIN-or-password + client IP)`: stateless, and it survives reboots. Only the key changes.
-- **Key:** 32 random bytes from `esp_fill_random`, generated on first boot in their own NVS namespace. Never sent anywhere, never in a backup, replaced only when NVS is erased. There is no rotate button: changing the PIN or password already changes every token.
-- **Comparison:** constant-time, used for HTTP and the websocket handshake alike.
+- **Key:** 32 random bytes from `esp_fill_random`, generated on first boot in their own NVS namespace (`TOKEN`). Never sent anywhere, never in a backup, replaced only when NVS is erased. There is no rotate button: changing the PIN or password already changes every token.
+  - The key is made in `Web::begin`, before WiFi starts, so the RNG takes its entropy from the bootloader's source (`bootloader_random_enable`) rather than the radio.
+- **Comparison:** constant-time (`tokenMatches` in [src/ApiToken.h](../src/ApiToken.h)), used for HTTP, the websocket handshake and `/login` alike.
 - **Migration:** none needed. The browser logs in again when its token is refused, and HA logs in again at runtime.
 
 ### Login throttle (PR C)
@@ -71,7 +72,7 @@
 - Today HA logs in only during the config flow, on a temporary API object, and sends `apikey: ""` at runtime. It only works with security None or Secure Config Only.
 - **Setup:** the config flow reads the device info and security mode from `/loginContext`, then logs in with `/login`.
 - **Login:** at `async_setup_entry` it logs in with the PIN or password stored in `entry.data`. On a refusal it logs in again once and retries; if that fails, it raises HA's reauth flow.
-- **Socket:** it connects to `ws://host/ws?apikey=<token>` and speaks protocol 2. Against firmware that sends no `hello`, it falls back to the old HTTP API on 8081 and events on 8080.
+- **Socket:** it connects to `ws://host/ws?apikey=<token>` and speaks protocol 2. Against firmware whose `/ws` answers 404 or serves a web page, it falls back to the old HTTP API on 8081 and events on 8080.
 
 ## Order
 
@@ -97,7 +98,7 @@ The rules go into small pure helpers with native tests, following [src/Secrets.h
 - the Origin/Host match
 - the login throttle's schedule
 
-The e2e suite (`test/e2e`) checks, when given credentials, that a socket without a token is refused, that the HTTP routes answer 401, and that a token works. It never changes the device's security settings itself.
+The e2e suite (`test/e2e`) checks, when given credentials, that a socket without a token is refused, that the HTTP routes answer 401, that a token keyed with `serverId` is refused, and that a token works. It never changes the device's security settings itself.
 
 ## Not in this plan
 

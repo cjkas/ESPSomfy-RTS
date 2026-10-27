@@ -1,6 +1,7 @@
 #include <ESPAsyncWebServer.h>
 #include <AsyncJson.h>
 #include "Somfy.h"
+#include "ApiToken.h"
 #ifndef webserver_h
 #define webserver_h
 
@@ -10,7 +11,7 @@ class Web {
     void startup();
     void begin();
     void loop();
-    // Auth helpers
+    // Auth helpers.  token holds API_TOKEN_SIZE; false leaves it empty.
     bool createAPIToken(const IPAddress ipAddress, char *token);
     bool createAPIToken(const char *payload, char *token);
     bool createAPIPinToken(const IPAddress ipAddress, const char *pin, char *token);

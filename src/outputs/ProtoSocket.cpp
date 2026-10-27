@@ -262,9 +262,9 @@ static bool authorized(AsyncWebServerRequest *request) {
   if(settings.Security.type == security_types::None) return true;
   const AsyncWebParameter *key = request->getParam("apikey");
   if(!key || !request->client()) return false;
-  char token[65];
+  char token[API_TOKEN_SIZE];
   webServer.createAPIToken(request->client()->remoteIP(), token);
-  return key->value() == token;
+  return tokenMatches(token, key->value().c_str());
 }
 static void onConnect(AsyncWebSocketClient *client, AsyncWebServerRequest *request) {
   const uint32_t id = client->id();
