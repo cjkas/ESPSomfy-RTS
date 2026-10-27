@@ -38,22 +38,30 @@ def test_secured_refuses_a_wrong_token(host, secured):
     assert c.status == 401
 
 
-def test_secured_refuses_a_token_keyed_with_the_server_id(request, host, login_context, token):
-    """The token key used to be the public serverId, so anyone who saw a token could check PIN guesses against it."""
-    if token is None:
+PASSWORD = 2  # the security type /loginContext reports for a password
+
+
+def test_secured_refuses_a_token_keyed_with_the_server_id(request, host, secured, login_context, token):
+    """The token key used to be the public serverId, so anyone who saw a token could check PIN guesses against it.
+
+    It works out the token the old way, for this PC's address as the route to
+    the device picks it.  Through NAT or a VPN the device sees another address,
+    and the test passes without testing anything.
+    """
+    if not secured:
         pytest.skip("the device's security is None")
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
         s.connect((host, 80))
-        me = s.getsockname()[0]
-    if login_context["type"] == 2:
-        payload = f"{request.config.getoption('--username')}:{request.config.getoption('--password')}:{me}"
+        my_ip = s.getsockname()[0]
+    if login_context["type"] == PASSWORD:
+        payload = f"{request.config.getoption('--username')}:{request.config.getoption('--password')}:{my_ip}"
     else:
-        payload = f"{request.config.getoption('--pin')}:{me}"
-    old = hmac.new(login_context["serverId"].encode(), payload.encode(), hashlib.sha256).hexdigest()
+        payload = f"{request.config.getoption('--pin')}:{my_ip}"
+    server_id_token = hmac.new(login_context["serverId"].encode(), payload.encode(), hashlib.sha256).hexdigest()
     # A bool, so a failure doesn't print the tokens.
-    same = old == token
-    assert not same, "the device's token is the one keyed with its serverId"
-    c = ProtoClient(host, params={"apikey": old})
+    is_device_token = server_id_token == token
+    assert not is_device_token, "the device's token is the one keyed with its serverId"
+    c = ProtoClient(host, params={"apikey": server_id_token})
     assert c.status == 401
 
 

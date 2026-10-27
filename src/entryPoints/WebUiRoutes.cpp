@@ -601,7 +601,7 @@ void registerWebUiRoutes(AsyncWebServer &server) {
       JsonObject obj = json.as<JsonObject>();
       settings.Security.fromJSON(obj);
       settings.Security.save();
-      char token[65];
+      char token[API_TOKEN_SIZE];
       webServer.createAPIToken(request->client()->remoteIP(), token);
       JsonDocument sdoc;
       JsonObject sobj = sdoc.to<JsonObject>();

@@ -3,14 +3,16 @@
 #include <stddef.h>
 #include <stdint.h>
 
-// A token is HMAC-SHA256(token key, PIN or username:password + ":" + client
-// IP) in hex.  The token key is 32 random bytes the device makes on first boot
-// and keeps in NVS: it never leaves the device.
+// The token key's size: 32 random bytes the device makes on first boot and
+// keeps in NVS.  It never leaves the device.
 #define API_TOKEN_KEY_SIZE 32
+// A token's buffer: an HMAC-SHA256 in hex and its terminator.
+#define API_TOKEN_SIZE 65
 
 // True when given is the expected token.  It takes the same time whatever
 // given holds, so the time doesn't tell how much of a guess was right.  Only
-// expected's length shows, and every token has the same one.
+// expected's length shows, and every token has the same one.  An empty
+// expected token, which is what a failed HMAC leaves, matches nothing.
 inline bool tokenMatches(const char *expected, const char *given) {
   if(!expected || !given || !expected[0]) return false;
   uint8_t diff = 0;

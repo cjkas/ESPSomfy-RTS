@@ -23,7 +23,6 @@
 #include "Utils.h"
 #include "SocketEmitter.h"
 #include "../entryPoints/Web.h"
-#include "ApiToken.h"
 #if HAS_ETHERNET
 #include <ETH.h>
 #endif
@@ -263,7 +262,7 @@ static bool authorized(AsyncWebServerRequest *request) {
   if(settings.Security.type == security_types::None) return true;
   const AsyncWebParameter *key = request->getParam("apikey");
   if(!key || !request->client()) return false;
-  char token[65];
+  char token[API_TOKEN_SIZE];
   webServer.createAPIToken(request->client()->remoteIP(), token);
   return tokenMatches(token, key->value().c_str());
 }
