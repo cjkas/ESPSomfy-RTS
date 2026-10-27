@@ -37,10 +37,10 @@ void freeSettingsSave(settings_save_t *save) {
 }
 
 /*********************************************************************
- * getSettings: what the settings routes send, under the dictionary's
+ * getSettings: what the settings routes sent, under the dictionary's
  * keys.  Secrets only say whether they are set.
  ********************************************************************/
-// An address of 0.0.0.0 is sent as "", as IPSettings::toJSON() does.
+// An address of 0.0.0.0 is sent as "", as the settings routes did.
 static void addAddress(ProtoWriter &w, proto_field_t field, const IPAddress &ip) {
   if(ip != IPAddress(0, 0, 0, 0)) w.add(field, ip.toString().c_str());
 }

@@ -84,15 +84,11 @@ The seam through which a shade's behaviour reports what happened: changes for th
 
 **Entry point**
 Where a request from outside reaches the firmware: an HTTP route, an MQTT command topic or a frame received from a remote.
-_Avoid_: controller (it already names the owner of the shade list and the `/controller` read)
+_Avoid_: controller (it already names the owner of the shade list)
 
-**WebUiRoutes**
-The HTTP routes on port 80 that the config web UI calls, plus the UI's own files.
-_Avoid_: WebUiController, Web
-
-**ApiRoutes**
-The HTTP routes on port 8081 that integrations such as Home Assistant call.
-_Avoid_: WebApiController
+**HttpRoutes**
+The HTTP routes on port 80: the web UI's files, login, the file transfers and the three commands for scripts. Everything else is an op on the socket.
+_Avoid_: WebUiRoutes, ApiRoutes, WebApiController
 
 **MqttCommands**
 The MQTT topics ending in `/set` that command a shade or group.
@@ -101,10 +97,6 @@ _Avoid_: MQTTController
 **MqttPublisher**
 What sends the state of rooms, shades and groups, and the Home Assistant discovery config, to the MQTT broker.
 _Avoid_: MQTTController
-
-**SocketEmitter**
-What pushes state events to WebSocket clients on port 8080. A client can only join or leave a room; it sends no commands.
-_Avoid_: WebSocketController
 
 **MqttConnection**
 The link to the MQTT broker that MqttCommands and MqttPublisher share: connecting, the root topic and the subscriptions.
@@ -129,7 +121,7 @@ _Avoid_: increment, push
 
 **Sync**
 How a client catches up with the device: the shade model and status, sent item by item at the client's pace, after which events keep it current. It describes no single moment.
-_Avoid_: snapshot (a ModelSnapshot is a copy of one moment), initial load
+_Avoid_: snapshot (an item snapshot is a copy of one moment), initial load
 
 **Feed**
 A stream of events a client subscribes to on its own, such as received remote frames or a frequency scan.
@@ -173,10 +165,10 @@ The domain module that carries out shade requests, whichever entry point they ca
 The domain module that adds, changes, deletes, links and orders the rooms, shades, groups and repeaters of the shade model.
 _Avoid_: ShadeConfig, InstallationEditor
 
-**ModelSnapshot**
-A copy of the shade model taken for one read, so the reply describes a single moment.
-_Avoid_: InstallationSnapshot
+**Item snapshot**
+A copy of one room, shade or group, which an event, an MQTT topic or a command reply is written from.
+_Avoid_: ModelSnapshot (the whole-model copy the HTTP reads used, removed in 4.0.0)
 
 **LoopQueue**
-The single queue through which shade requests, model edits, reads and snapshot requests reach `loop()` from other tasks, in the order they arrived.
+The single queue through which shade requests, model edits, socket reads and settings ops, and restores reach `loop()` from other tasks, in the order they arrived.
 _Avoid_: web command queue

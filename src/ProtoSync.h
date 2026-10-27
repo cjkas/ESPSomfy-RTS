@@ -2,7 +2,7 @@
 #define PROTO_SYNC_H
 #include <stddef.h>
 #include <stdint.h>
-#include "ModelSnapshot.h"
+#include "ItemSnapshot.h"
 #include "ProtoSchema.h"
 
 // The shade model in socket protocol 2: how each room, shade and group is

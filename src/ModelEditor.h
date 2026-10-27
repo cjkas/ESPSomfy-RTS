@@ -23,7 +23,7 @@ enum class model_edit_type_t : uint8_t {
   set_paired,
   room_order, shade_order, group_order
 };
-// What an edit did, sent to the clients as requestResult.  id is the room,
+// What an edit did, sent in the edit op's reply.  id is the room,
 // shade or group it added or changed, 0 when none.  shadeId is the shade a
 // group gained or lost.  code is the validation error of a shade that wasn't
 // saved, 0 otherwise.  notFound: it was refused for an id that doesn't exist.

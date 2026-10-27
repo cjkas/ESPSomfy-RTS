@@ -289,7 +289,6 @@ bool SomfyShadeController::deleteShade(uint8_t shadeId) {
   Preferences pref;
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
     if(this->shades[i].getShadeId() == shadeId) {
-      shades[i].emitState("shadeRemoved");
       shades[i].unpublish();
       this->shades[i].clear();
     }
@@ -319,7 +318,6 @@ bool SomfyShadeController::deleteRoom(uint8_t roomId) {
           groups[j].configChanged();
         }
       }
-      rooms[i].emitState("roomRemoved");
       this->rooms[i].clear();
     }
   }
@@ -334,7 +332,6 @@ bool SomfyShadeController::deleteGroup(uint8_t groupId) {
         SomfyShade *shade = this->getShadeById(groups[i].linkedShades[j]);
         if(shade) shade->configChanged();
       }
-      groups[i].emitState("groupRemoved");
       groups[i].unpublish();
       this->groups[i].clear();
     }
@@ -342,7 +339,6 @@ bool SomfyShadeController::deleteGroup(uint8_t groupId) {
   this->commit();
   return true;
 }
-bool SomfyShadeController::loadShadesFile(const char *filename) { return ShadeConfigFile::load(this, filename); }
 void SomfyShadeController::loop() { 
   this->transceiver.loop(); 
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {

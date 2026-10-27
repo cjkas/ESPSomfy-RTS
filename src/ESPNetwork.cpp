@@ -5,8 +5,7 @@
 #include "esp_log.h"
 #include "ConfigSettings.h"
 #include "ESPNetwork.h"
-#include "entryPoints/Web.h"
-#include "outputs/SocketEmitter.h"
+#include "Somfy.h"
 #include "outputs/ProtoSocket.h"
 #include "Utils.h"
 #include "SSDP.h"
@@ -15,8 +14,6 @@
 static const char *TAG = "Network";
 
 extern ConfigSettings settings;
-extern Web webServer;
-extern SocketEmitter sockEmit;
 extern MqttConnection mqtt;
 extern rebootDelay_t rebootDelay;
 extern ESPNetwork net;
@@ -56,7 +53,6 @@ static void clientScanLoop(ESPNetwork &net) {
 void ESPNetwork::end() {
   SSDP.end();
   mqtt.end();
-  sockEmit.end();
   protoSocket.end();
   delay(100);
 }
@@ -74,7 +70,6 @@ bool ESPNetwork::setup() {
     ESP_LOGI(TAG, "WiFi Mode: %d", WiFi.getMode());
     WiFi.mode(WIFI_STA);
   }
-  sockEmit.begin();
   return true;
 }
 conn_types_t ESPNetwork::preferredConnType() {
@@ -176,11 +171,10 @@ void ESPNetwork::loop() {
   }
   if(millis() - this->lastEmit >= STATUS_EMIT_MS) {
     this->lastEmit = millis();
-    if(this->connected()) this->emitSockets();
+    if(this->connected()) this->emitStatus();
     resetTaskWdt(); // Make sure we do not reboot here.
   }
   
-  sockEmit.loop();
   mqtt.loop();
   if(settings.ssdpBroadcast && this->connected()) {
     if(!SSDP.isStarted) SSDP.begin();
@@ -192,7 +186,6 @@ bool ESPNetwork::changeAP(const uint8_t *bssid, const int32_t channel) {
   resetTaskWdt(); // Make sure we do not reboot here.
   if(SSDP.isStarted) SSDP.end();
   mqtt.disconnect();
-  //sockEmit.end();
   WiFi.disconnect(false, true);
   this->connType = conn_types_t::unset;
   this->_connecting = true;
@@ -204,64 +197,22 @@ bool ESPNetwork::changeAP(const uint8_t *bssid, const int32_t channel) {
 }
 // The status broadcast, every STATUS_EMIT_MS from loop().  A wired link goes
 // out every time, the WiFi signal only when it really changed.
-void ESPNetwork::emitSockets() {
+void ESPNetwork::emitStatus() {
   this->emitHeap();
-  if(this->connType != conn_types_t::wifi ||
-    this->rssiBroadcast.due(WiFi.RSSI(), WiFi.channel(), RSSI_EMIT_MIN_DBM))
-    this->emitSockets(255);
-}
-void ESPNetwork::emitSockets(uint8_t num) {
 #if HAS_ETHERNET
   if(this->connType == conn_types_t::ethernet) {
-      JsonSockEvent *json = sockEmit.beginEmit("ethernet");
-      json->beginObject();
-      json->addElem("connected", this->connected());
-      json->addElem("speed", (uint32_t)ETH.linkSpeed());
-      json->addElem("fullduplex", ETH.fullDuplex());
-      json->endObject();
-      sockEmit.endEmit(num);
+    protoSocket.ethernet();
+    return;
   }
-  else
 #endif
-  {
-      if(WiFi.status() == WL_CONNECTED) {
-        JsonSockEvent *json = sockEmit.beginEmit("wifiStrength");
-        json->beginObject();
-        json->addElem("ssid", WiFi.SSID().c_str());
-        json->addElem("strength", (int32_t)WiFi.RSSI());
-        json->addElem("channel", (int32_t)this->channel);
-        json->endObject();
-        sockEmit.endEmit(num);
-        this->rssiBroadcast.sent(num == 255, WiFi.RSSI(), WiFi.channel());
-      }
-      else {
-        JsonSockEvent *json = sockEmit.beginEmit("wifiStrength");
-        json->beginObject();
-        json->addElem("ssid", "");
-        json->addElem("strength", (int8_t)-100);
-        json->addElem("channel", (int8_t)-1);
-        json->endObject();
-        sockEmit.endEmit(num);
-        
-        json = sockEmit.beginEmit("ethernet");
-        json->beginObject();
-        json->addElem("connected", false);
-        json->addElem("speed", (uint8_t)0);
-        json->addElem("fullduplex", false);
-        json->endObject();
-        sockEmit.endEmit(num);
-        this->rssiBroadcast.sent(num == 255, -100, -1);
-      }
-  }
-  // A broadcast comes from emitSockets(), which has already sent memStatus.
-  if(num != 255) this->emitHeap(num);
-  // Protocol 2 clients get the status in their sync, so only broadcasts.
-  else if(this->connType == conn_types_t::ethernet) protoSocket.ethernet();
-  else protoSocket.wifi();
+  if(this->connType == conn_types_t::wifi && !this->rssiBroadcast.due(WiFi.RSSI(), WiFi.channel(), RSSI_EMIT_MIN_DBM)) return;
+  if(WiFi.status() == WL_CONNECTED) this->rssiBroadcast.sent(WiFi.RSSI(), WiFi.channel());
+  else this->rssiBroadcast.sent(-100, -1);
+  protoSocket.wifi();
 }
-// Runs on the WiFi/Ethernet event task, so it sends nothing on the sockets.
-// loop() broadcasts the new status and a client that reconnects gets it from
-// SocketEmitter::initClients().
+// Runs on the WiFi/Ethernet event task, so it sends nothing on the socket.
+// loop() broadcasts the new status and a client that reconnects gets it in its
+// sync.
 void ESPNetwork::setConnected(conn_types_t connType) {
   resetTaskWdt();
   this->connType = connType;
@@ -292,8 +243,6 @@ void ESPNetwork::setConnected(conn_types_t connType) {
     this->wifiFallback = false;
   }
 #endif // HAS_ETHERNET
-  // NET: Begin this in the startup.
-  //sockEmit.begin();
   resetTaskWdt();
 
   if(this->connectAttempts == 1) {
@@ -357,7 +306,10 @@ void ESPNetwork::setConnected(conn_types_t connType) {
     //MDNS.addServiceTxt("http", "tcp", "board", "ESP32");
     //MDNS.addServiceTxt("http", "tcp", "model", "ESPSomfyRTS");
 
-    MDNS.addService("espsomfy_rts", "tcp", 8080);
+    // Home Assistant's discovery matches this record.  The socket is on the web
+    // server's port, at path.
+    MDNS.addService("espsomfy_rts", "tcp", 80);
+    MDNS.addServiceTxt("espsomfy_rts", "tcp", "path", "/ws");
     MDNS.addServiceTxt("espsomfy_rts", "tcp", "serverId", String(settings.serverId));
     MDNS.addServiceTxt("espsomfy_rts", "tcp", "model", "ESPSomfyRTS");
     MDNS.addServiceTxt("espsomfy_rts", "tcp", "version", String(settings.fwVersion.name));
@@ -375,7 +327,6 @@ bool ESPNetwork::connectWired() {
   if(ETH.linkUp()) {
     // If the ethernet link is re-established then we need to shut down wifi.
     if(WiFi.status() == WL_CONNECTED) {
-      //sockEmit.end();
       WiFi.disconnect(true);
       WiFi.mode(WIFI_OFF);
     }
@@ -708,25 +659,9 @@ void ESPNetwork::networkEvent(WiFiEvent_t event) {
       break;
   }
 }
-void ESPNetwork::emitHeap(uint8_t num) {
-  uint32_t freeHeap = ESP.getFreeHeap();
-  uint32_t maxHeap = ESP.getMaxAllocHeap();
-  uint32_t minHeap = ESP.getMinFreeHeap();
-  JsonSockEvent *json = sockEmit.beginEmit("memStatus");
-  json->beginObject();
-  json->addElem("max", maxHeap);
-  json->addElem("free", freeHeap);
-  json->addElem("min", minHeap);
-  json->addElem("total", ESP.getHeapSize());
-  json->addElem("uptime", (uint64_t)millis());
-  // The window in progress.  Only a broadcast closes it, so a client
-  // connecting doesn't wipe a slow pass before Home Assistant has seen it.
-  json->addElem("loopRate", loopStats.rate(millis()));
-  json->addElem("loopMaxUs", loopStats.maxUs());
-  json->endObject();
-  sockEmit.endEmit(num);
-  if(num == 255) {
-    protoSocket.memory();
-    loopStats.publish(millis());
-  }
+// memory, the device's heap and loop rate.  Each one closes the loop rate's
+// window and reports it.
+void ESPNetwork::emitHeap() {
+  loopStats.publish(millis());
+  protoSocket.memory();
 }

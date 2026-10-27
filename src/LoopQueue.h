@@ -23,8 +23,6 @@
 enum class loop_item_type_t : uint8_t {
   shade_request,   // run by ShadeRequests
   restore_shades,  // restore from /shades.tmp, then reboot
-  load_shades,     // replace the shades with /shades.tmp
-  snapshot_fill,   // fill a read's ModelSnapshot
   model_edit,      // apply an edit with ModelEditor
   proto_read,      // answer a protocol 2 read op from the shade model
   proto_device     // run a protocol 2 settings op or the WiFi scan (DeviceOps)
@@ -35,7 +33,6 @@ struct loop_item_t {
   loop_item_type_t type = loop_item_type_t::shade_request;
   shade_request_t request;        // shade_request
   uint8_t restoreParts = 0;       // restore_shades: RESTORE_* bits
-  uint8_t slot = 0;               // snapshot_fill: the SnapshotSlots slot
   model_edit_t *edit = nullptr;   // model_edit: loop() runs and frees it
   // shade_request, proto_read and proto_device from a protocol 2 client:
   // loop() replies once it has run.
@@ -54,8 +51,8 @@ inline bool loopItemUsesRadio(const loop_item_t &item) {
 // MQTT client was already told it was accepted, so it stays queued until the
 // radio has room rather than have the radio drop it; a protocol 2 client gets
 // its reply once it has run.  While TX is suspended nothing gets through
-// anyway so nothing is held back then, except an unpair: an HTTP client was
-// told the shade is unpaired, so it waits until TX resumes.  Everything queued
+// anyway so nothing is held back then, except an unpair, which waits until TX
+// resumes rather than leave the shade paired.  Everything queued
 // behind it waits too, protocol 2 replies included, so a frequency scan
 // started after an unpair delays them until it ends.
 inline bool holdLoopItem(const loop_item_t &item, bool txSuspended, bool txHasRoom) {

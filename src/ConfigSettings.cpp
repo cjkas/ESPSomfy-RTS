@@ -80,21 +80,6 @@ void appver_t::parse(const char *ver) {
   this->build = static_cast<uint8_t>(atoi(num) & 0xFF);
   if(strlen(ver) < i) strlcpy(this->suffix, &ver[i], sizeof(this->suffix));
 }
-bool appver_t::toJSON(JsonObject &obj) {
-  obj["name"] = this->name;
-  obj["major"] = this->major;
-  obj["minor"] = this->minor;
-  obj["build"] = this->build;
-  obj["suffix"] = this->suffix;
-  return true;
-}
-void appver_t::toJSON(JsonSockEvent *json) {
-  json->addElem("name", this->name);
-  json->addElem("major", this->major);
-  json->addElem("minor", this->minor);
-  json->addElem("build", this->build);
-  json->addElem("suffix", this->suffix);
-}
 
 bool BaseSettings::load() { return true; }
 bool BaseSettings::loadFile(const char *filename) { 
@@ -114,15 +99,6 @@ bool BaseSettings::loadFile(const char *filename) {
     file.close();
   }
   return false; 
-}
-bool BaseSettings::saveFile(const char *filename) {
-  File file = LittleFS.open(filename, "w");
-  JsonDocument doc;
-  JsonObject obj = doc.as<JsonObject>();
-  this->toJSON(obj);
-  serializeJson(doc, file);
-  file.close();
-  return true;
 }
 bool BaseSettings::parseValueString(JsonObject &obj, const char *prop, char *pdest, size_t size) {
   if(!obj[prop].isNull()) strlcpy(pdest, obj[prop], size);
@@ -234,13 +210,6 @@ bool ConfigSettings::save() {
   pref.end();
   return true;
 }
-bool ConfigSettings::toJSON(JsonObject &obj) {
-  obj["ssdpBroadcast"] = this->ssdpBroadcast;
-  obj["hostname"] = this->hostname;
-  obj["connType"] = static_cast<uint8_t>(this->connType);
-  obj["chipModel"] = this->chipModel;
-  return true;
-}
 bool ConfigSettings::requiresAuth() { return this->Security.type != security_types::None; }
 bool ConfigSettings::fromJSON(JsonObject &obj) {
     if(!obj["ssdpBroadcast"].isNull()) this->ssdpBroadcast = obj["ssdpBroadcast"];
@@ -257,8 +226,6 @@ void ConfigSettings::print() {
   if(this->connType == conn_types_t::ethernet || this->connType == conn_types_t::ethernetpref) this->Ethernet.print();
 #endif
 }
-void ConfigSettings::emitSockets() {}
-void ConfigSettings::emitSockets(uint8_t num) {}
 uint16_t ConfigSettings::calcSettingsRecSize() {
   return strlen(this->fwVersion.name) + 3 
     + strlen(this->hostname) + 3
@@ -291,18 +258,6 @@ uint16_t ConfigSettings::calcNetRecSize() {
 }
 bool MQTTSettings::begin() {
   this->load();
-  return true;
-}
-bool MQTTSettings::toJSON(JsonObject &obj) {
-  obj["enabled"] = this->enabled;
-  obj["pubDisco"] = this->pubDisco;
-  obj["protocol"] = this->protocol;
-  obj["hostname"] = this->hostname;
-  obj["port"] = this->port;
-  obj["username"] = this->username;
-  obj["hasPassword"] = hasSecret(this->password);
-  obj["rootTopic"] = this->rootTopic;
-  obj["discoTopic"] = this->discoTopic;
   return true;
 }
 bool MQTTSettings::fromJSON(JsonObject &obj) {
@@ -351,16 +306,6 @@ bool MQTTSettings::load() {
   pref.end();
   return true;
 }
-bool ConfigSettings::toJSON(JsonDocument &doc) {
-  doc["fwVersion"] = this->fwVersion.name;
-  JsonObject objWIFI = doc.createNestedObject("WIFI");
-  this->WIFI.toJSON(objWIFI);
-  JsonObject objNTP = doc.createNestedObject("NTP");
-  this->NTP.toJSON(objNTP);
-  JsonObject objMQTT = doc.createNestedObject("MQTT");
-  this->MQTT.toJSON(objMQTT);
-  return true;
-}
 bool NTPSettings::begin() {
   this->load();
   this->apply();
@@ -391,11 +336,6 @@ bool NTPSettings::fromJSON(JsonObject &obj) {
   this->parseValueString(obj, "posixZone", this->posixZone, sizeof(this->posixZone));
   return true;
 }
-bool NTPSettings::toJSON(JsonObject &obj) {
-  obj["ntpServer"] = this->ntpServer;
-  obj["posixZone"] = this->posixZone;
-  return true;
-}
 bool NTPSettings::apply() {
   // Sets the zone and starts SNTP, which sets the clock once the network is
   // up.  Waiting here with getLocalTime() held up boot by 5 s before the
@@ -416,16 +356,6 @@ bool IPSettings::fromJSON(JsonObject &obj) {
   this->parseIPAddress(obj, "dns1", &this->dns1);
   this->parseIPAddress(obj, "dns2", &this->dns2);
   return true;
-}
-bool IPSettings::toJSON(JsonObject &obj) {
-  IPAddress ipEmpty(0,0,0,0);
-  obj["dhcp"] = this->dhcp;
-  obj["ip"] = this->ip == ipEmpty ? "" : this->ip.toString();
-  obj["gateway"] = this->gateway == ipEmpty ? "" : this->gateway.toString();
-  obj["subnet"] = this->subnet == ipEmpty ? "" : this->subnet.toString();
-  obj["dns1"] = this->dns1 == ipEmpty ? "" : this->dns1.toString();
-  obj["dns2"] = this->dns2 == ipEmpty ? "" : this->dns2.toString();
-  return true;  
 }
 bool IPSettings::save() {
   Preferences pref;
@@ -481,14 +411,6 @@ bool SecuritySettings::fromJSON(JsonObject &obj) {
   if(!obj["permissions"].isNull()) this->permissions = obj["permissions"];
   return true;
 }
-bool SecuritySettings::toJSON(JsonObject &obj) {
-  obj["type"] = static_cast<uint8_t>(this->type);
-  obj["username"] = this->username;
-  obj["hasPassword"] = hasSecret(this->password);
-  obj["hasPin"] = hasSecret(this->pin);
-  obj["permissions"] = this->permissions;
-  return true;  
-}
 bool SecuritySettings::save() {
   Preferences pref;
   pref.begin("SEC");
@@ -530,13 +452,6 @@ bool WifiSettings::fromJSON(JsonObject &obj) {
   applySecret(obj["passphrase"].as<const char *>(), this->passphrase, sizeof(this->passphrase), newSsid);
   if(!obj["roaming"].isNull()) this->roaming = obj["roaming"];
   if(!obj["hidden"].isNull()) this->hidden = obj["hidden"];
-  return true;
-}
-bool WifiSettings::toJSON(JsonObject &obj) {
-  obj["ssid"] = this->ssid;
-  obj["hasPassphrase"] = hasSecret(this->passphrase);
-  obj["roaming"] = this->roaming;
-  obj["hidden"] = this->hidden;
   return true;
 }
 bool WifiSettings::save() {
@@ -613,16 +528,6 @@ bool EthernetSettings::fromJSON(JsonObject &obj) {
   if(!obj["PWRPin"].isNull()) this->PWRPin = obj["PWRPin"];
   if(!obj["MDCPin"].isNull()) this->MDCPin = obj["MDCPin"];
   if(!obj["MDIOPin"].isNull()) this->MDIOPin = obj["MDIOPin"];
-  return true;
-}
-bool EthernetSettings::toJSON(JsonObject &obj) {
-  obj["boardType"] = this->boardType;
-  obj["phyAddress"] = this->phyAddress;
-  obj["CLKMode"] = static_cast<uint8_t>(this->CLKMode);
-  obj["phyType"] = this->phyType;
-  obj["PWRPin"] = this->PWRPin;
-  obj["MDCPin"] = this->MDCPin;
-  obj["MDIOPin"] = this->MDIOPin;
   return true;
 }
 bool EthernetSettings::usesPin(uint8_t pin) {

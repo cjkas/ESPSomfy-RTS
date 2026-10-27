@@ -84,6 +84,20 @@ Once you have your hardware built, the only thing left to do is connect the ESP3
 While the interface that comes with the ESPSomfy RTS is a huge improvement, the whole idea of this project is to make the shades controllable from everywhere that I want to control them.  So for that I created a couple of interfaces that you can use to bolt on your own automation.  These options are for those people that have a propeller on their hat.  They do things make red nodes (using Node-Red) or have their own web interface.
 
 You can find the documentation for the interfaces in the [Integrations](https://github.com/rstrouse/ESPSomfy-RTS/wiki/Integrations) wiki.  Plenty of stuff there for you folks that make red nodes and stuff.
+
+### API and ports
+Since 4.0.0 everything is on port 80. Ports 8081 (HTTP API) and 8080 (events socket) are gone, and so are the HTTP routes the old web UI called.
+
+| What | Where |
+|---|---|
+| Web UI | `http://<device>/` |
+| Commands for scripts and Node-RED | `/shadeCommand`, `/groupCommand` and `/tiltCommand`, with the same fields as before, as query parameters or a JSON body |
+| Login | `/loginContext` (the security mode), then `/login`, which returns the token in `apiKey` |
+| Backup and restore | `/backup`, `/restore` |
+| Firmware and web UI updates | `/updateFirmware`, `/updateApplication` |
+| Everything else: state, events, edits, settings | the socket at `ws://<device>/ws`, see [docs/PROTOCOL.md](docs/PROTOCOL.md) |
+
+A script that called port 8081 only changes the port, if it used one of the three commands. Reads such as `/controller`, `/shades` and `/discovery` are gone: use the socket, or MQTT. The Home Assistant integration needs version 3.0.0 or newer.
   
 ## Sources for this Project
 I spent some time reading about a myriad of topics but in the end the primary source for this project comes from https://pushstack.wordpress.com/somfy-rts-protocol/.  The work done on pushstack regarding the protocol timing made this feasible without burning a bunch of time measuring pulses.  

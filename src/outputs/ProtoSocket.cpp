@@ -21,7 +21,6 @@
 #include "ConfigSettings.h"
 #include "ESPNetwork.h"
 #include "Utils.h"
-#include "SocketEmitter.h"
 #include "../entryPoints/Web.h"
 #if HAS_ETHERNET
 #include <ETH.h>
@@ -34,15 +33,18 @@ extern ConfigSettings settings;
 extern ESPNetwork net;
 extern Web webServer;
 extern LoopStats loopStats;
-extern SocketEmitter sockEmit;
 extern LoopQueue loopQueue;
 
 ProtoSocket protoSocket;
 static AsyncWebSocket ws("/ws");
-static_assert(MAX_SOCK_RESPONSE >= PROTO_MAX_FRAME, "protocol 2 frames share the socket event buffer");
+// What loop() formats events, replies and sync frames into.
+static char frameBuffer[PROTO_MAX_FRAME];
+// loop()'s task, recorded by begin().  Only it may use frameBuffer.
+static TaskHandle_t loopTask = nullptr;
+static bool onLoopTask() { return emitAllowed(xTaskGetCurrentTaskHandle(), loopTask); }
 
 static proto_slot_t slots[PROTO_MAX_CLIENTS];
-// What loop() formats events and syncEnd with, into the socket event buffer.
+// What loop() formats events and syncEnd with, into frameBuffer.
 static BufferedJsonFormatter eventJson;
 // Messages that arrive in pieces.  async_tcp adds to it, and a disconnect can
 // drop from it on another task (a client closed for a full queue is closed by
@@ -410,6 +412,7 @@ void ProtoSocket::wsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, 
 }
 
 void ProtoSocket::begin(AsyncWebServer &server) {
+  loopTask = xTaskGetCurrentTaskHandle();
   assemblerMutex = xSemaphoreCreateMutexStatic(&assemblerMutexBuffer);
   ws.handleHandshake(authorized);
   ws.onEvent(ProtoSocket::wsEvent);
@@ -421,7 +424,7 @@ bool ProtoSocket::hasClients() const {
     if(s.clientId.load()) return true;
   return false;
 }
-bool ProtoSocket::sending() const { return sockEmit.onLoopTask() && this->hasClients(); }
+bool ProtoSocket::sending() const { return onLoopTask() && this->hasClients(); }
 
 /*********************************************************************
  * loop(): syncs
@@ -429,7 +432,7 @@ bool ProtoSocket::sending() const { return sockEmit.onLoopTask() && this->hasCli
 static void closeOnceSent();
 static void sendSyncFrame(proto_slot_t &s) {
   LiveSource src;
-  char *buf = socketFrameBuffer();
+  char *buf = frameBuffer;
   const size_t len = writeSyncFrame(src, s.cur, buf, PROTO_MAX_FRAME);
   if(len) ws.text(s.loopId, buf, len);
   syncFrameSent(s, millis());
@@ -440,7 +443,7 @@ static void sendSyncFrame(proto_slot_t &s) {
   ws.text(s.loopId, buf, eventJson.length());
 }
 void ProtoSocket::loop() {
-  if(!sockEmit.onLoopTask()) return;
+  if(!onLoopTask()) return;
   for(proto_slot_t &s : slots) {
     switch(nextSyncStep(s, millis())) {
       case sync_step_t::send:
@@ -482,7 +485,7 @@ static void sendReply(const proto_reply_to_t &to, BufferedJsonFormatter &json, c
   ws.text(to.client, buf, json.length());
 }
 void ProtoSocket::replyRequest(const proto_reply_to_t &to, const shade_request_t &req, shade_request_result_t result) {
-  if(!sockEmit.onLoopTask() || to.id == 0) return;
+  if(!onLoopTask() || to.id == 0) return;
   char buf[192];
   BufferedJsonFormatter json;
   json.setBuffer(buf, sizeof(buf));
@@ -495,7 +498,7 @@ void ProtoSocket::replyRequest(const proto_reply_to_t &to, const shade_request_t
 // What an edit op's reply says: for an add, the new item's id; for a refused
 // edit, the route's reason and the shade's validation code when it has one.
 void ProtoSocket::replyEdit(const proto_reply_to_t &to, model_edit_type_t type, const edit_result_t &result) {
-  if(!sockEmit.onLoopTask() || to.id == 0) return;
+  if(!onLoopTask() || to.id == 0) return;
   const uint32_t id = to.id;
   char buf[256];
   BufferedJsonFormatter json;
@@ -517,7 +520,7 @@ void ProtoSocket::replyEdit(const proto_reply_to_t &to, model_edit_type_t type, 
 // The reads an edit form needs: what a new room, shade or group would get,
 // and the shades a group could take.
 void ProtoSocket::replyRead(const proto_reply_to_t &to, uint8_t op, uint8_t groupId) {
-  if(!sockEmit.onLoopTask() || to.id == 0) return;
+  if(!onLoopTask() || to.id == 0) return;
   const uint32_t id = to.id;
   char buf[256];
   BufferedJsonFormatter json;
@@ -571,19 +574,19 @@ void ProtoSocket::replyRead(const proto_reply_to_t &to, uint8_t op, uint8_t grou
 }
 
 ProtoWriter ProtoSocket::beginReply(const proto_reply_to_t &to) {
-  eventJson.setBuffer(socketFrameBuffer(), PROTO_MAX_FRAME);
+  eventJson.setBuffer(frameBuffer, PROTO_MAX_FRAME);
   beginFrame(eventJson, proto_type_t::reply, to.id);
   ProtoWriter w(eventJson);
   w.add(proto_field_t::ok, true);
   return w;
 }
 void ProtoSocket::endReply(const proto_reply_to_t &to) {
-  if(!sockEmit.onLoopTask() || to.id == 0) return;
+  if(!onLoopTask() || to.id == 0) return;
   endFrame(eventJson);
-  sendReply(to, eventJson, socketFrameBuffer(), PROTO_MAX_FRAME);
+  sendReply(to, eventJson, frameBuffer, PROTO_MAX_FRAME);
 }
 void ProtoSocket::replyRefused(const proto_reply_to_t &to, proto_error_t code, const char *desc) {
-  if(!sockEmit.onLoopTask() || to.id == 0) return;
+  if(!onLoopTask() || to.id == 0) return;
   char buf[192];
   BufferedJsonFormatter json;
   json.setBuffer(buf, sizeof(buf));
@@ -595,7 +598,7 @@ void ProtoSocket::replyRefused(const proto_reply_to_t &to, proto_error_t code, c
  * loop(): events
  ********************************************************************/
 static JsonFormatter &beginEvent(proto_type_t type) {
-  eventJson.setBuffer(socketFrameBuffer(), PROTO_MAX_FRAME);
+  eventJson.setBuffer(frameBuffer, PROTO_MAX_FRAME);
   beginFrame(eventJson, type);
   return eventJson;
 }
@@ -607,7 +610,7 @@ static bool finishEvent() {
   return false;
 }
 static void sendEvent() {
-  if(finishEvent()) ws.textAll(socketFrameBuffer(), eventJson.length());
+  if(finishEvent()) ws.textAll(frameBuffer, eventJson.length());
 }
 // An item whole, or only its state: a snapshot of it, written by write.
 template<typename Model, typename Snapshot>
@@ -728,7 +731,7 @@ void ProtoSocket::settingsChanged(uint32_t savedBy, const char *section) {
   if(!finishEvent()) return;
   for(proto_slot_t &s : slots) {
     const uint32_t id = s.clientId.load();
-    if(id && id != savedBy) ws.text(id, socketFrameBuffer(), eventJson.length());
+    if(id && id != savedBy) ws.text(id, frameBuffer, eventJson.length());
   }
 }
 // The client that saved the security settings, closed once its reply has
@@ -738,7 +741,7 @@ static uint32_t closeWhenSent = 0;
 static uint32_t closeWhenSentSince = 0;
 #define CLOSE_WHEN_SENT_MAX_MS 2000
 void ProtoSocket::closeAll(uint32_t savedBy) {
-  if(!sockEmit.onLoopTask()) return;
+  if(!onLoopTask()) return;
   for(proto_slot_t &s : slots) {
     const uint32_t id = s.clientId.load();
     if(id && id != savedBy) ws.close(id);
@@ -758,7 +761,7 @@ static uint32_t scanAskers[PROTO_MAX_CLIENTS];
 // The most networks wifiNetworks lists, so the event fits a frame.
 #define PROTO_MAX_NETWORKS 30
 void ProtoSocket::wantsWifiNetworks(uint32_t clientId) {
-  if(!sockEmit.onLoopTask()) return;
+  if(!onLoopTask()) return;
   uint32_t *spare = nullptr;
   for(uint32_t &id : scanAskers) {
     if(id == clientId) return;
@@ -769,7 +772,7 @@ void ProtoSocket::wantsWifiNetworks(uint32_t clientId) {
   if(spare) *spare = clientId;
 }
 void ProtoSocket::wifiNetworks(int16_t count) {
-  if(!sockEmit.onLoopTask()) return;
+  if(!onLoopTask()) return;
   bool asked = false;
   for(uint32_t id : scanAskers) asked |= id != 0;
   if(!asked) return;
@@ -796,13 +799,13 @@ void ProtoSocket::wifiNetworks(int16_t count) {
     fits = !eventJson.overflowed();
   }
   for(uint32_t &id : scanAskers) {
-    if(fits && id) ws.text(id, socketFrameBuffer(), eventJson.length());
+    if(fits && id) ws.text(id, frameBuffer, eventJson.length());
     id = 0;
   }
 }
 bool ProtoSocket::subscribed(proto_feed_t feed) const {
-  // The feed is formatted into the event buffer, which is loop()'s.
-  if(!sockEmit.onLoopTask()) return false;
+  // The feed is formatted into the frame buffer, which is loop()'s.
+  if(!onLoopTask()) return false;
   const uint8_t bit = 1 << static_cast<uint8_t>(feed);
   for(const proto_slot_t &s : slots)
     if(s.clientId.load() && (s.feeds.load() & bit)) return true;
@@ -814,6 +817,6 @@ void ProtoSocket::endFeed(proto_feed_t feed) {
   const uint8_t bit = 1 << static_cast<uint8_t>(feed);
   for(proto_slot_t &s : slots) {
     const uint32_t id = s.clientId.load();
-    if(id && (s.feeds.load() & bit)) ws.text(id, socketFrameBuffer(), eventJson.length());
+    if(id && (s.feeds.load() & bit)) ws.text(id, frameBuffer, eventJson.length());
   }
 }

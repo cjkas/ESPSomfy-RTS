@@ -16,24 +16,24 @@ MAX_CLIENTS = 5
 
 
 @pytest.fixture
-def watch_heap(host):
+def watch_heap(host, token):
     """Fails the test when the device rebooted or its heap fell under the floor.
 
     The device reports its lowest heap since it booted, so a dip under the
     floor only shows while that low is still above it."""
-    before = heap(host)
+    before = heap(host, token)
     if before["min"] < HEAP_FLOOR:
         pytest.skip("the heap has been down to %u bytes since boot: reboot the device to check the floor" % before["min"])
     yield before
-    after = heap(host)
+    after = heap(host, token)
     assert after["uptime"] > before["uptime"], "the device rebooted"
     assert after["min"] >= HEAP_FLOOR, "the heap fell to %u bytes (floor %u)" % (after["min"], HEAP_FLOOR)
 
 
 @pytest.fixture
-def all_slots_free(host, token):
-    """Skips unless every socket slot is free.  The web UI holds one per open
-    tab, which would leave these tests a client short."""
+def free_slots(host, token):
+    """How many socket slots no other client holds.  The web UI holds one per
+    open tab and Home Assistant one, so the tests fill what is left."""
     clients = [ProtoClient(host, params={"apikey": token} if token else None) for _ in range(MAX_CLIENTS)]
     try:
         time.sleep(1)
@@ -43,12 +43,15 @@ def all_slots_free(host, token):
             c.close()
     # The device frees a slot when it sees the disconnect.
     time.sleep(0.5)
-    if taken:
-        pytest.skip("%u socket slot(s) in use, likely by the web UI: close its tabs" % taken)
+    if taken == MAX_CLIENTS:
+        pytest.skip("every socket slot is in use: close the web UI's tabs")
+    return MAX_CLIENTS - taken
 
 
-def test_every_client_reconnecting_at_once(connect, schema, watch_heap, all_slots_free):
-    clients = [connect() for _ in range(MAX_CLIENTS)]
+# watch_heap comes before connect so pytest tears connect down first: the
+# heap check after the test needs a free slot.
+def test_every_client_reconnecting_at_once(watch_heap, free_slots, connect, schema):
+    clients = [connect() for _ in range(free_slots)]
     errors = []
 
     def sync(c):
@@ -62,8 +65,8 @@ def test_every_client_reconnecting_at_once(connect, schema, watch_heap, all_slot
     assert not errors, errors
 
 
-def test_one_client_too_many_is_closed(connect, schema, all_slots_free):
-    clients = [connect(schema=schema.hash) for _ in range(MAX_CLIENTS)]
+def test_one_client_too_many_is_closed(connect, schema, free_slots):
+    clients = [connect(schema=schema.hash) for _ in range(free_slots)]
     for c in clients:
         run_sync(c)
     extra = connect(schema=schema.hash)

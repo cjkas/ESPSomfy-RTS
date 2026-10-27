@@ -199,7 +199,7 @@ static void test_rssiNeedsEmit_either_direction() {
  ********************************************************************/
 static RssiBroadcast broadcastOf(int rssi, int channel) {
   RssiBroadcast b;
-  b.sent(true, rssi, channel);
+  b.sent(rssi, channel);
   return b;
 }
 static void test_rssiBroadcast_first_status_is_due() {
@@ -208,17 +208,9 @@ static void test_rssiBroadcast_first_status_is_due() {
   RssiBroadcast b;
   TEST_ASSERT_TRUE(b.due(-60, 6, 3));
 }
-static void test_rssiBroadcast_client_emit_keeps_baseline() {
-  // A new client gets the current RSSI right as it drops 5 dBm.  The clients
-  // already connected must still get the change.
-  RssiBroadcast b = broadcastOf(-60, 6);
-  b.sent(false, -65, 6);
-  TEST_ASSERT_EQUAL_INT(-60, b.rssi);
-  TEST_ASSERT_TRUE(b.due(-65, 6, 3));
-}
 static void test_rssiBroadcast_broadcast_moves_baseline() {
   RssiBroadcast b = broadcastOf(-60, 6);
-  b.sent(true, -65, 6);
+  b.sent(-65, 6);
   TEST_ASSERT_EQUAL_INT(-65, b.rssi);
   // Measured from the new baseline.
   TEST_ASSERT_FALSE(b.due(-66, 6, 3));
@@ -227,12 +219,6 @@ static void test_rssiBroadcast_broadcast_moves_baseline() {
 static void test_rssiBroadcast_channel_change_is_due() {
   RssiBroadcast b = broadcastOf(-60, 6);
   TEST_ASSERT_TRUE(b.due(-60, 11, 3));
-}
-static void test_rssiBroadcast_client_emit_on_disconnect_keeps_baseline() {
-  RssiBroadcast b = broadcastOf(-60, 6);
-  b.sent(false, -100, -1);
-  TEST_ASSERT_EQUAL_INT(6, b.channel);
-  TEST_ASSERT_FALSE(b.due(-60, 6, 3));
 }
 
 /*********************************************************************
@@ -246,7 +232,7 @@ static void test_emitAllowed_refuses_another_task() {
   TEST_ASSERT_FALSE(emitAllowed(&wifiEventTask, &loopTask));
 }
 static void test_emitAllowed_before_the_owner_is_known() {
-  // setup() before SocketEmitter::begin(), which is loop()'s task anyway.
+  // setup() before ProtoSocket::begin(), which is loop()'s task anyway.
   TEST_ASSERT_TRUE(emitAllowed(&loopTask, nullptr));
 }
 
@@ -434,10 +420,8 @@ int main(int argc, char **argv) {
   RUN_TEST(test_rssiNeedsEmit_real_change_emits);
   RUN_TEST(test_rssiNeedsEmit_either_direction);
   RUN_TEST(test_rssiBroadcast_first_status_is_due);
-  RUN_TEST(test_rssiBroadcast_client_emit_keeps_baseline);
   RUN_TEST(test_rssiBroadcast_broadcast_moves_baseline);
   RUN_TEST(test_rssiBroadcast_channel_change_is_due);
-  RUN_TEST(test_rssiBroadcast_client_emit_on_disconnect_keeps_baseline);
   RUN_TEST(test_emitAllowed_on_the_loop_task);
   RUN_TEST(test_emitAllowed_refuses_another_task);
   RUN_TEST(test_emitAllowed_before_the_owner_is_known);

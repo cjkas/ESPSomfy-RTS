@@ -1,6 +1,6 @@
 # Plan: authentication on every entry point, one HTTP server
 
-**Status:** steps 1 to 3, PR B and PR C built; step 4 next.
+**Status:** steps 1 to 3, PR B and PR C merged; step 4 in progress: 4a removes the old API, 4b adds the auth rules.
 **Written:** 2026-10-18, on top of PR #64 (stored secrets are write-only). **Revised:** 2026-10-22 for socket protocol 2: two security modes, eleven HTTP routes, the socket on port 80 ([ADR 0005](adr/0005-one-websocket-protocol.md), [ADR 0006](adr/0006-two-security-modes-eleven-http-routes.md)). Terms are defined in [GLOSSARY.md](../GLOSSARY.md).
 
 ## Why
@@ -86,7 +86,8 @@ Protocol 2 lands as one PR per step, and `main` keeps working throughout because
 | 1d | firmware | settings ops (`getSettings`/`saveSettings` by section), the WiFi and frequency scans, reboot |
 | 2 | firmware | web UI on ops; the CSS files bundled; token in `sessionStorage`; banner on a version mismatch |
 | 3 | HA | protocol 2 with the old-firmware fallback; `/loginContext` setup; runtime login and reauth |
-| 4 | firmware | removals: the old routes, ports 8081 and 8080, `/discovery`, ModelSnapshot, "Secure Config Only"; static serving limited to web assets; CORS headers; Origin check |
+| 4a | firmware | removals: the old routes, ports 8081 and 8080, `/discovery`, ModelSnapshot; the mDNS record on port 80 |
+| 4b | firmware | "Secure Config Only" goes; the token on every non-public route; static serving limited to web assets; CORS headers; Origin check |
 
 PR B (token key) and PR C (login throttle) are separate firmware PRs that can land at any point. The GitHub update was removed ahead of the rest ([ADR 0007](adr/0007-no-github-update.md)), as protocol 2 didn't fit beside it.
 

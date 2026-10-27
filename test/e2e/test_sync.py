@@ -2,7 +2,7 @@
 import json
 import os
 
-from proto_client import Schema, http_json, run_sync
+from proto_client import Schema, run_sync
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "..", "fixtures", "proto2")
 
@@ -55,24 +55,21 @@ def test_an_old_schema_hash_gets_the_schema_again(connect):
     assert schema.complete()
 
 
-def test_sync_holds_the_same_model_as_controller(connect, schema, host, token):
+def test_sync_is_whole(connect, schema):
+    """Every group links shades the sync has, every item's room is in it, and
+    there is one header and one status."""
     c = connect(schema=schema.hash)
     _, frames, _ = run_sync(c)
-    headers = {"apikey": token} if token else {}
-    controller = http_json(host, "/controller", headers=headers)
     shades = [schema.expand(s) for s in items(frames, schema, "shades")]
     groups = [schema.expand(g) for g in items(frames, schema, "groups")]
-    rooms = items(frames, schema, "rooms")
-    assert sorted(s["shadeId"] for s in shades) == sorted(s["shadeId"] for s in controller["shades"])
-    assert sorted(g["groupId"] for g in groups) == sorted(g["groupId"] for g in controller["groups"])
-    assert len(rooms) == len(controller["rooms"])
-    by_id = {s["shadeId"]: s for s in controller["shades"]}
-    for s in shades:
-        assert s.get("name", "") == by_id[s["shadeId"]]["name"]
-        assert s.get("remoteAddress", 0) == by_id[s["shadeId"]]["remoteAddress"]
+    rooms = [schema.expand(r) for r in items(frames, schema, "rooms")]
+    shade_ids = [s["shadeId"] for s in shades]
+    room_ids = {r["roomId"] for r in rooms} | {0}
+    assert len(shade_ids) == len(set(shade_ids))
     for g in groups:
-        linked = sorted(x["shadeId"] for x in next(cg for cg in controller["groups"] if cg["groupId"] == g["groupId"])["linkedShades"])
-        assert sorted(g.get("linkedShades", [])) == linked
+        assert set(g.get("linkedShades", [])) <= set(shade_ids), g["groupId"]
+    for item in shades + groups:
+        assert item.get("roomId", 0) in room_ids
     assert len(items(frames, schema, "header")) == 1
     assert len(items(frames, schema, "status")) == 1
 
