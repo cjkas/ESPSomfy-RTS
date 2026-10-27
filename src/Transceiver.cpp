@@ -10,13 +10,12 @@
 #include "Utils.h"
 #include "ConfigSettings.h"
 #include "Somfy.h"
-#include "outputs/SocketEmitter.h"
 #include "outputs/ProtoSocket.h"
+#include "ProtoSync.h"
 
 static const char *TAG = "Somfy";
 
 extern SomfyShadeController somfy;
-extern SocketEmitter sockEmit;
 extern ConfigSettings settings;
 
 uint8_t rxmode = 0;  // Indicates whether the radio is in receive mode.  Just to ensure there isn't more than one interrupt hooked.
@@ -243,7 +242,7 @@ int markRSSI = -100;
 uint32_t lastScan = 0;
 static uint32_t scanStart = 0;
 // Scan state changes made off loop() (the web handlers and apply() run on
-// async_tcp) are only flagged here.  The socket event buffer is shared, so
+// async_tcp) are only flagged here.  The socket's frame buffer is shared, so
 // loop() sends the event.
 static std::atomic<bool> scanEmitPending{false};
 // A scan nobody ended (closed browser tab) stops on its own after this long so
@@ -310,17 +309,8 @@ void Transceiver::endFrequencyScan() {
   // Even if something else already ended the scan, nothing may keep TX suspended.
   this->resumeTx(TX_SUSPEND_SCAN);
 }
-void Transceiver::emitFrequencyScan(uint8_t num) {
-  JsonSockEvent *json = sockEmit.beginEmit("frequencyScan");
-  json->beginObject();
-  json->addElem("scanning", rxmode == 3);
-  json->addElem("testFreq", currFreq);
-  json->addElem("testRSSI", (int32_t)currRSSI);
-  json->addElem("frequency", markFreq);
-  json->addElem("RSSI", (int32_t)markRSSI);
-  json->endObject();
-  sockEmit.endEmit(num);
-  if(num == 255 && protoSocket.subscribed(proto_feed_t::frequencyScan)) {
+void Transceiver::emitFrequencyScan() {
+  if(protoSocket.subscribed(proto_feed_t::frequencyScan)) {
     ProtoWriter w = protoSocket.beginFeed(proto_type_t::frequencyScan);
     w.add(proto_field_t::scanning, rxmode == 3);
     w.add(proto_field_t::testFreq, currFreq);
@@ -347,34 +337,9 @@ bool Transceiver::receive(somfy_rx_t *rx) {
     return false;
 }
 void Transceiver::emitFrame(somfy_frame_t *frame, somfy_rx_t *rx) {
-  // The largest socket event: every pulse as up to 10 digits and a comma,
-  // plus about 300 bytes of fields and framing.
-  static_assert(MAX_TIMINGS * 11 + 512 <= MAX_SOCK_RESPONSE, "remoteFrame can outgrow the socket buffer");
-  if(sockEmit.activeClients(ROOM_EMIT_FRAME) > 0) {
-    JsonSockEvent *json = sockEmit.beginEmit("remoteFrame");
-    json->beginObject();
-    json->addElem("encKey", frame->encKey);
-    json->addElem("address", (uint32_t)frame->remoteAddress);
-    json->addElem("rcode", (uint32_t)frame->rollingCode);
-    json->addElem("command", translateSomfyCommand(frame->cmd).c_str());
-    json->addElem("rawCmd", frame->rawCmd);
-    json->addElem("rssi", (int32_t)frame->rssi);
-    json->addElem("bits", rx->bit_length);
-    json->addElem("proto", static_cast<uint8_t>(frame->proto));
-    json->addElem("valid", frame->valid);
-    json->addElem("sync", frame->hwsync);
-    if(frame->cmd == somfy_commands::StepUp || frame->cmd == somfy_commands::StepDown)
-      json->addElem("stepSize", frame->stepSize);
-    json->beginArray("pulses");
-    if(rx) {
-      for(uint16_t i = 0; i < rx->pulseCount; i++) {
-        json->addElem((uint32_t)rx->pulses[i]);
-      }
-    }
-    json->endArray();
-    json->endObject();
-    sockEmit.endEmitRoom(ROOM_EMIT_FRAME);
-  }
+  // The largest event: every pulse as up to 10 digits and a comma, plus the
+  // other fields and framing.
+  static_assert(MAX_TIMINGS * 11 + 512 <= PROTO_MAX_FRAME, "a frame event can outgrow the socket's frame buffer");
   if(protoSocket.subscribed(proto_feed_t::frames)) {
     ProtoWriter w = protoSocket.beginFeed(proto_type_t::frame);
     w.add(proto_field_t::encKey, frame->encKey);

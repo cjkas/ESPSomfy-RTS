@@ -222,10 +222,8 @@ void transceiver_config_t::fromJSON(JsonObject& obj) {
  * 2.8 KB of flash).
  ********************************************************************/
 static std::atomic<bool> editBusy(false);
-static std::atomic<uint32_t> lastRequestId(0);
 
 bool beginModelEdit() { return !editBusy.exchange(true); }
-uint32_t nextEditRequestId() { return ++lastRequestId; }
 void cancelModelEdit(model_edit_t *edit) {
   delete edit;
   editBusy.store(false);
@@ -271,8 +269,7 @@ void runModelEdit(model_edit_t *edit) {
   if(!result.ok) ESP_LOGW(TAG, "Edit %u refused: %s", static_cast<uint8_t>(edit->type), result.desc);
   // The reply first: the edit's events follow it (docs/PROTOCOL.md), so a
   // client that waits for the reply doesn't read past them.
-  if(edit->replyTo.client) protoSocket.replyEdit(edit->replyTo, edit->type, result);
-  else emitRequestResult(edit->requestId, result);
+  protoSocket.replyEdit(edit->replyTo, edit->type, result);
   if(result.ok) markEdited(*edit, result);
   cancelModelEdit(edit);
 }
@@ -302,7 +299,7 @@ edit_result_t applyModelEdit(model_edit_t &edit) {
       if(!room) return edit_result_t::error(EDIT_ROOMS_FULL);
       room->fromJSON(obj);
       room->save();
-      room->emitState("roomAdded");
+      room->publish();
       return done(room->roomId);
     }
     case model_edit_type_t::add_shade: {
@@ -315,7 +312,6 @@ edit_result_t applyModelEdit(model_edit_t &edit) {
         return edit_result_t::error("Data Error.", err);
       }
       shade->save();
-      shade->emitState("shadeAdded");
       return done(shade->getShadeId());
     }
     case model_edit_type_t::add_group: {
@@ -323,7 +319,7 @@ edit_result_t applyModelEdit(model_edit_t &edit) {
       if(!group) return edit_result_t::error(EDIT_GROUPS_FULL);
       group->fromJSON(obj);
       group->save();
-      group->emitState("groupAdded");
+      group->publish();
       return done(group->getGroupId());
     }
     case model_edit_type_t::save_room: {
@@ -332,7 +328,7 @@ edit_result_t applyModelEdit(model_edit_t &edit) {
       if(!room) return edit_result_t::missing("Room Id not found.");
       room->fromJSON(obj);
       room->save();
-      room->emitState();
+      room->publish();
       return done(room->roomId);
     }
     case model_edit_type_t::save_shade: {

@@ -87,7 +87,7 @@ class Transceiver {
     void beginFrequencyScan();
     void endFrequencyScan();
     void processFrequencyScan(bool received = false);
-    void emitFrequencyScan(uint8_t num = 255);
+    void emitFrequencyScan();
     bool usesPin(uint8_t pin);
 };
 // Bit length the radio was last set up for.  A frame sent without one

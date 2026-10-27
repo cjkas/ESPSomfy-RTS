@@ -11,12 +11,11 @@ class SomfyGroup;
 class SomfyRoom;
 
 // The socket protocol 2 endpoint, ws://host/ws on port 80 (docs/PROTOCOL.md,
-// docs/adr/0005-one-websocket-protocol.md).  It runs next to the old socket on
-// port 8080 until the web UI and Home Assistant have moved over.
+// docs/adr/0005-one-websocket-protocol.md).
 //
 // async_tcp only reads what clients send and answers with fixed frames that
 // hold nothing of the shade model (hello, errors, ok).  Everything formatted
-// from the model goes out from loop(), in the socket event buffer.  The
+// from the model goes out from loop(), in one frame buffer.  The
 // clients' slots and syncs are in ProtoSlots.
 class ProtoSocket {
   public:
@@ -74,7 +73,7 @@ class ProtoSocket {
     static void wsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len);
   private:
     // On loop()'s task, with a client to send to: nothing is formatted for
-    // nobody, or off the task that owns the event buffer.
+    // nobody, or off the task that owns the frame buffer.
     bool sending() const;
 };
 extern ProtoSocket protoSocket;

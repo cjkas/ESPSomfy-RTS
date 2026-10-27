@@ -18,24 +18,12 @@ class Web {
     bool createAPIPasswordToken(const IPAddress ipAddress, const char *username, const char *password, char *token);
     bool isAuthenticated(AsyncWebServerRequest *request, bool cfg = false);
 
-    // Async API handlers
-    void handleDiscovery(AsyncWebServerRequest *request);
-    void handleGetRooms(AsyncWebServerRequest *request);
-    void handleGetShades(AsyncWebServerRequest *request);
-    void handleGetGroups(AsyncWebServerRequest *request);
-    void handleController(AsyncWebServerRequest *request);
-    void handleRoom(AsyncWebServerRequest *request);
-    void handleShade(AsyncWebServerRequest *request);
-    void handleGroup(AsyncWebServerRequest *request);
+    // HTTP handlers
     void handleLogin(AsyncWebServerRequest *request, JsonVariant &json);
     void handleShadeCommand(AsyncWebServerRequest *request, JsonVariant &json);
     void handleGroupCommand(AsyncWebServerRequest *request, JsonVariant &json);
     void handleTiltCommand(AsyncWebServerRequest *request, JsonVariant &json);
-    void handleRepeatCommand(AsyncWebServerRequest *request, JsonVariant &json);
-    void handleSetPositions(AsyncWebServerRequest *request, JsonVariant &json);
-    void handleSetSensor(AsyncWebServerRequest *request, JsonVariant &json);
     void handleBackup(AsyncWebServerRequest *request);
-    void handleReboot(AsyncWebServerRequest *request);
     void handleNotFound(AsyncWebServerRequest *request);
 };
 #endif

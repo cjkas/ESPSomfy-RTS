@@ -16,16 +16,16 @@ MAX_CLIENTS = 5
 
 
 @pytest.fixture
-def watch_heap(host):
+def watch_heap(host, token):
     """Fails the test when the device rebooted or its heap fell under the floor.
 
     The device reports its lowest heap since it booted, so a dip under the
     floor only shows while that low is still above it."""
-    before = heap(host)
+    before = heap(host, token)
     if before["min"] < HEAP_FLOOR:
         pytest.skip("the heap has been down to %u bytes since boot: reboot the device to check the floor" % before["min"])
     yield before
-    after = heap(host)
+    after = heap(host, token)
     assert after["uptime"] > before["uptime"], "the device rebooted"
     assert after["min"] >= HEAP_FLOOR, "the heap fell to %u bytes (floor %u)" % (after["min"], HEAP_FLOOR)
 

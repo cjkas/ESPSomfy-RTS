@@ -5,7 +5,6 @@
 #include "ConfigSettings.h"
 #include "ESPNetwork.h"
 #include "entryPoints/Web.h"
-#include "outputs/SocketEmitter.h"
 #include "outputs/ProtoSocket.h"
 #include "Utils.h"
 #include "Somfy.h"
@@ -13,7 +12,6 @@
 #include "LoopQueue.h"
 #include "ShadeRequests.h"
 #include "SomfyShadeOps.h"
-#include "ModelSnapshot.h"
 #include "esp_core_dump.h"
 #include "esp_system.h"
 #include "esp_app_desc.h"
@@ -40,7 +38,6 @@ static bool otaPending = false;
 
 ConfigSettings settings;
 Web webServer;
-SocketEmitter sockEmit;
 ESPNetwork net;
 rebootDelay_t rebootDelay;
 SomfyShadeController somfy;
@@ -48,7 +45,6 @@ MqttConnection mqtt;
 SomfyShadeOps shadeOps;
 ShadeRequests shadeRequests(shadeOps);
 LoopQueue loopQueue;
-SnapshotSlots snapshotSlots;
 LoopStats loopStats;
 
 uint32_t oldheap = 0;
@@ -187,7 +183,6 @@ void loop() {
     webServer.loop();
     logIfSlow(TAG, "Loop web server", timing.lap(), LOOP_SLOW_MS);
     esp_task_wdt_reset();
-    sockEmit.loop();
     protoSocket.loop();
     logIfSlow(TAG, "Loop sockets", timing.lap(), LOOP_SLOW_MS);
     esp_task_wdt_reset();

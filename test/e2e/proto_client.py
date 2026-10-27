@@ -226,7 +226,14 @@ def http_json(host, path, port=80, method="GET", body=None, headers=None, timeou
         return json.loads(r.read())
 
 
-def heap(host):
-    """free, min and uptime from /discovery on 8081 (protocol 1, until it goes)."""
-    m = http_json(host, "/discovery", port=8081)["memory"]
-    return {"free": m["free"], "min": m["min"], "max": m["max"], "uptime": m["uptime"]}
+def heap(host, token=None):
+    """free, min, max and uptime from the status in a sync."""
+    c = ProtoClient(host, params={"apikey": token} if token else None)
+    try:
+        schema = Schema()
+        _, frames, _ = run_sync(c, schema)
+    finally:
+        c.close()
+    key = schema.keys["status"]
+    status = schema.expand(next(f["d"][key] for f in frames if key in f["d"]))
+    return {"free": status["freeHeap"], "min": status["minHeap"], "max": status["maxHeap"], "uptime": status["uptime"]}

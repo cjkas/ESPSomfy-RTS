@@ -14,15 +14,4 @@ class AsyncJsonResp : public JsonFormatter {
     void endResponse();
     void flush();
 };
-class JsonSockEvent : public JsonFormatter {
-  protected:
-    bool _closed = false;
-    const char *_evt = "";
-    void _safecat(const char *val, bool escape = false) override;
-  public:
-    AsyncWebSocket *server = nullptr;
-    void beginEvent(AsyncWebSocket *server, const char *evt, char *buff, size_t buffSize);
-    void endEvent(uint32_t clientId = 0);
-    void closeEvent();
-};
 #endif

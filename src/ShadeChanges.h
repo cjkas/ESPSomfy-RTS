@@ -1,7 +1,7 @@
 #ifndef SHADE_CHANGES_H
 #define SHADE_CHANGES_H
 #include <stdint.h>
-#include "ModelSnapshot.h"
+#include "ItemSnapshot.h"
 
 // What changed about a shade since the change fan-out last sent it out, as
 // bits.  The shade's setters and emitState() set them; once per loop() pass the

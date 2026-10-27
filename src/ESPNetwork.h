@@ -12,10 +12,10 @@
 // A weak signal moves a dBm or two all the time, so only broadcast real
 // changes.
 #define RSSI_EMIT_MIN_DBM 3
-// How often loop() broadcasts the status: memStatus, then wifiStrength or
-// ethernet.  memStatus is the one event that is always sent, so this must stay
-// well under Home Assistant's 60s receive timeout.  A client that connects gets
-// all of it straight away from SocketEmitter::initClients().
+// How often loop() broadcasts the status: memory, then wifi or ethernet.
+// memory is the one event that is always sent, so this must stay well under
+// Home Assistant's 60s receive timeout.  A client that connects gets all of it
+// straight away in its sync.
 #define STATUS_EMIT_MS 30000
 // A roaming scan only moves to another AP at least this much stronger.
 #define ROAM_MIN_GAIN_DB 6
@@ -71,8 +71,7 @@ class ESPNetwork {
     void loop();
     void end();
     void emitSockets();
-    void emitSockets(uint8_t num);
-    void emitHeap(uint8_t num = 255);
+    void emitHeap();
     uint32_t getChipId();
     static void networkEvent(WiFiEvent_t event);
 };

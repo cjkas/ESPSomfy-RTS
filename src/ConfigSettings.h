@@ -2,7 +2,6 @@
 #include "EthPhy.h"
 #ifndef configsettings_h
 #define configsettings_h
-#include "WResp.h"
 
 #ifndef FW_VERSION
   #define FW_VERSION "v4.0.0.beta" // Fallback if app_version.py script fails
@@ -37,9 +36,6 @@ struct appver_t {
   uint8_t build = 0;
   char suffix[4] = "";
   void parse(const char *ver);
-  bool toJSON(JsonObject &obj);
-
-  void toJSON(JsonSockEvent *json);
   int8_t compare(appver_t &ver);
   void copy(appver_t &ver);
 };
@@ -49,13 +45,11 @@ class BaseSettings {
   public:
     bool loadFile(const char* filename);
     bool fromJSON(JsonObject &obj);
-    bool toJSON(JsonObject &obj);
-
+  
     bool parseIPAddress(JsonObject &obj, const char *prop, IPAddress *);
     bool parseValueString(JsonObject &obj, const char *prop, char *dest, size_t size);
     int parseValueInt(JsonObject &obj, const char *prop, int defVal);
     double parseValueDouble(JsonObject &obj, const char *prop, double defVal);
-    bool saveFile(const char* filename);
     bool save();
     bool load();
 };
@@ -64,8 +58,7 @@ class NTPSettings: BaseSettings {
     char ntpServer[65] = "pool.ntp.org";
     char posixZone[64] = "";
     bool fromJSON(JsonObject &obj);
-    bool toJSON(JsonObject &obj);
-
+  
     bool apply();
     bool begin();
     bool save();
@@ -82,8 +75,7 @@ class WifiSettings: BaseSettings {
     //bool ssdpBroadcast = true;
     bool begin();
     bool fromJSON(JsonObject &obj);
-    bool toJSON(JsonObject &obj);
-
+  
     String mapEncryptionType(int type);
     bool ssidExists(const char *ssid);
     void printNetworks();
@@ -107,8 +99,7 @@ class EthernetSettings: BaseSettings {
 
     bool begin();
     bool fromJSON(JsonObject &obj);
-    bool toJSON(JsonObject &obj);
-
+  
     bool load();
     bool save();
     void print();
@@ -126,8 +117,7 @@ class IPSettings: BaseSettings {
     IPAddress dns2 = IPAddress(0,0,0,0);
     bool begin();
     bool fromJSON(JsonObject &obj);
-    bool toJSON(JsonObject &obj);
-
+  
     bool load();
     bool save();
     void print();
@@ -151,8 +141,7 @@ class SecuritySettings: BaseSettings {
     bool save();
     bool load();
     void print();
-    bool toJSON(JsonObject &obj);
-
+  
     bool fromJSON(JsonObject &obj);
 };
 class MQTTSettings: BaseSettings {
@@ -169,8 +158,7 @@ class MQTTSettings: BaseSettings {
     bool begin();
     bool save();
     bool load();
-    bool toJSON(JsonObject &obj);
-
+  
     bool fromJSON(JsonObject &obj);
 };
 class ConfigSettings: BaseSettings {
@@ -197,15 +185,11 @@ class ConfigSettings: BaseSettings {
     SecuritySettings Security;
     bool requiresAuth();
     bool fromJSON(JsonObject &obj);
-    bool toJSON(JsonObject &obj);
-
+  
     bool begin();
     bool save();
     bool load();
     void print();
-    void emitSockets();
-    void emitSockets(uint8_t num);
-    bool toJSON(JsonDocument &doc);
     uint16_t calcSettingsRecSize();
     uint16_t calcNetRecSize();
     bool getAppVersion();

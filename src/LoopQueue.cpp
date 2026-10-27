@@ -5,7 +5,6 @@
 #include "LoopQueue.h"
 #include "ConfigFile.h"
 #include "Somfy.h"
-#include "SomfySnapshot.h"
 #include "SomfyEditor.h"
 #include "Utils.h"
 #include "outputs/ProtoSocket.h"
@@ -15,7 +14,6 @@ static const char *TAG = "LoopQueue";
 
 extern SomfyShadeController somfy;
 extern ShadeRequests shadeRequests;
-extern SnapshotSlots snapshotSlots;
 extern rebootDelay_t rebootDelay;
 
 static restore_options_t restoreOptions(uint8_t parts) {
@@ -76,13 +74,6 @@ void LoopQueue::drain() {
         rebootDelay.rebootTime = millis() + 1000;
         break;
       }
-      case loop_item_type_t::load_shades:
-        somfy.loadShadesFile("/shades.tmp");
-        LittleFS.remove("/shades.tmp");
-        break;
-      case loop_item_type_t::snapshot_fill:
-        snapshotSlots.fill(item.slot, fillSnapshot);
-        break;
       case loop_item_type_t::model_edit:
         runModelEdit(item.edit);
         break;

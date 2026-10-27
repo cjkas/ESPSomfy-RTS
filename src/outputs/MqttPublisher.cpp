@@ -2,11 +2,9 @@
 #include "ConfigSettings.h"
 #include "Somfy.h"
 #include "SomfySnapshot.h"
-#include "SocketEmitter.h"
 #include "MqttConnection.h"
 
 extern SomfyShadeController somfy;
-extern SocketEmitter sockEmit;
 extern ConfigSettings settings;
 extern MqttConnection mqtt;
 
@@ -198,7 +196,6 @@ void SomfyShade::publish() {
     this->publish("flipPosition", this->flipPosition, true);
     this->publishState();
     this->publishDisco();
-    sockEmit.loop(); // Keep our socket alive.
   }
 }
 void SomfyGroup::publishState() {

@@ -78,7 +78,7 @@ Events go out to every client from the moment it connects, so they can arrive du
 
 ## Commands
 
-Every op carries an `id` and gets one reply. The ops do what the HTTP routes of the same name do, with these arguments:
+Every op carries an `id` and gets one reply. The ops do what the HTTP routes of the same name did before 4.0.0, with these arguments:
 
 | Op | Payload | Does |
 |---|---|---|
