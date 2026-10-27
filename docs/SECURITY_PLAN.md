@@ -1,6 +1,6 @@
 # Plan: authentication on every entry point, one HTTP server
 
-**Status:** steps 1 to 3, PR B and PR C merged; step 4 in progress: 4a removes the old API, 4b adds the auth rules.
+**Status:** steps 1 to 3, PR B, PR C and 4a merged; 4b, the auth rules, is the last step.
 **Written:** 2026-10-18, on top of PR #64 (stored secrets are write-only). **Revised:** 2026-10-22 for socket protocol 2: two security modes, eleven HTTP routes, the socket on port 80 ([ADR 0005](adr/0005-one-websocket-protocol.md), [ADR 0006](adr/0006-two-security-modes-eleven-http-routes.md)). Terms are defined in [GLOSSARY.md](../GLOSSARY.md).
 
 ## Why
@@ -29,20 +29,21 @@
 ### HTTP routes ([ADR 0006](adr/0006-two-security-modes-eleven-http-routes.md))
 - **Public:** static web assets, `/loginContext`, `/login`, `/upnp.xml` (SSDP), OPTIONS preflight requests.
 - **Token under Secured:** `/backup`, `/restore`, `/updateFirmware`, `/updateApplication`, `/shadeCommand`, `/groupCommand`, `/tiltCommand`.
-- Which routes are public is one pure function with native tests.
+- Which routes are public is one pure function with native tests (`isPublicRoute` in [src/HttpAccess.h](../src/HttpAccess.h)). It counts `/ws` as public because the socket checks its own token in the handshake.
+- One middleware checks the token for every other route. It runs once the body is in, so the uploads check the token on their first chunk too and drop a refused one.
 - Static serving covers the web assets only, so the rolling codes in `shades.cfg` are reachable only through the authenticated `/backup`.
-- The web UI sends `apikey` on its backup and upload requests too (today those XHRs leave it out).
+- The web UI sends `apikey` on its backup and upload requests too.
 
 ### Websocket
 - **Handshake:** the socket is `ws://host/ws` on port 80. The token goes in `?apikey=<token>`, because browsers can't set headers on a websocket. `handleHandshake` checks it with the same comparison the HTTP routes use. `request->url()` is the path only, so the token doesn't reach the slow-request log.
 - **Rules:** under None anyone can connect. Under Secured the handshake needs a valid token, and a connection that has one may send every op and subscribe to every feed.
 - **Logging in with a socket already open:** the UI reconnects the socket with the token. There is no in-band upgrade message.
 - **Changing the security settings:** a `saveSettings` of the security section that leaves the device Secured, or changes its mode, closes every socket, since their tokens may no longer be good, and a socket opened under None had none. The client that saved is closed once its reply, which carries its new token, has gone, so no socket stays open on a check it never passed. The others log in when refused.
-- **Origin:** a handshake whose `Origin` header doesn't match `Host` is refused.
+- **Origin:** a handshake whose `Origin` header doesn't match `Host` is refused, in either mode (`originMatchesHost` in [src/HttpAccess.h](../src/HttpAccess.h)). One without `Origin` comes from a client that isn't a browser and passes.
 
 ### CORS
 - The wildcard `Access-Control-Allow-*` default headers go. The UI is served from the same origin, and HA and scripts aren't browsers, so CORS doesn't affect them.
-- A build flag turns the headers back on for UI development from `file://`, which `baseUrl` in `index.js` supports.
+- A build flag (`WEB_CORS` in `platformio.ini`) turns the headers back on for UI development from `file://`, which `baseUrl` in `index.js` supports. It also skips the Origin check, since such a page sends `Origin: null`.
 
 ### UI
 - The token is kept in `sessionStorage`: it survives a reload, is dropped when the tab closes, and is cleared when the socket upgrade is refused.

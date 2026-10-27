@@ -11,6 +11,7 @@
 #include "Web.h"
 #include "WebRoutes.h"
 #include "MqttConnection.h"
+#include "HttpAccess.h"
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 #include <AsyncJson.h>
@@ -44,12 +45,18 @@ static void onUploadDisconnect() {
   rebootDelay.reboot = true;
   rebootDelay.rebootTime = millis() + 500;
 }
+// The token check (requireToken in Web.cpp) runs once the body is in, after
+// every chunk was handled, so an upload checks the token on its first chunk
+// and drops every chunk of a refused one.
+static bool uploadAllowed(AsyncWebServerRequest *request, size_t index) {
+  if(index == 0) request->setAttribute("uploadAllowed", webServer.isAuthenticated(request));
+  return request->getAttribute("uploadAllowed", false);
+}
 void registerHttpRoutes(AsyncWebServer &server) {
   server.on("/loginContext", HTTP_GET, [](AsyncWebServerRequest *request) {
     AsyncJsonResponse *response = new AsyncJsonResponse();
     JsonObject root = response->getRoot().to<JsonObject>();
     root["type"] = static_cast<uint8_t>(settings.Security.type);
-    root["permissions"] = settings.Security.permissions;
     root["serverId"] = settings.serverId;
     root["version"] = settings.fwVersion.name;
     root["model"] = "ESPSomfyRTS";
@@ -122,6 +129,7 @@ void registerHttpRoutes(AsyncWebServer &server) {
       else request->send(400, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"The upload didn't complete, so nothing was restored.\"}"));
     },
     [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
+      if(!uploadAllowed(request, index)) return;
       resetTaskWdt();
       if(index == 0) {
         webServer.uploadSuccess = false;
@@ -150,6 +158,7 @@ void registerHttpRoutes(AsyncWebServer &server) {
       rebootDelay.rebootTime = millis() + 500;
     },
     [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
+      if(!uploadAllowed(request, index)) return;
       if(index == 0) {
         webServer.uploadSuccess = false;
         ESP_LOGI(TAG, "Update: %s", filename.c_str());
@@ -191,6 +200,7 @@ void registerHttpRoutes(AsyncWebServer &server) {
       rebootDelay.rebootTime = millis() + 500;
     },
     [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
+      if(!uploadAllowed(request, index)) return;
       if(index == 0) {
         webServer.uploadSuccess = false;
         ESP_LOGI(TAG, "Update: %s", filename.c_str());
@@ -223,12 +233,10 @@ void registerHttpRoutes(AsyncWebServer &server) {
       resetTaskWdt();
     });
 
-  server.onNotFound([](AsyncWebServerRequest *r) {
-    if(r->method() == HTTP_OPTIONS) { r->send(200); return; }
-    webServer.handleNotFound(r);
-  });
+  server.onNotFound([](AsyncWebServerRequest *r) { webServer.handleNotFound(r); });
 
   // serveStatic MUST be registered AFTER all route handlers so it doesn't shadow them
-  server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
+  server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html")
+    .setFilter([](AsyncWebServerRequest *r) { return isWebAsset(r->url().c_str()); });
 
 }

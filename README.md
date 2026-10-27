@@ -98,6 +98,8 @@ Since 4.0.0 everything is on port 80. Ports 8081 (HTTP API) and 8080 (events soc
 | Everything else: state, events, edits, settings | the socket at `ws://<device>/ws`, see [docs/PROTOCOL.md](docs/PROTOCOL.md) |
 
 A script that called port 8081 only changes the port, if it used one of the three commands. Reads such as `/controller`, `/shades` and `/discovery` are gone: use the socket, or MQTT. The Home Assistant integration needs version 3.0.0 or newer.
+
+When the device is Secured (a PIN or password), every route above except the web UI and the login routes needs the token, in an `apikey` header; the socket takes it as `?apikey=<token>`. Without it the reply is 401. "Secure Config Only" is gone: a device set to it is Secured from 4.0.0, so scripts that sent commands without logging in now need the token.
   
 ## Sources for this Project
 I spent some time reading about a myriad of topics but in the end the primary source for this project comes from https://pushstack.wordpress.com/somfy-rts-protocol/.  The work done on pushstack regarding the protocol timing made this feasible without burning a bunch of time measuring pulses.  

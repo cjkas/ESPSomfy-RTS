@@ -22,6 +22,7 @@
 #include "ESPNetwork.h"
 #include "Utils.h"
 #include "../entryPoints/Web.h"
+#include "HttpAccess.h"
 #if HAS_ETHERNET
 #include <ETH.h>
 #endif
@@ -260,13 +261,16 @@ static void queueDeviceOp(AsyncWebSocketClient *client, const proto_message_t &m
   if(item.save) freeSettingsSave(item.save);
   replyError(client, msg.id, proto_error_t::busy, "Command queue full");
 }
+// A browser can't set headers on a socket, so the token comes in the query.
 static bool authorized(AsyncWebServerRequest *request) {
-  if(settings.Security.type == security_types::None) return true;
+#ifndef WEB_CORS
+  // A UI opened from a file:// page sends Origin: null, so WEB_CORS skips it.
+  const AsyncWebHeader *origin = request->getHeader("Origin");
+  const AsyncWebHeader *host = request->getHeader("Host");
+  if(!originMatchesHost(origin ? origin->value().c_str() : nullptr, host ? host->value().c_str() : nullptr)) return false;
+#endif
   const AsyncWebParameter *key = request->getParam("apikey");
-  if(!key || !request->client()) return false;
-  char token[API_TOKEN_SIZE];
-  webServer.createAPIToken(request->client()->remoteIP(), token);
-  return tokenMatches(token, key->value().c_str());
+  return webServer.tokenAccepted(request, key ? key->value().c_str() : nullptr);
 }
 static void onConnect(AsyncWebSocketClient *client, AsyncWebServerRequest *request) {
   const uint32_t id = client->id();

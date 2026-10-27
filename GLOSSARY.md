@@ -136,6 +136,9 @@ The device's description of the protocol it speaks: what each message type, fiel
 Whether the device asks for login: *None* (everything open) or *Secured* (a PIN or password).
 _Avoid_: Secure Config Only (removed)
 
+**Public route**
+What anyone may reach under Secured without a token: the web UI's files, `/loginContext`, `/login`, `/upnp.xml` and preflight requests. Static serving answers the web UI's files alone, so `shades.cfg` isn't one.
+
 **Token**
 What logging in returns. It stands for the PIN or password, on one client address, and every request under Secured carries it.
 _Avoid_: session, API key (the name of the field it travels in)

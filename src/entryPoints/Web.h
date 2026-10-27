@@ -16,7 +16,10 @@ class Web {
     bool createAPIToken(const char *payload, char *token);
     bool createAPIPinToken(const IPAddress ipAddress, const char *pin, char *token);
     bool createAPIPasswordToken(const IPAddress ipAddress, const char *username, const char *password, char *token);
-    bool isAuthenticated(AsyncWebServerRequest *request, bool cfg = false);
+    // True under None, or when given is the token for the request's client.
+    bool tokenAccepted(AsyncWebServerRequest *request, const char *given);
+    // tokenAccepted with the apikey header, which is where HTTP sends it.
+    bool isAuthenticated(AsyncWebServerRequest *request);
 
     // HTTP handlers
     void handleLogin(AsyncWebServerRequest *request, JsonVariant &json);
