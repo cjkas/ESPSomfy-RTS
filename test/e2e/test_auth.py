@@ -3,7 +3,10 @@
 The suite never changes the device's security itself, so it tests the mode it
 finds: pass --password or --pin for a Secured device.
 """
+import hashlib
+import hmac
 import json
+import socket
 import time
 import urllib.error
 import urllib.request
@@ -32,6 +35,25 @@ def test_secured_refuses_a_wrong_token(host, secured):
     if not secured:
         pytest.skip("the device's security is None")
     c = ProtoClient(host, params={"apikey": "0" * 64})
+    assert c.status == 401
+
+
+def test_secured_refuses_a_token_keyed_with_the_server_id(request, host, login_context, token):
+    """The token key used to be the public serverId, so anyone who saw a token could check PIN guesses against it."""
+    if token is None:
+        pytest.skip("the device's security is None")
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+        s.connect((host, 80))
+        me = s.getsockname()[0]
+    if login_context["type"] == 2:
+        payload = f"{request.config.getoption('--username')}:{request.config.getoption('--password')}:{me}"
+    else:
+        payload = f"{request.config.getoption('--pin')}:{me}"
+    old = hmac.new(login_context["serverId"].encode(), payload.encode(), hashlib.sha256).hexdigest()
+    # A bool, so a failure doesn't print the tokens.
+    same = old == token
+    assert not same, "the device's token is the one keyed with its serverId"
+    c = ProtoClient(host, params={"apikey": old})
     assert c.status == 401
 
 

@@ -5,6 +5,10 @@
 #include <esp_timer.h>
 #include "esp_log.h"
 #include "mbedtls/md.h"
+#include <Preferences.h>
+#include <esp_random.h>
+#include <bootloader_random.h>
+#include "ApiToken.h"
 #include "ConfigSettings.h"
 #include "ConfigFile.h"
 #include "Utils.h"
@@ -59,6 +63,24 @@ static uint32_t loginKey(const IPAddress &ip) { return (uint32_t)ip; }
 // The throttle's clock, in ms, which doesn't wrap as millis() does.
 static uint64_t loginNow() { return (uint64_t)esp_timer_get_time() / 1000; }
 
+// The tokens' HMAC key.  It has its own NVS namespace, which no settings
+// save clears and no backup holds, so only erasing NVS replaces it.
+static uint8_t tokenKey[API_TOKEN_KEY_SIZE];
+// Reads the token key, or makes one on first boot.  Runs before the radio is
+// on, so the hardware RNG gets its entropy from the bootloader's source.
+static void loadTokenKey() {
+  Preferences pref;
+  pref.begin("TOKEN");
+  if(pref.getBytes("key", tokenKey, sizeof(tokenKey)) != sizeof(tokenKey)) {
+    bootloader_random_enable();
+    esp_fill_random(tokenKey, sizeof(tokenKey));
+    bootloader_random_disable();
+    if(pref.putBytes("key", tokenKey, sizeof(tokenKey)) == sizeof(tokenKey)) ESP_LOGI(TAG, "Made a new token key");
+    else ESP_LOGE(TAG, "Couldn't store the new token key: every token changes at the next boot");
+  }
+  pref.end();
+}
+
 // Hands an item to loop(), which owns the shades.  When it can't be the
 // request is answered with the reason and false is returned.
 bool queueLoopItem(AsyncWebServerRequest *request, const loop_item_t &item) {
@@ -101,7 +123,7 @@ bool Web::isAuthenticated(AsyncWebServerRequest *request, bool cfg) {
     char token[65];
     memset(token, 0x00, sizeof(token));
     this->createAPIToken(request->client()->remoteIP(), token);
-    if(String(token) != request->getHeader("apikey")->value()) {
+    if(!tokenMatches(token, request->getHeader("apikey")->value().c_str())) {
       request->send(401, _encoding_text, "Unauthorized API Key");
       return false;
     }
@@ -124,10 +146,12 @@ bool Web::createAPIToken(const char *payload, char *token) {
     byte hmacResult[32];
     mbedtls_md_context_t ctx;
     mbedtls_md_type_t md_type = MBEDTLS_MD_SHA256;
+    mbedtls_md_init(&ctx);
     mbedtls_md_setup(&ctx, mbedtls_md_info_from_type(md_type), 1);
-    mbedtls_md_hmac_starts(&ctx, (const unsigned char *)settings.serverId, strlen(settings.serverId));
-    mbedtls_md_hmac_update(&ctx, (const unsigned char *)payload, strlen(payload)); 
+    mbedtls_md_hmac_starts(&ctx, tokenKey, sizeof(tokenKey));
+    mbedtls_md_hmac_update(&ctx, (const unsigned char *)payload, strlen(payload));
     mbedtls_md_hmac_finish(&ctx, hmacResult);
+    mbedtls_md_free(&ctx);
     token[0] = '\0';
     for(int i = 0; i < sizeof(hmacResult); i++){
         char str[3];
@@ -378,13 +402,13 @@ void Web::handleLogin(AsyncWebServerRequest *request, JsonVariant &json) {
     char ptok[65];
     memset(ptok, 0x00, sizeof(ptok));
     this->createAPIPinToken(request->client()->remoteIP(), pin, ptok);
-    if(String(ptok) == String(token)) success = true;
+    success = tokenMatches(token, ptok);
   }
   else if(settings.Security.type == security_types::Password) {
     char ptok[65];
     memset(ptok, 0x00, sizeof(ptok));
     this->createAPIPasswordToken(request->client()->remoteIP(), username, password, ptok);
-    if(String(ptok) == String(token)) success = true;
+    success = tokenMatches(token, ptok);
   }
   if(success) {
     loginThrottle.succeeded(key);
@@ -765,6 +789,7 @@ static void timeRequest(AsyncWebServerRequest *request, ArMiddlewareNext next, c
 
 void Web::begin() {
   ESP_LOGI(TAG, "Creating Web MicroServices...");
+  loadTokenKey();
   asyncApiServer.addMiddleware([](AsyncWebServerRequest *r, ArMiddlewareNext next) { timeRequest(r, next, "api"); });
   asyncServer.addMiddleware([](AsyncWebServerRequest *r, ArMiddlewareNext next) { timeRequest(r, next, "web"); });
   // Async API Server (port 8081)
