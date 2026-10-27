@@ -8,7 +8,7 @@ static const uint32_t IP_A = 0x0A01A8C0;  // 192.168.1.10
 static const uint32_t IP_B = 0x0B01A8C0;  // 192.168.1.11
 
 // Fails ip n times at now, as fast as the throttle lets it.
-static void failTimes(LoginThrottle &t, uint32_t ip, int n, uint32_t now) {
+static void failTimes(LoginThrottle &t, uint32_t ip, int n, uint64_t now) {
   for(int i = 0; i < n; i++) t.failed(ip, now);
 }
 
@@ -73,15 +73,23 @@ static void test_an_hour_without_a_failure_forgets_the_ip() {
   failTimes(t, IP_A, 7, 0);
   // Still counted just before the hour: the next failure doubles.
   TEST_ASSERT_EQUAL_UINT32(240000, t.failed(IP_A, LOGIN_FORGET_MS - 1));
-  uint32_t later = 2 * LOGIN_FORGET_MS;
+  uint64_t later = 2 * LOGIN_FORGET_MS;
   TEST_ASSERT_EQUAL_UINT32(0, t.failed(IP_A, later));
 }
-static void test_millis_wrapping_keeps_the_lockout() {
+static void test_a_lockout_spans_where_millis_would_wrap() {
   LoginThrottle t;
-  uint32_t now = UINT32_MAX - 10000;
+  uint64_t now = UINT32_MAX - 10000ULL;
   failTimes(t, IP_A, 5, now);
   TEST_ASSERT_EQUAL_UINT32(10000, t.retryAfter(IP_A, now + 20000));
   TEST_ASSERT_EQUAL_UINT32(0, t.retryAfter(IP_A, now + 30000));
+}
+static void test_a_slot_left_alone_for_50_days_stays_forgotten() {
+  LoginThrottle t;
+  failTimes(t, IP_A, 10, 1000);
+  // Where a 32-bit millis() would have come round to the same value.
+  uint64_t wrapped = 1000 + (1ULL << 32);
+  TEST_ASSERT_EQUAL_UINT32(0, t.retryAfter(IP_A, wrapped));
+  TEST_ASSERT_EQUAL_UINT32(0, t.failed(IP_A, wrapped));
 }
 
 /*********************************************************************
@@ -113,7 +121,7 @@ static void test_a_forgotten_slot_is_taken_again() {
   LoginThrottle t;
   for(uint32_t i = 0; i < LOGIN_THROTTLE_SLOTS; i++) failTimes(t, 100 + i, 5, 0);
   // An hour later every slot is vacant: a new IP has its own free failures.
-  uint32_t later = LOGIN_FORGET_MS;
+  uint64_t later = LOGIN_FORGET_MS;
   TEST_ASSERT_EQUAL_UINT32(0, t.retryAfter(IP_A, later));
   failTimes(t, IP_A, 4, later);
   TEST_ASSERT_EQUAL_UINT32(30000, t.failed(IP_A, later));
@@ -124,7 +132,8 @@ static void test_a_success_doesnt_clear_the_shared_slot() {
   LoginThrottle t;
   for(uint32_t i = 0; i < LOGIN_THROTTLE_SLOTS; i++) failTimes(t, 100 + i, 1, 0);
   failTimes(t, 200, 5, 0);
-  t.succeeded(201);
+  // 200 is counted in the shared slot, not one of its own.
+  t.succeeded(200);
   TEST_ASSERT_EQUAL_UINT32(30000, t.retryAfter(202, 0));
 }
 
@@ -139,7 +148,8 @@ int main(int argc, char **argv) {
   RUN_TEST(test_after_a_lockout_the_next_failure_locks_out_twice_as_long);
   RUN_TEST(test_a_success_resets_the_ip);
   RUN_TEST(test_an_hour_without_a_failure_forgets_the_ip);
-  RUN_TEST(test_millis_wrapping_keeps_the_lockout);
+  RUN_TEST(test_a_lockout_spans_where_millis_would_wrap);
+  RUN_TEST(test_a_slot_left_alone_for_50_days_stays_forgotten);
   RUN_TEST(test_one_ip_locked_out_leaves_the_others_alone);
   RUN_TEST(test_a_success_resets_only_its_own_ip);
   RUN_TEST(test_with_the_table_full_other_ips_share_one_slot);

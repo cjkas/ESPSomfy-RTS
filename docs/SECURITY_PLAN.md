@@ -54,7 +54,7 @@
 - **Comparison:** constant-time, used for HTTP and the websocket handshake alike.
 - **Migration:** none needed. The browser logs in again when its token is refused, and HA logs in again at runtime.
 
-### Login throttling (PR C)
+### Login throttle (PR C)
 - Per client IP: after 5 failed `/login` attempts, refuse that IP for 30 s, doubling each time up to 15 min. A success resets it.
   - After the first lockout, each failure starts the next one, so an IP gets one try per lockout rather than five.
   - An hour without a failure forgets the IP.
@@ -87,7 +87,7 @@ Protocol 2 lands as one PR per step, and `main` keeps working throughout because
 | 3 | HA | protocol 2 with the old-firmware fallback; `/loginContext` setup; runtime login and reauth |
 | 4 | firmware | removals: the old routes, ports 8081 and 8080, `/discovery`, ModelSnapshot, "Secure Config Only"; static serving limited to web assets; CORS headers; Origin check |
 
-PR B (token key) and PR C (login backoff) are separate firmware PRs that can land at any point. The GitHub update was removed ahead of the rest ([ADR 0007](adr/0007-no-github-update.md)), as protocol 2 didn't fit beside it.
+PR B (token key) and PR C (login throttle) are separate firmware PRs that can land at any point. The GitHub update was removed ahead of the rest ([ADR 0007](adr/0007-no-github-update.md)), as protocol 2 didn't fit beside it.
 
 ## Tests
 
@@ -95,7 +95,7 @@ The rules go into small pure helpers with native tests, following [src/Secrets.h
 - which routes are public
 - the token comparison
 - the Origin/Host match
-- the backoff schedule
+- the login throttle's schedule
 
 The e2e suite (`test/e2e`) checks, when given credentials, that a socket without a token is refused, that the HTTP routes answer 401, and that a token works. It never changes the device's security settings itself.
 

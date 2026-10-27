@@ -2,6 +2,7 @@
 #include <LittleFS.h>
 #include <Update.h>
 #include <esp_task_wdt.h>
+#include <esp_timer.h>
 #include "esp_log.h"
 #include "mbedtls/md.h"
 #include "ConfigSettings.h"
@@ -52,6 +53,11 @@ static const char *TAG = "Web";
 
 // Failed logins per client IP, on both web servers.
 static LoginThrottle loginThrottle;
+// The throttle's key for a client: its IPv4 address.  The firmware doesn't
+// enable IPv6; an IPv6 client would share key 0 with every other one.
+static uint32_t loginKey(const IPAddress &ip) { return (uint32_t)ip; }
+// The throttle's clock, in ms, which doesn't wrap as millis() does.
+static uint64_t loginNow() { return (uint64_t)esp_timer_get_time() / 1000; }
 
 // Hands an item to loop(), which owns the shades.  When it can't be the
 // request is answered with the reason and false is returned.
@@ -341,9 +347,10 @@ void Web::handleLogin(AsyncWebServerRequest *request, JsonVariant &json) {
   }
   // A refused IP isn't told whether these credentials were right.
   IPAddress ip = request->client()->remoteIP();
-  uint32_t wait = loginThrottle.retryAfter((uint32_t)ip, millis());
-  if(wait) {
-    uint32_t secs = (wait + 999) / 1000;
+  uint32_t key = loginKey(ip);
+  uint32_t retryMs = loginThrottle.retryAfter(key, loginNow());
+  if(retryMs) {
+    uint32_t secs = (retryMs + 999) / 1000;
     snprintf(g_async_content, sizeof(g_async_content),
       "{\"type\":%u,\"msg\":\"Too many failed logins. Try again in %lu s.\",\"success\":false,\"retryAfter\":%lu}",
       static_cast<uint8_t>(settings.Security.type), (unsigned long)secs, (unsigned long)secs);
@@ -380,14 +387,14 @@ void Web::handleLogin(AsyncWebServerRequest *request, JsonVariant &json) {
     if(String(ptok) == String(token)) success = true;
   }
   if(success) {
-    loginThrottle.succeeded((uint32_t)ip);
+    loginThrottle.succeeded(key);
     snprintf(g_async_content, sizeof(g_async_content),
       "{\"type\":%u,\"apiKey\":\"%s\",\"msg\":\"Success\",\"success\":true}",
       static_cast<uint8_t>(settings.Security.type), token);
     request->send(200, _encoding_json, g_async_content);
   }
   else {
-    uint32_t lockout = loginThrottle.failed((uint32_t)ip, millis());
+    uint32_t lockout = loginThrottle.failed(key, loginNow());
     if(lockout) ESP_LOGW(TAG, "Failed login from %s: refused for %lu s", ip.toString().c_str(), (unsigned long)(lockout / 1000));
     snprintf(g_async_content, sizeof(g_async_content),
       "{\"type\":%u,\"msg\":\"Invalid credentials\",\"success\":false}",
