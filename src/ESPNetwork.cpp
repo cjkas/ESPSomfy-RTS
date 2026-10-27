@@ -5,7 +5,7 @@
 #include "esp_log.h"
 #include "ConfigSettings.h"
 #include "ESPNetwork.h"
-#include "entryPoints/Web.h"
+#include "Somfy.h"
 #include "outputs/ProtoSocket.h"
 #include "Utils.h"
 #include "SSDP.h"
@@ -14,7 +14,6 @@
 static const char *TAG = "Network";
 
 extern ConfigSettings settings;
-extern Web webServer;
 extern MqttConnection mqtt;
 extern rebootDelay_t rebootDelay;
 extern ESPNetwork net;
@@ -172,7 +171,7 @@ void ESPNetwork::loop() {
   }
   if(millis() - this->lastEmit >= STATUS_EMIT_MS) {
     this->lastEmit = millis();
-    if(this->connected()) this->emitSockets();
+    if(this->connected()) this->emitStatus();
     resetTaskWdt(); // Make sure we do not reboot here.
   }
   
@@ -198,7 +197,7 @@ bool ESPNetwork::changeAP(const uint8_t *bssid, const int32_t channel) {
 }
 // The status broadcast, every STATUS_EMIT_MS from loop().  A wired link goes
 // out every time, the WiFi signal only when it really changed.
-void ESPNetwork::emitSockets() {
+void ESPNetwork::emitStatus() {
   this->emitHeap();
 #if HAS_ETHERNET
   if(this->connType == conn_types_t::ethernet) {

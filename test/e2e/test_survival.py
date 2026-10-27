@@ -47,7 +47,9 @@ def all_slots_free(host, token):
         pytest.skip("%u socket slot(s) in use, likely by the web UI: close its tabs" % taken)
 
 
-def test_every_client_reconnecting_at_once(connect, schema, watch_heap, all_slots_free):
+# watch_heap comes before connect so pytest tears connect down first: the
+# heap check after the test needs a free slot.
+def test_every_client_reconnecting_at_once(watch_heap, all_slots_free, connect, schema):
     clients = [connect() for _ in range(MAX_CLIENTS)]
     errors = []
 

@@ -155,7 +155,7 @@ void setup() {
 void loop() {
   // put your main code here, to run repeatedly:
   //uint32_t heap = ESP.getFreeHeap();
-  // Times the whole pass for memStatus, including any time the loop task was
+  // Times the whole pass for the memory event, including any time the loop task was
   // pre-empted, since that delays the loop too.
   ElapsedTimer pass;
   if(rebootDelay.reboot && millis() > rebootDelay.rebootTime) {

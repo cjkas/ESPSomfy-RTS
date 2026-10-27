@@ -234,6 +234,9 @@ def heap(host, token=None):
         _, frames, _ = run_sync(c, schema)
     finally:
         c.close()
+        # The device frees the slot when it sees the disconnect; the caller
+        # may need every slot.
+        time.sleep(0.5)
     key = schema.keys["status"]
     status = schema.expand(next(f["d"][key] for f in frames if key in f["d"]))
     return {"free": status["freeHeap"], "min": status["minHeap"], "max": status["maxHeap"], "uptime": status["uptime"]}

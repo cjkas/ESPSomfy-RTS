@@ -804,7 +804,7 @@ void ProtoSocket::wifiNetworks(int16_t count) {
   }
 }
 bool ProtoSocket::subscribed(proto_feed_t feed) const {
-  // The feed is formatted into the event buffer, which is loop()'s.
+  // The feed is formatted into the frame buffer, which is loop()'s.
   if(!onLoopTask()) return false;
   const uint8_t bit = 1 << static_cast<uint8_t>(feed);
   for(const proto_slot_t &s : slots)

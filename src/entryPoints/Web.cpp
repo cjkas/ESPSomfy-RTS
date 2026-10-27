@@ -10,7 +10,6 @@
 #include "Somfy.h"
 #include "WResp.h"
 #include "LoopQueue.h"
-#include "ItemSnapshot.h"
 #include "SomfySnapshot.h"
 #include "Web.h"
 #include "WebRoutes.h"

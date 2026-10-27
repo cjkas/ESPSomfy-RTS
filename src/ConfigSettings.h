@@ -45,7 +45,7 @@ class BaseSettings {
   public:
     bool loadFile(const char* filename);
     bool fromJSON(JsonObject &obj);
-  
+
     bool parseIPAddress(JsonObject &obj, const char *prop, IPAddress *);
     bool parseValueString(JsonObject &obj, const char *prop, char *dest, size_t size);
     int parseValueInt(JsonObject &obj, const char *prop, int defVal);
@@ -58,7 +58,7 @@ class NTPSettings: BaseSettings {
     char ntpServer[65] = "pool.ntp.org";
     char posixZone[64] = "";
     bool fromJSON(JsonObject &obj);
-  
+
     bool apply();
     bool begin();
     bool save();
@@ -75,7 +75,7 @@ class WifiSettings: BaseSettings {
     //bool ssdpBroadcast = true;
     bool begin();
     bool fromJSON(JsonObject &obj);
-  
+
     String mapEncryptionType(int type);
     bool ssidExists(const char *ssid);
     void printNetworks();
@@ -99,7 +99,7 @@ class EthernetSettings: BaseSettings {
 
     bool begin();
     bool fromJSON(JsonObject &obj);
-  
+
     bool load();
     bool save();
     void print();
@@ -117,7 +117,7 @@ class IPSettings: BaseSettings {
     IPAddress dns2 = IPAddress(0,0,0,0);
     bool begin();
     bool fromJSON(JsonObject &obj);
-  
+
     bool load();
     bool save();
     void print();
@@ -141,7 +141,7 @@ class SecuritySettings: BaseSettings {
     bool save();
     bool load();
     void print();
-  
+
     bool fromJSON(JsonObject &obj);
 };
 class MQTTSettings: BaseSettings {
@@ -158,7 +158,7 @@ class MQTTSettings: BaseSettings {
     bool begin();
     bool save();
     bool load();
-  
+
     bool fromJSON(JsonObject &obj);
 };
 class ConfigSettings: BaseSettings {
@@ -185,7 +185,7 @@ class ConfigSettings: BaseSettings {
     SecuritySettings Security;
     bool requiresAuth();
     bool fromJSON(JsonObject &obj);
-  
+
     bool begin();
     bool save();
     bool load();

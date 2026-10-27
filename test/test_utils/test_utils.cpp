@@ -232,7 +232,7 @@ static void test_emitAllowed_refuses_another_task() {
   TEST_ASSERT_FALSE(emitAllowed(&wifiEventTask, &loopTask));
 }
 static void test_emitAllowed_before_the_owner_is_known() {
-  // setup() before SocketEmitter::begin(), which is loop()'s task anyway.
+  // setup() before ProtoSocket::begin(), which is loop()'s task anyway.
   TEST_ASSERT_TRUE(emitAllowed(&loopTask, nullptr));
 }
 

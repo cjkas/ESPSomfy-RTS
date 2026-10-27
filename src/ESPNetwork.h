@@ -70,7 +70,7 @@ class ESPNetwork {
     bool setup();
     void loop();
     void end();
-    void emitSockets();
+    void emitStatus();
     void emitHeap();
     uint32_t getChipId();
     static void networkEvent(WiFiEvent_t event);

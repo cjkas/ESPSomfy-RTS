@@ -180,4 +180,4 @@ A malformed message gets a bad request, with its `id` when it had one. A type a 
 
 ## Inside the device
 
-async_tcp reads client frames and answers with fixed frames that hold nothing of the shade model: `hello`, errors and `ok`. Everything formatted from the shade model goes out from `loop()`, which is the only task that reads and writes it ([ADR 0002](adr/0002-loop-task-is-the-only-writer-of-the-shade-model.md)). Sync frames and events share the socket event buffer, so protocol 2 needs no more static memory.
+async_tcp reads client frames and answers with fixed frames that hold nothing of the shade model: `hello`, errors and `ok`. Everything formatted from the shade model goes out from `loop()`, which is the only task that reads and writes it ([ADR 0002](adr/0002-loop-task-is-the-only-writer-of-the-shade-model.md)). Sync frames and events share one frame buffer, which belongs to `loop()`.

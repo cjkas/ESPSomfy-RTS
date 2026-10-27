@@ -84,7 +84,7 @@ The seam through which a shade's behaviour reports what happened: changes for th
 
 **Entry point**
 Where a request from outside reaches the firmware: an HTTP route, an MQTT command topic or a frame received from a remote.
-_Avoid_: controller (it already names the owner of the shade list and the `/controller` read)
+_Avoid_: controller (it already names the owner of the shade list)
 
 **HttpRoutes**
 The HTTP routes on port 80: the web UI's files, login, the file transfers and the three commands for scripts. Everything else is an op on the socket.

@@ -53,7 +53,7 @@ void registerHttpRoutes(AsyncWebServer &server) {
     root["serverId"] = settings.serverId;
     root["version"] = settings.fwVersion.name;
     root["model"] = "ESPSomfyRTS";
-    root["hostname"] = settings.hostname;    
+    root["hostname"] = settings.hostname;
     response->setLength();
     request->send(response);
   });
@@ -92,7 +92,7 @@ void registerHttpRoutes(AsyncWebServer &server) {
           JsonDocument doc;
           DeserializationError err = deserializeJson(doc, dataStr);
           if(err) {
-            request->send(500, "application/json", "{\"status\":\"ERROR\",\"desc\":\"JSON parse error\"}");
+            request->send(500, _encoding_json, "{\"status\":\"ERROR\",\"desc\":\"JSON parse error\"}");
             return;
           }
           else {
