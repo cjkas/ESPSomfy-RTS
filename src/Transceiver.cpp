@@ -485,8 +485,9 @@ void transceiver_config_t::load() {
         break;
 #ifdef CONFIG_IDF_TARGET_ESP32C5
       case esp_chip_model_t::CHIP_ESP32C5:
-        // The framework's default SPI pins (variants/esp32c5).  4 and 5 aren't
-        // strapping pins.
+        // The framework's default SPI pins (variants/esp32c5).  TX and RX take
+        // 4 and 5, the LP UART's pins, which nothing here uses; 2, 3, 7 and
+        // 25-28 are strapping pins and 11-22 hold UART0, USB and the flash.
         this->TXPin = 4;
         this->RXPin = 5;
         this->MOSIPin = 8;
