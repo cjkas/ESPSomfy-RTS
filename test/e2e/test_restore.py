@@ -28,6 +28,14 @@ def test_restore_reads_the_options_sent_as_a_form_field(host, token):
     assert json.loads(body)["desc"] == "JSON parse error"
 
 
+def test_a_restore_with_no_part_chosen_is_refused(host, token):
+    """Checked before the file, so this file, which isn't a backup, restores nothing either way."""
+    options = json.dumps({"shades": False})
+    status, _, body = upload(host, "/restore", auth(token), fields={"data": options})
+    assert status == 400, body
+    assert json.loads(body)["desc"] == "No part of the backup was chosen, so nothing was restored."
+
+
 def test_a_refused_restore_leaves_no_upload_behind(host, token):
     """A later /restore without a file must not find the refused one's upload."""
     status, _, _ = upload(host, "/restore", auth(token), fields={"data": "{"})

@@ -118,6 +118,13 @@ void registerHttpRoutes(AsyncWebServer &server) {
           ESP_LOGD(TAG, "No restore options sent.  Using defaults...");
           opts.shades = true;
         }
+        // Otherwise the device would reboot having restored nothing.
+        const uint8_t parts = restoreParts(opts);
+        if(parts == 0) {
+          LittleFS.remove("/shades.tmp");
+          request->send(400, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No part of the backup was chosen, so nothing was restored.\"}"));
+          return;
+        }
         // Checked here so the client hears about a bad file.  It only reads
         // the file; the shades are still changed on loop() alone.
         if(!ShadeConfigFile::validateFile("/shades.tmp")) {
@@ -129,7 +136,7 @@ void registerHttpRoutes(AsyncWebServer &server) {
         // codes, and then reboots.
         loop_item_t item;
         item.type = loop_item_type_t::restore_shades;
-        item.restoreParts = restoreParts(opts);
+        item.restoreParts = parts;
         if(!queueLoopItem(request, item)) return;
         request->send(200, _encoding_json, "{\"status\":\"Success\",\"desc\":\"Restoring Shade settings\"}");
       }
