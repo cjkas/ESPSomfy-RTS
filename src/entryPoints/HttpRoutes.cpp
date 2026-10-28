@@ -165,19 +165,20 @@ void registerHttpRoutes(AsyncWebServer &server) {
   server.on(AsyncURIMatcher::exact("/updateFirmware"), HTTP_POST,
     [](AsyncWebServerRequest *request) {
       // Nothing was written or stopped, so there is nothing to reboot for.
-      if(!settings.otaSlot) {
+      if(!settings.hasOtaSlot) {
         request->send(400, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"This device has no OTA slot, so its firmware is flashed over USB.\"}"));
         return;
       }
+      // errorString() is one of the updater's fixed messages, none with a quote.
       if(Update.hasError())
-        request->send(500, _encoding_json, "{\"status\":\"ERROR\",\"desc\":\"Error updating firmware: \"}");
+        request->send(500, _encoding_json, String("{\"status\":\"ERROR\",\"desc\":\"Error updating firmware: ") + Update.errorString() + "\"}");
       else
         request->send(200, _encoding_json, "{\"status\":\"SUCCESS\",\"desc\":\"Successfully updated firmware\"}");
       rebootDelay.reboot = true;
       rebootDelay.rebootTime = millis() + 500;
     },
     [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
-      if(!uploadAllowed(request, index) || !settings.otaSlot) return;
+      if(!uploadAllowed(request, index) || !settings.hasOtaSlot) return;
       if(index == 0) {
         webServer.uploadSuccess = false;
         ESP_LOGI(TAG, "Update: %s", filename.c_str());
@@ -212,7 +213,7 @@ void registerHttpRoutes(AsyncWebServer &server) {
   server.on(AsyncURIMatcher::exact("/updateApplication"), HTTP_POST,
     [](AsyncWebServerRequest *request) {
       if(Update.hasError())
-        request->send(500, _encoding_json, "{\"status\":\"ERROR\",\"desc\":\"Error updating application: \"}");
+        request->send(500, _encoding_json, String("{\"status\":\"ERROR\",\"desc\":\"Error updating application: ") + Update.errorString() + "\"}");
       else
         request->send(200, _encoding_json, "{\"status\":\"SUCCESS\",\"desc\":\"Successfully updated application\"}");
       rebootDelay.reboot = true;

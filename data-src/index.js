@@ -4171,7 +4171,7 @@ class Firmware {
     updateFirmware() {
         let chip = document.getElementById('divContainer').getAttribute('data-chipmodel') || '';
         // Firmware from before the field leaves it out: undefined, not false.
-        if (proto.model.header.otaSlot === false) {
+        if (proto.model.header.hasOtaSlot === false) {
             ui.infoMessage(`This device has no OTA slot, so its firmware is flashed over USB with SomfyController.onboard.esp32${chip}.bin. That image holds the web UI and an empty configuration too, so take a backup first and restore it afterwards.`);
             return;
         }
@@ -4307,18 +4307,15 @@ class Firmware {
                 security.tokenRefused();
                 return;
             }
-            if (service !== '/restore' && (xhr.status < 200 || xhr.status >= 300)) {
-                ui.errorMessage(el, `The upload failed (${xhr.status}).`);
+            if (xhr.status < 200 || xhr.status >= 300) {
+                // The device's reason, when it sent one.
+                let desc = `The upload failed (${xhr.status}).`;
+                try { desc = JSON.parse(xhr.responseText).desc || desc; } catch (e) { }
+                ui.errorMessage(el, desc);
                 return;
             }
             switch (service) {
                 case '/restore':
-                    if (xhr.status < 200 || xhr.status >= 300) {
-                        let desc = 'The restore failed.';
-                        try { desc = JSON.parse(xhr.responseText).desc || desc; } catch (e) { }
-                        ui.errorMessage(el, desc);
-                        break;
-                    }
                     (async () => {
                         await somfy.init();
                         if (document.getElementById('divUploadFile')) document.getElementById('divUploadFile').remove();

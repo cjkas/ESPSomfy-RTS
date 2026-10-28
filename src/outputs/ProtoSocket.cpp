@@ -77,7 +77,7 @@ static void writeHeader(ProtoWriter &w) {
   w.add(proto_field_t::hostname, settings.hostname);
   w.add(proto_field_t::model, "ESPSomfyRTS");
   w.add(proto_field_t::chipModel, settings.chipModel);
-  w.add(proto_field_t::otaSlot, settings.otaSlot);
+  w.add(proto_field_t::hasOtaSlot, settings.hasOtaSlot);
   w.add(proto_field_t::fw, settings.fwVersion.name);
   w.add(proto_field_t::connType, net.connTypeName());
 }

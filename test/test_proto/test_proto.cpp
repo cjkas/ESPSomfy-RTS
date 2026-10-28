@@ -119,15 +119,17 @@ static void test_values_at_their_default_are_left_out() {
     w.add(proto_field_t::myPos, (int8_t)-1);
     w.add(proto_field_t::repeats, (uint8_t)1);
     w.add(proto_field_t::paired, false);
+    w.add(proto_field_t::hasOtaSlot, true);  // a bool whose default is true
     w.add(proto_field_t::name, "");
     w.add(proto_field_t::name, (const char *)nullptr);
   }).c_str());
 }
 static void test_values_off_their_default_are_written_by_key() {
-  TEST_ASSERT_EQUAL_STRING("{\"p\":50,\"m\":0,\"i\":1,\"n\":\"Office\",\"a\":4294967295,\"q\":-5}", writeObject([](ProtoWriter &w) {
+  TEST_ASSERT_EQUAL_STRING("{\"p\":50,\"m\":0,\"i\":1,\"os\":0,\"n\":\"Office\",\"a\":4294967295,\"q\":-5}", writeObject([](ProtoWriter &w) {
     w.add(proto_field_t::position, (int8_t)50);
     w.add(proto_field_t::myPos, (int8_t)0);
     w.add(proto_field_t::paired, true);
+    w.add(proto_field_t::hasOtaSlot, false);
     w.add(proto_field_t::name, "Office");
     w.add(proto_field_t::remoteAddress, (uint32_t)0xFFFFFFFF);
     w.add(proto_field_t::tiltPosition, (int8_t)-5);

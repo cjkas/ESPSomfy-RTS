@@ -145,7 +145,7 @@ bool ConfigSettings::begin() {
       break;
   }
   ESP_LOGD(TAG, "Chip Model ESP32-%s", this->chipModel);
-  this->otaSlot = esp_ota_get_next_update_partition(nullptr) != nullptr;
+  this->hasOtaSlot = esp_ota_get_next_update_partition(nullptr) != nullptr;
   this->fwVersion.parse(FW_VERSION);
   uint64_t mac = ESP.getEfuseMac();
   for(int i=0; i<17; i=i+8) {
