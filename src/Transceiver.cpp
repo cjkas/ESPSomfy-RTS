@@ -474,12 +474,14 @@ void transceiver_config_t::load() {
         this->CSNPin = 34;
         break;
       case esp_chip_model_t::CHIP_ESP32C3:
-        this->TXPin = 13;
-        this->RXPin = 12;
-        this->MOSIPin = 16;
-        this->MISOPin = 17;
-        this->SCKPin = 15;
-        this->CSNPin = 14;
+        // The framework's default SPI pins (variants/esp32c3).  12-17 hold the
+        // SPI flash, and 2, 8 and 9 are strapping pins.
+        this->TXPin = 10;
+        this->RXPin = 3;
+        this->MOSIPin = 6;
+        this->MISOPin = 5;
+        this->SCKPin = 4;
+        this->CSNPin = 7;
         break;
 #ifdef CONFIG_IDF_TARGET_ESP32C5
       case esp_chip_model_t::CHIP_ESP32C5:
