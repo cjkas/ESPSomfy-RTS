@@ -123,6 +123,11 @@ def test_reboot(request, host, token, connect, schema):
     uptime_before = uptime(schema, frames)
     assert is_ok(schema, op(c, schema, "reboot", {}))
     assert c.closed.wait(15), "the socket stayed open"
+    wait_for_restart(host, token, schema, uptime_before)
+
+
+def wait_for_restart(host, token, schema, uptime_before):
+    """Waits until the device is back, and checks it restarted."""
     # The device closes its sockets just before it restarts, and may still
     # take a connection in between: that one never gets its hello.
     time.sleep(3)

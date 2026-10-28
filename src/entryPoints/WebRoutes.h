@@ -18,7 +18,7 @@ extern const char _encoding_json[];
 // Hands an item to loop(), which owns the shades.  When it can't be the
 // request is answered with the reason and false is returned.
 bool queueLoopItem(AsyncWebServerRequest *request, const loop_item_t &item);
-// A query parameter, or an empty string when it is missing.
+// A query parameter or form field, or an empty string when it is missing.
 String asyncParam(AsyncWebServerRequest *request, const char *name);
 bool asyncHasParam(AsyncWebServerRequest *request, const char *name);
 #endif

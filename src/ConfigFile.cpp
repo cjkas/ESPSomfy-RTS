@@ -608,7 +608,9 @@ bool ShadeConfigFile::restoreFile(SomfyShadeController *s, const char *filename,
   else {
     this->file.seek(this->file.position() + this->header.netRecordSize, SeekSet);
   }
-  if(opts.shades) s->commit();
+  // The repeaters are saved in shades.cfg too.  Left to somfy.loop(), they
+  // race the reboot.
+  if(opts.shades || opts.repeaters) s->commit();
   if(opts.transceiver)
   {
     // Read into a copy so the radio task never transmits on a half restored config.
