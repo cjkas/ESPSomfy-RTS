@@ -60,7 +60,7 @@ jobs:
         # fwname: firmware-only binary for OTA updates
         # obname: onboard image (bootloader + partitions + firmware + littlefs merged)
         #         for flashing a new chip via USB/serial
-        # addr_bootloader: chip-dependent (ESP32: 0x1000, S3/C3/C6: 0x0)
+        # addr_bootloader: chip-dependent (ESP32: 0x1000, S3/C3/C6: 0x0, C5: 0x2000)
         # addr_fs: must match spiffs/littlefs offset in esp32_3MB.csv
         include:
           - env: esp32dev
@@ -87,6 +87,14 @@ jobs:
             fwname: SomfyController.ino.esp32c3.bin
             fsname: SomfyController.littlefs.esp32c3.bin
             obname: SomfyController.onboard.esp32c3.bin
+          - env: esp32c5
+            name: ESP32-C5
+            chip: ESP32-C5
+            addr_bootloader: "0x2000"
+            addr_fs: "0x310000"
+            fwname: SomfyController.ino.esp32c5.bin
+            fsname: SomfyController.littlefs.esp32c5.bin
+            obname: SomfyController.onboard.esp32c5.bin
           - env: esp32c6
             name: ESP32-C6
             chip: ESP32-C6

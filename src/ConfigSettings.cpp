@@ -134,6 +134,11 @@ bool ConfigSettings::begin() {
     case esp_chip_model_t::CHIP_ESP32C3:
       strcpy(this->chipModel, "c3");
       break;
+    #ifdef CONFIG_IDF_TARGET_ESP32C5
+    case esp_chip_model_t::CHIP_ESP32C5:
+      strcpy(this->chipModel, "c5");
+      break;
+    #endif
     #ifdef CONFIG_IDF_TARGET_ESP32C6
     case esp_chip_model_t::CHIP_ESP32C6:
       strcpy(this->chipModel, "c6");

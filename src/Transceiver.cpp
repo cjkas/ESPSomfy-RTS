@@ -481,6 +481,18 @@ void transceiver_config_t::load() {
         this->SCKPin = 15;
         this->CSNPin = 14;
         break;
+#ifdef CONFIG_IDF_TARGET_ESP32C5
+      case esp_chip_model_t::CHIP_ESP32C5:
+        // The framework's default SPI pins (variants/esp32c5).  4 and 5 aren't
+        // strapping pins.
+        this->TXPin = 4;
+        this->RXPin = 5;
+        this->MOSIPin = 8;
+        this->MISOPin = 9;
+        this->SCKPin = 10;
+        this->CSNPin = 6;
+        break;
+#endif
 #ifdef CONFIG_IDF_TARGET_ESP32C6
       case esp_chip_model_t::CHIP_ESP32C6:
       // Pinout applicable for the ESP32-C6-WROOM-1 module (ESP32-C6-DevKitC-1-N4)
