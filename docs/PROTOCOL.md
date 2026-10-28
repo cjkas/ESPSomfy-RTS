@@ -7,6 +7,7 @@ Why the protocol looks like this: [ADR 0005](adr/0005-one-websocket-protocol.md)
 ## Connection
 
 - `ws://host/ws` on port 80. Under Secured the upgrade needs `?apikey=<token>` from `/login`; without a valid one it is refused with 401 ([ADR 0006](adr/0006-two-security-modes-eleven-http-routes.md)).
+- An upgrade whose `Origin` header doesn't name the `Host` it was sent to is refused with 401 too, in either mode, so another site's page can't open the socket. Clients that aren't browsers send no `Origin`.
 - Optional `?schema=<hash>`: the client already has the schema with that hash and doesn't need it again.
 - At most 5 clients. A sixth is closed as soon as it connects.
 - Text messages of at most 4 KB. A message may be sent as several frames, and a frame larger than one TCP segment (about 1.4 KB) reaches the device in pieces anyway; the device puts it back together. It does that for one message at a time across all clients: while it is, another client's long message is answered with busy, and the client sends it again. A message that hasn't arrived in full within 10 s is given up, and its client is told with a bad request. These refusals have no `id`, since the message couldn't be read. A binary encoding, if one comes, would be asked for at the upgrade (for example `?enc=bin`) and use binary frames.

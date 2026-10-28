@@ -408,7 +408,6 @@ bool SecuritySettings::fromJSON(JsonObject &obj) {
   this->parseValueString(obj, "username", this->username, sizeof(this->username));
   applySecret(obj["password"].as<const char *>(), this->password, sizeof(this->password));
   applySecret(obj["pin"].as<const char *>(), this->pin, sizeof(this->pin));
-  if(!obj["permissions"].isNull()) this->permissions = obj["permissions"];
   return true;
 }
 bool SecuritySettings::save() {
@@ -419,10 +418,11 @@ bool SecuritySettings::save() {
   pref.putString("username", this->username);
   pref.putString("password", this->password);
   pref.putString("pin", this->pin);
-  pref.putChar("permissions", this->permissions);
   pref.end();
   return true;
 }
+// A device that had "Secure Config Only" keeps its PIN or password and so is
+// Secured.  Its old permissions key goes with the next save's clear().
 bool SecuritySettings::load() {
   Preferences pref;
   pref.begin("SEC");
@@ -430,13 +430,12 @@ bool SecuritySettings::load() {
   if(pref.isKey("username")) pref.getString("username", this->username, sizeof(this->username));
   if(pref.isKey("password")) pref.getString("password", this->password, sizeof(this->password));
   if(pref.isKey("pin")) pref.getString("pin", this->pin, sizeof(this->pin));
-  if(pref.isKey("permissions")) this->permissions = pref.getChar("permissions", this->permissions);
   pref.end();
   return true;
 }
 void SecuritySettings::print() {
-  ESP_LOGD(TAG, "SECURITY   Type:%u Username:[%s] Password:[%s] Pin:[%s] Permissions:%u",
-    static_cast<uint8_t>(this->type), this->username, maskSecret(this->password), maskSecret(this->pin), this->permissions);
+  ESP_LOGD(TAG, "SECURITY   Type:%u Username:[%s] Password:[%s] Pin:[%s]",
+    static_cast<uint8_t>(this->type), this->username, maskSecret(this->password), maskSecret(this->pin));
 }
 
 WifiSettings::WifiSettings() {}

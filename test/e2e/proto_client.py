@@ -79,14 +79,15 @@ class Schema:
 
 
 class ProtoClient:
-    def __init__(self, host, port=80, path="/ws", params=None, timeout=10):
+    def __init__(self, host, port=80, path="/ws", params=None, timeout=10, headers=None):
         self.host = host
         query = ("?" + urllib.parse.urlencode(params)) if params else ""
         self.sock = socket.create_connection((host, port), timeout=timeout)
         key = base64.b64encode(os.urandom(16)).decode()
+        extra = "".join(f"{k}: {v}\r\n" for k, v in (headers or {}).items())
         self.sock.sendall((
             f"GET {path}{query} HTTP/1.1\r\nHost: {host}:{port}\r\nUpgrade: websocket\r\n"
-            f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n").encode())
+            f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n{extra}\r\n").encode())
         head = b""
         while b"\r\n\r\n" not in head:
             chunk = self.sock.recv(1024)

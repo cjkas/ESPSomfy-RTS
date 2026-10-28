@@ -127,16 +127,12 @@ enum class security_types : byte {
   PinEntry = 0x01,
   Password = 0x02
 };
-enum class security_permissions : byte {
-  ConfigOnly = 0x01
-};
 class SecuritySettings: BaseSettings {
   public:
     security_types type = security_types::None;
     char username[33] = "";
     char password[33] = "";
     char pin[5] = "";
-    uint8_t permissions = 0;
     bool begin();
     bool save();
     bool load();

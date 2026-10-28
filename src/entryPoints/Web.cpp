@@ -16,6 +16,7 @@
 #include "outputs/ProtoSocket.h"
 #include "Timing.h"
 #include "LoginThrottle.h"
+#include "HttpAccess.h"
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 #include <AsyncJson.h>
@@ -92,27 +93,16 @@ void Web::startup() {
 void Web::loop() {
   delay(1);
 }
-bool Web::isAuthenticated(AsyncWebServerRequest *request, bool cfg) {
-  ESP_LOGD(TAG, "Checking async authentication");
+bool Web::tokenAccepted(AsyncWebServerRequest *request, const char *given) {
   if(settings.Security.type == security_types::None) return true;
-  else if(!cfg && (settings.Security.permissions & static_cast<uint8_t>(security_permissions::ConfigOnly)) == 0x01) return true;
-  else if(request->hasHeader("apikey")) {
-    ESP_LOGD(TAG, "Checking API Key...");
-    char token[API_TOKEN_SIZE];
-    memset(token, 0x00, sizeof(token));
-    this->createAPIToken(request->client()->remoteIP(), token);
-    if(!tokenMatches(token, request->getHeader("apikey")->value().c_str())) {
-      request->send(401, _encoding_text, "Unauthorized API Key");
-      return false;
-    }
-    // Key is valid
-  }
-  else {
-    ESP_LOGE(TAG, "Not authenticated...");
-    request->send(401, _encoding_text, "Unauthorized API Key");
-    return false;
-  }
-  return true;
+  if(!given || !request->client()) return false;
+  char token[API_TOKEN_SIZE];
+  this->createAPIToken(request->client()->remoteIP(), token);
+  return tokenMatches(token, given);
+}
+bool Web::isAuthenticated(AsyncWebServerRequest *request) {
+  const AsyncWebHeader *key = request->getHeader("apikey");
+  return this->tokenAccepted(request, key ? key->value().c_str() : nullptr);
 }
 bool Web::createAPIPinToken(const IPAddress ipAddress, const char *pin, char *token) {
   return this->createAPIToken((String(pin) + ":" + ipAddress.toString()).c_str(), token);
@@ -240,7 +230,6 @@ void Web::handleLogin(AsyncWebServerRequest *request, JsonVariant &json) {
 }
 void Web::handleShadeCommand(AsyncWebServerRequest *request, JsonVariant &json) {
   if(request->method() == HTTP_OPTIONS) { request->send(200); return; }
-  if(!this->isAuthenticated(request)) return;
   shade_request_t req;
   req.type = shade_request_type_t::shade_command;
   // Try query params
@@ -279,7 +268,6 @@ void Web::handleShadeCommand(AsyncWebServerRequest *request, JsonVariant &json) 
 }
 void Web::handleGroupCommand(AsyncWebServerRequest *request, JsonVariant &json) {
   if(request->method() == HTTP_OPTIONS) { request->send(200); return; }
-  if(!this->isAuthenticated(request)) return;
   shade_request_t req;
   req.type = shade_request_type_t::group_command;
   if(asyncHasParam(request, "groupId")) {
@@ -315,7 +303,6 @@ void Web::handleGroupCommand(AsyncWebServerRequest *request, JsonVariant &json) 
 }
 void Web::handleTiltCommand(AsyncWebServerRequest *request, JsonVariant &json) {
   if(request->method() == HTTP_OPTIONS) { request->send(200); return; }
-  if(!this->isAuthenticated(request)) return;
   shade_request_t req;
   req.type = shade_request_type_t::tilt_command;
   if(asyncHasParam(request, "shadeId")) {
@@ -348,7 +335,6 @@ void Web::handleTiltCommand(AsyncWebServerRequest *request, JsonVariant &json) {
   }
 }
 void Web::handleBackup(AsyncWebServerRequest *request) {
-  if(!this->isAuthenticated(request)) return;
   bool attach = false;
   if(asyncHasParam(request, "attach")) attach = toBoolean(asyncParam(request, "attach").c_str(), false);
   ESP_LOGI(TAG, "Async saving current shade information");
@@ -368,7 +354,9 @@ void Web::handleBackup(AsyncWebServerRequest *request) {
     snprintf(filename, sizeof(filename), "attachment; filename=\"ESPSomfyRTS %s.backup\"", iso);
     AsyncWebServerResponse *response = request->beginResponse(200, _encoding_text, somfy.backupData);
     response->addHeader("Content-Disposition", filename);
+#ifdef WEB_CORS
     response->addHeader("Access-Control-Expose-Headers", "Content-Disposition");
+#endif
     request->send(response);
   }
   else {
@@ -404,13 +392,29 @@ static void timeRequest(AsyncWebServerRequest *request, ArMiddlewareNext next) {
   next();
   logRequestTime(request, ip, "handler", timer.us());
 }
+// Under Secured every route but the public ones needs the token.  This runs
+// once the body is in, after an upload's chunks, so the uploads check the
+// token themselves as well (uploadAllowed in HttpRoutes.cpp).
+static void requireToken(AsyncWebServerRequest *request, ArMiddlewareNext next) {
+  if(isPublicRoute(request->url().c_str(), request->method() == HTTP_OPTIONS) || webServer.isAuthenticated(request)) {
+    next();
+    return;
+  }
+  request->send(401, _encoding_text, "Unauthorized API Key");
+}
 
 void Web::begin() {
   ESP_LOGI(TAG, "Creating Web MicroServices...");
   asyncServer.addMiddleware([](AsyncWebServerRequest *r, ArMiddlewareNext next) { timeRequest(r, next); });
+  asyncServer.addMiddleware([](AsyncWebServerRequest *r, ArMiddlewareNext next) { requireToken(r, next); });
+#ifdef WEB_CORS
+  // For work on the UI from a file:// page (baseUrl in index.js).  A release
+  // leaves them out: the UI comes from the device, and HA and scripts aren't
+  // browsers.
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Methods", "PUT,POST,GET,OPTIONS");
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Headers", "*");
+#endif
   // Before the routes, so serveStatic never answers /ws.
   protoSocket.begin(asyncServer);
   registerHttpRoutes(asyncServer);

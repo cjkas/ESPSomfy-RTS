@@ -18,7 +18,7 @@ With [ADR 0005](0005-one-websocket-protocol.md) moving everything else to the we
 
 Static serving covers the web assets only, so `shades.cfg` and the other config files are never served. The script commands keep today's full field names, since people write those requests by hand. `/discovery` goes: Home Assistant's setup reads the device info from `/loginContext`, and mDNS still advertises `serverId`.
 
-There are two security modes. **None** leaves everything open. **Secured** (PIN or password) needs the token on the socket upgrade (`?apikey=`) and on every route except the static files, `/loginContext`, `/login` and `/upnp.xml`. Devices set to "Secure Config Only" become Secured when they upgrade. The rest of the security work (the token key, the login throttle, CORS, the Origin check) is in [SECURITY_PLAN.md](../SECURITY_PLAN.md).
+There are two security modes. **None** leaves everything open, except that a socket upgrade from another site's page is refused in either mode (the Origin check). **Secured** (PIN or password) needs the token on the socket upgrade (`?apikey=`) and on every route except the static files, `/loginContext`, `/login` and `/upnp.xml`. Devices set to "Secure Config Only" become Secured when they upgrade. The rest of the security work (the token key, the login throttle, CORS, the Origin check) is in [SECURITY_PLAN.md](../SECURITY_PLAN.md).
 
 ## Considered Options
 

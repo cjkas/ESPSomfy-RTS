@@ -11,6 +11,7 @@
 #include "Web.h"
 #include "WebRoutes.h"
 #include "MqttConnection.h"
+#include "HttpAccess.h"
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 #include <AsyncJson.h>
@@ -44,12 +45,20 @@ static void onUploadDisconnect() {
   rebootDelay.reboot = true;
   rebootDelay.rebootTime = millis() + 500;
 }
+// The token check (requireToken in Web.cpp) runs once the body is in, after
+// every chunk was handled, so an upload checks the token on its first chunk
+// and drops every chunk of a refused one.
+static bool uploadAllowed(AsyncWebServerRequest *request, size_t index) {
+  if(index == 0) request->setAttribute("uploadAllowed", webServer.isAuthenticated(request));
+  return request->getAttribute("uploadAllowed", false);
+}
+// Every route is an exact match.  The library's default also takes any path
+// below the route, and /backup/a.js then passed the token check as a web asset.
 void registerHttpRoutes(AsyncWebServer &server) {
-  server.on("/loginContext", HTTP_GET, [](AsyncWebServerRequest *request) {
+  server.on(AsyncURIMatcher::exact("/loginContext"), HTTP_GET, [](AsyncWebServerRequest *request) {
     AsyncJsonResponse *response = new AsyncJsonResponse();
     JsonObject root = response->getRoot().to<JsonObject>();
     root["type"] = static_cast<uint8_t>(settings.Security.type);
-    root["permissions"] = settings.Security.permissions;
     root["serverId"] = settings.serverId;
     root["version"] = settings.fwVersion.name;
     root["model"] = "ESPSomfyRTS";
@@ -58,31 +67,31 @@ void registerHttpRoutes(AsyncWebServer &server) {
     request->send(response);
   });
   // Commands for scripts, as a JSON body or query parameters.
-  server.addHandler(new AsyncCallbackJsonWebHandler("/shadeCommand",
+  server.addHandler(new AsyncCallbackJsonWebHandler(AsyncURIMatcher::exact("/shadeCommand"),
     [](AsyncWebServerRequest *request, JsonVariant &json) { webServer.handleShadeCommand(request, json); }));
-  server.on("/shadeCommand", HTTP_GET, [](AsyncWebServerRequest *request) { JsonVariant v; webServer.handleShadeCommand(request, v); });
+  server.on(AsyncURIMatcher::exact("/shadeCommand"), HTTP_GET, [](AsyncWebServerRequest *request) { JsonVariant v; webServer.handleShadeCommand(request, v); });
 
-  server.addHandler(new AsyncCallbackJsonWebHandler("/groupCommand",
+  server.addHandler(new AsyncCallbackJsonWebHandler(AsyncURIMatcher::exact("/groupCommand"),
     [](AsyncWebServerRequest *request, JsonVariant &json) { webServer.handleGroupCommand(request, json); }));
-  server.on("/groupCommand", HTTP_GET, [](AsyncWebServerRequest *request) { JsonVariant v; webServer.handleGroupCommand(request, v); });
+  server.on(AsyncURIMatcher::exact("/groupCommand"), HTTP_GET, [](AsyncWebServerRequest *request) { JsonVariant v; webServer.handleGroupCommand(request, v); });
 
-  server.addHandler(new AsyncCallbackJsonWebHandler("/tiltCommand",
+  server.addHandler(new AsyncCallbackJsonWebHandler(AsyncURIMatcher::exact("/tiltCommand"),
     [](AsyncWebServerRequest *request, JsonVariant &json) { webServer.handleTiltCommand(request, json); }));
-  server.on("/tiltCommand", HTTP_GET, [](AsyncWebServerRequest *request) { JsonVariant v; webServer.handleTiltCommand(request, v); });
+  server.on(AsyncURIMatcher::exact("/tiltCommand"), HTTP_GET, [](AsyncWebServerRequest *request) { JsonVariant v; webServer.handleTiltCommand(request, v); });
 
-  server.on("/upnp.xml", HTTP_GET, [](AsyncWebServerRequest *request) {
+  server.on(AsyncURIMatcher::exact("/upnp.xml"), HTTP_GET, [](AsyncWebServerRequest *request) {
     AsyncResponseStream *response = request->beginResponseStream("text/xml");
     SSDP.schema(*response);
     request->send(response);
   });
 
-  server.addHandler(new AsyncCallbackJsonWebHandler("/login",
+  server.addHandler(new AsyncCallbackJsonWebHandler(AsyncURIMatcher::exact("/login"),
     [](AsyncWebServerRequest *request, JsonVariant &json) { webServer.handleLogin(request, json); }));
-  server.on("/login", HTTP_GET, [](AsyncWebServerRequest *request) { JsonVariant v; webServer.handleLogin(request, v); });
+  server.on(AsyncURIMatcher::exact("/login"), HTTP_GET, [](AsyncWebServerRequest *request) { JsonVariant v; webServer.handleLogin(request, v); });
 
-  server.on("/backup", HTTP_GET, [](AsyncWebServerRequest *request) { webServer.handleBackup(request); });
+  server.on(AsyncURIMatcher::exact("/backup"), HTTP_GET, [](AsyncWebServerRequest *request) { webServer.handleBackup(request); });
 
-  server.on("/restore", HTTP_POST,
+  server.on(AsyncURIMatcher::exact("/restore"), HTTP_POST,
     [](AsyncWebServerRequest *request) {
       if(webServer.uploadSuccess) {
         restore_options_t opts;
@@ -122,6 +131,7 @@ void registerHttpRoutes(AsyncWebServer &server) {
       else request->send(400, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"The upload didn't complete, so nothing was restored.\"}"));
     },
     [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
+      if(!uploadAllowed(request, index)) return;
       resetTaskWdt();
       if(index == 0) {
         webServer.uploadSuccess = false;
@@ -140,7 +150,7 @@ void registerHttpRoutes(AsyncWebServer &server) {
     });
 
   // updateFirmware - file upload
-  server.on("/updateFirmware", HTTP_POST,
+  server.on(AsyncURIMatcher::exact("/updateFirmware"), HTTP_POST,
     [](AsyncWebServerRequest *request) {
       if(Update.hasError())
         request->send(500, _encoding_json, "{\"status\":\"ERROR\",\"desc\":\"Error updating firmware: \"}");
@@ -150,6 +160,7 @@ void registerHttpRoutes(AsyncWebServer &server) {
       rebootDelay.rebootTime = millis() + 500;
     },
     [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
+      if(!uploadAllowed(request, index)) return;
       if(index == 0) {
         webServer.uploadSuccess = false;
         ESP_LOGI(TAG, "Update: %s", filename.c_str());
@@ -181,7 +192,7 @@ void registerHttpRoutes(AsyncWebServer &server) {
     });
 
   // updateApplication - file upload
-  server.on("/updateApplication", HTTP_POST,
+  server.on(AsyncURIMatcher::exact("/updateApplication"), HTTP_POST,
     [](AsyncWebServerRequest *request) {
       if(Update.hasError())
         request->send(500, _encoding_json, "{\"status\":\"ERROR\",\"desc\":\"Error updating application: \"}");
@@ -191,6 +202,7 @@ void registerHttpRoutes(AsyncWebServer &server) {
       rebootDelay.rebootTime = millis() + 500;
     },
     [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
+      if(!uploadAllowed(request, index)) return;
       if(index == 0) {
         webServer.uploadSuccess = false;
         ESP_LOGI(TAG, "Update: %s", filename.c_str());
@@ -223,12 +235,10 @@ void registerHttpRoutes(AsyncWebServer &server) {
       resetTaskWdt();
     });
 
-  server.onNotFound([](AsyncWebServerRequest *r) {
-    if(r->method() == HTTP_OPTIONS) { r->send(200); return; }
-    webServer.handleNotFound(r);
-  });
+  server.onNotFound([](AsyncWebServerRequest *r) { webServer.handleNotFound(r); });
 
   // serveStatic MUST be registered AFTER all route handlers so it doesn't shadow them
-  server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
+  server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html")
+    .setFilter([](AsyncWebServerRequest *r) { return isWebAsset(r->url().c_str()); });
 
 }
