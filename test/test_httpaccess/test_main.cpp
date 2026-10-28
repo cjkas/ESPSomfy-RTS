@@ -34,6 +34,11 @@ static void test_a_path_leaving_the_root_is_not_a_web_asset() {
   TEST_ASSERT_FALSE(isWebAsset("/../shades.cfg.js"));
   TEST_ASSERT_FALSE(isWebAsset("/x/../index.js"));
 }
+static void test_a_file_below_the_root_is_not_a_web_asset() {
+  TEST_ASSERT_FALSE(isWebAsset("/backup/a.js"));
+  TEST_ASSERT_FALSE(isWebAsset("/js/index.js"));
+  TEST_ASSERT_FALSE(isWebAsset("//index.js"));
+}
 static void test_a_missing_or_relative_path_is_not_a_web_asset() {
   TEST_ASSERT_FALSE(isWebAsset(nullptr));
   TEST_ASSERT_FALSE(isWebAsset(""));
@@ -70,6 +75,12 @@ static void test_a_route_differing_in_case_or_length_needs_the_token() {
   TEST_ASSERT_FALSE(isPublicRoute("/login/", false));
   TEST_ASSERT_FALSE(isPublicRoute("/logins", false));
   TEST_ASSERT_FALSE(isPublicRoute("/ws/", false));
+}
+static void test_a_web_asset_name_below_a_route_needs_the_token() {
+  TEST_ASSERT_FALSE(isPublicRoute("/backup/a.js", false));
+  TEST_ASSERT_FALSE(isPublicRoute("/shadeCommand/a.png", false));
+  TEST_ASSERT_FALSE(isPublicRoute("/updateFirmware/x.js", false));
+  TEST_ASSERT_FALSE(isPublicRoute("/login/a.js", false));
 }
 static void test_a_preflight_is_public() {
   TEST_ASSERT_TRUE(isPublicRoute("/backup", true));
@@ -118,6 +129,7 @@ int main(int, char **) {
   RUN_TEST(test_a_compressed_file_is_not_asked_for_by_name);
   RUN_TEST(test_a_type_alone_is_not_a_web_asset);
   RUN_TEST(test_a_path_leaving_the_root_is_not_a_web_asset);
+  RUN_TEST(test_a_file_below_the_root_is_not_a_web_asset);
   RUN_TEST(test_a_missing_or_relative_path_is_not_a_web_asset);
   RUN_TEST(test_logging_in_and_ssdp_are_public);
   RUN_TEST(test_the_socket_checks_its_own_token);
@@ -125,6 +137,7 @@ int main(int, char **) {
   RUN_TEST(test_the_other_routes_need_the_token);
   RUN_TEST(test_an_unknown_path_needs_the_token);
   RUN_TEST(test_a_route_differing_in_case_or_length_needs_the_token);
+  RUN_TEST(test_a_web_asset_name_below_a_route_needs_the_token);
   RUN_TEST(test_a_preflight_is_public);
   RUN_TEST(test_the_page_the_device_served_matches);
   RUN_TEST(test_https_behind_a_proxy_matches);

@@ -263,12 +263,14 @@ static void queueDeviceOp(AsyncWebSocketClient *client, const proto_message_t &m
 }
 // A browser can't set headers on a socket, so the token comes in the query.
 static bool authorized(AsyncWebServerRequest *request) {
-#ifndef WEB_CORS
-  // A UI opened from a file:// page sends Origin: null, so WEB_CORS skips it.
   const AsyncWebHeader *origin = request->getHeader("Origin");
   const AsyncWebHeader *host = request->getHeader("Host");
-  if(!originMatchesHost(origin ? origin->value().c_str() : nullptr, host ? host->value().c_str() : nullptr)) return false;
+  const char *from = origin ? origin->value().c_str() : nullptr;
+#ifdef WEB_CORS
+  // The UI opened from a file:// page sends Origin: null.
+  if(from && strcmp(from, "null") == 0) from = nullptr;
 #endif
+  if(!originMatchesHost(from, host ? host->value().c_str() : nullptr)) return false;
   const AsyncWebParameter *key = request->getParam("apikey");
   return webServer.tokenAccepted(request, key ? key->value().c_str() : nullptr);
 }

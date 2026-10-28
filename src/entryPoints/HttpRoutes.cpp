@@ -52,8 +52,10 @@ static bool uploadAllowed(AsyncWebServerRequest *request, size_t index) {
   if(index == 0) request->setAttribute("uploadAllowed", webServer.isAuthenticated(request));
   return request->getAttribute("uploadAllowed", false);
 }
+// Every route is an exact match.  The library's default also takes any path
+// below the route, and /backup/a.js then passed the token check as a web asset.
 void registerHttpRoutes(AsyncWebServer &server) {
-  server.on("/loginContext", HTTP_GET, [](AsyncWebServerRequest *request) {
+  server.on(AsyncURIMatcher::exact("/loginContext"), HTTP_GET, [](AsyncWebServerRequest *request) {
     AsyncJsonResponse *response = new AsyncJsonResponse();
     JsonObject root = response->getRoot().to<JsonObject>();
     root["type"] = static_cast<uint8_t>(settings.Security.type);
@@ -65,31 +67,31 @@ void registerHttpRoutes(AsyncWebServer &server) {
     request->send(response);
   });
   // Commands for scripts, as a JSON body or query parameters.
-  server.addHandler(new AsyncCallbackJsonWebHandler("/shadeCommand",
+  server.addHandler(new AsyncCallbackJsonWebHandler(AsyncURIMatcher::exact("/shadeCommand"),
     [](AsyncWebServerRequest *request, JsonVariant &json) { webServer.handleShadeCommand(request, json); }));
-  server.on("/shadeCommand", HTTP_GET, [](AsyncWebServerRequest *request) { JsonVariant v; webServer.handleShadeCommand(request, v); });
+  server.on(AsyncURIMatcher::exact("/shadeCommand"), HTTP_GET, [](AsyncWebServerRequest *request) { JsonVariant v; webServer.handleShadeCommand(request, v); });
 
-  server.addHandler(new AsyncCallbackJsonWebHandler("/groupCommand",
+  server.addHandler(new AsyncCallbackJsonWebHandler(AsyncURIMatcher::exact("/groupCommand"),
     [](AsyncWebServerRequest *request, JsonVariant &json) { webServer.handleGroupCommand(request, json); }));
-  server.on("/groupCommand", HTTP_GET, [](AsyncWebServerRequest *request) { JsonVariant v; webServer.handleGroupCommand(request, v); });
+  server.on(AsyncURIMatcher::exact("/groupCommand"), HTTP_GET, [](AsyncWebServerRequest *request) { JsonVariant v; webServer.handleGroupCommand(request, v); });
 
-  server.addHandler(new AsyncCallbackJsonWebHandler("/tiltCommand",
+  server.addHandler(new AsyncCallbackJsonWebHandler(AsyncURIMatcher::exact("/tiltCommand"),
     [](AsyncWebServerRequest *request, JsonVariant &json) { webServer.handleTiltCommand(request, json); }));
-  server.on("/tiltCommand", HTTP_GET, [](AsyncWebServerRequest *request) { JsonVariant v; webServer.handleTiltCommand(request, v); });
+  server.on(AsyncURIMatcher::exact("/tiltCommand"), HTTP_GET, [](AsyncWebServerRequest *request) { JsonVariant v; webServer.handleTiltCommand(request, v); });
 
-  server.on("/upnp.xml", HTTP_GET, [](AsyncWebServerRequest *request) {
+  server.on(AsyncURIMatcher::exact("/upnp.xml"), HTTP_GET, [](AsyncWebServerRequest *request) {
     AsyncResponseStream *response = request->beginResponseStream("text/xml");
     SSDP.schema(*response);
     request->send(response);
   });
 
-  server.addHandler(new AsyncCallbackJsonWebHandler("/login",
+  server.addHandler(new AsyncCallbackJsonWebHandler(AsyncURIMatcher::exact("/login"),
     [](AsyncWebServerRequest *request, JsonVariant &json) { webServer.handleLogin(request, json); }));
-  server.on("/login", HTTP_GET, [](AsyncWebServerRequest *request) { JsonVariant v; webServer.handleLogin(request, v); });
+  server.on(AsyncURIMatcher::exact("/login"), HTTP_GET, [](AsyncWebServerRequest *request) { JsonVariant v; webServer.handleLogin(request, v); });
 
-  server.on("/backup", HTTP_GET, [](AsyncWebServerRequest *request) { webServer.handleBackup(request); });
+  server.on(AsyncURIMatcher::exact("/backup"), HTTP_GET, [](AsyncWebServerRequest *request) { webServer.handleBackup(request); });
 
-  server.on("/restore", HTTP_POST,
+  server.on(AsyncURIMatcher::exact("/restore"), HTTP_POST,
     [](AsyncWebServerRequest *request) {
       if(webServer.uploadSuccess) {
         restore_options_t opts;
@@ -148,7 +150,7 @@ void registerHttpRoutes(AsyncWebServer &server) {
     });
 
   // updateFirmware - file upload
-  server.on("/updateFirmware", HTTP_POST,
+  server.on(AsyncURIMatcher::exact("/updateFirmware"), HTTP_POST,
     [](AsyncWebServerRequest *request) {
       if(Update.hasError())
         request->send(500, _encoding_json, "{\"status\":\"ERROR\",\"desc\":\"Error updating firmware: \"}");
@@ -190,7 +192,7 @@ void registerHttpRoutes(AsyncWebServer &server) {
     });
 
   // updateApplication - file upload
-  server.on("/updateApplication", HTTP_POST,
+  server.on(AsyncURIMatcher::exact("/updateApplication"), HTTP_POST,
     [](AsyncWebServerRequest *request) {
       if(Update.hasError())
         request->send(500, _encoding_json, "{\"status\":\"ERROR\",\"desc\":\"Error updating application: \"}");

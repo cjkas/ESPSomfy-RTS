@@ -43,7 +43,7 @@
 
 ### CORS
 - The wildcard `Access-Control-Allow-*` default headers go. The UI is served from the same origin, and HA and scripts aren't browsers, so CORS doesn't affect them.
-- A build flag (`WEB_CORS` in `platformio.ini`) turns the headers back on for UI development from `file://`, which `baseUrl` in `index.js` supports. It also skips the Origin check, since such a page sends `Origin: null`.
+- A build flag (`WEB_CORS` in `platformio.ini`) turns the headers back on for UI development from `file://`, which `baseUrl` in `index.js` supports. It also lets the socket take `Origin: null`, which such a page sends.
 
 ### UI
 - The token is kept in `sessionStorage`: it survives a reload, is dropped when the tab closes, and is cleared when the socket upgrade is refused.

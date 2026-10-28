@@ -7,10 +7,11 @@
 // (docs/adr/0006-two-security-modes-eleven-http-routes.md).  Paths are the
 // request's path, without the query.
 
-// The files the web UI loads.  Static serving answers these alone, so the
-// rolling codes in shades.cfg leave the device only through /backup.
+// The files the web UI loads, which all sit in the root.  Static serving
+// answers these alone, so the rolling codes in shades.cfg leave the device
+// only through /backup.  A path below a route, such as /backup/a.js, isn't one.
 inline bool isWebAsset(const char *path) {
-  if(!path || path[0] != '/' || strstr(path, "..")) return false;
+  if(!path || path[0] != '/' || strchr(path + 1, '/') || strstr(path, "..")) return false;
   if(strcmp(path, "/") == 0 || strcmp(path, "/appversion") == 0) return true;
   static const char *const types[] = {".html", ".js", ".css", ".png", ".svg", ".ico"};
   const size_t len = strlen(path);

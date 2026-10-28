@@ -137,7 +137,7 @@ Whether the device asks for login: *None* (everything open) or *Secured* (a PIN 
 _Avoid_: Secure Config Only (removed)
 
 **Public route**
-What anyone may reach under Secured without a token: the web UI's files, `/loginContext`, `/login`, `/upnp.xml` and preflight requests. Static serving answers the web UI's files alone, so `shades.cfg` isn't one.
+What anyone may reach under Secured without a token: the web UI's files, `/loginContext`, `/login`, `/upnp.xml` and preflight requests. `/ws` counts as one at the HTTP level, because the socket checks the token itself in the handshake. Static serving answers the web UI's files alone, so `shades.cfg` isn't one.
 
 **Token**
 What logging in returns. It stands for the PIN or password, on one client address, and every request under Secured carries it.
