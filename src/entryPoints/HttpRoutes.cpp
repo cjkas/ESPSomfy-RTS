@@ -164,6 +164,11 @@ void registerHttpRoutes(AsyncWebServer &server) {
   // updateFirmware - file upload
   server.on(AsyncURIMatcher::exact("/updateFirmware"), HTTP_POST,
     [](AsyncWebServerRequest *request) {
+      // Nothing was written or stopped, so there is nothing to reboot for.
+      if(!settings.otaSlot) {
+        request->send(400, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"This device has no OTA slot, so its firmware is flashed over USB.\"}"));
+        return;
+      }
       if(Update.hasError())
         request->send(500, _encoding_json, "{\"status\":\"ERROR\",\"desc\":\"Error updating firmware: \"}");
       else
@@ -172,7 +177,7 @@ void registerHttpRoutes(AsyncWebServer &server) {
       rebootDelay.rebootTime = millis() + 500;
     },
     [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
-      if(!uploadAllowed(request, index)) return;
+      if(!uploadAllowed(request, index) || !settings.otaSlot) return;
       if(index == 0) {
         webServer.uploadSuccess = false;
         ESP_LOGI(TAG, "Update: %s", filename.c_str());

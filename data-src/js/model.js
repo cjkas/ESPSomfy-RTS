@@ -140,7 +140,7 @@ ProtoModel.ITEMS = [
 // have it.
 ProtoModel.FIELDS = {
     header: ['maxRooms', 'maxShades', 'maxGroups', 'maxGroupedShades', 'maxLinkedRemotes', 'startingAddress', 'bitLength',
-        'proto', 'serverId', 'hostname', 'model', 'chipModel', 'fw', 'connType'],
+        'proto', 'serverId', 'hostname', 'model', 'chipModel', 'otaSlot', 'fw', 'connType'],
     room: ['roomId', 'name', 'sortOrder'],
     shadeState: ['shadeId', 'position', 'target', 'direction', 'myPos', 'tiltPosition', 'tiltTarget', 'tiltDirection',
         'myTiltPos', 'flags', 'lastRollingCode'],

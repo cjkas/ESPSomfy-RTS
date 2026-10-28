@@ -37,6 +37,19 @@ test('a field the sync left out is its default', () => {
     for (const g of m.groupList()) assert.ok(Array.isArray(g.linkedShades));
 });
 
+test('otaSlot is false only when the device says so', () => {
+    // The recording is from firmware before the field.
+    assert.equal(synced().header.otaSlot, undefined);
+    const schema = recordedSchema();
+    schema.add({ F: [['os', 'otaSlot', 'b', 1]] });
+    const header = deviceSections(schema).find((d) => d.header).header;
+    const m = new ProtoModel(schema);
+    m.applySync({ header: header });
+    assert.equal(m.header.otaSlot, true);
+    m.applySync({ header: schema.expand(Object.assign({ os: 0 }, schema.pack(header))) });
+    assert.equal(m.header.otaSlot, false);
+});
+
 test('the lists come in their sort order', () => {
     const m = synced();
     const orders = m.shadeList().map((s) => s.sortOrder);

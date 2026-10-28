@@ -53,7 +53,7 @@ A number is never reused. A retired type stays reserved.
    - `F`: fields, as `[key, name, kind, default]`, kind being `b` bool, `i` integer, `n` number, `s` string, `l` list, `o` object
    - `E`: error codes, as `[number, name]`
    - `Q`: feeds, as `[number, name]`
-3. Then the device: `header` (limits, starting address, what a new shade gets, server id, hostname, model, chip, firmware, connection type), `rooms`, `shades`, `groups`, `repeaters` and `status` (memory, and WiFi or Ethernet). A frame is at most 4 KB, an item is never split across frames, and several sections can share one.
+3. Then the device: `header` (limits, starting address, what a new shade gets, server id, hostname, model, chip, whether it has an OTA slot (`otaSlot`, left out when it has), firmware, connection type), `rooms`, `shades`, `groups`, `repeaters` and `status` (memory, and WiFi or Ethernet). A frame is at most 4 KB, an item is never split across frames, and several sections can share one.
 4. The client sends `next` after each `sync` frame, and the device answers with the following one. With no `next` for 30 s the device closes the socket.
 5. `syncEnd` follows the last `sync` frame.
 

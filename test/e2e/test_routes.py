@@ -11,7 +11,8 @@ import urllib.request
 
 import pytest
 
-from proto_client import ProtoClient
+from proto_client import ProtoClient, run_sync
+from test_settings import uptime
 
 # Every route that needs the token under Secured, sent without a body or
 # parameters, so a route that let one through would still change nothing.
@@ -169,3 +170,22 @@ def test_a_socket_from_the_page_the_device_served_is_accepted(host, token):
     c.close()
     # The device frees the slot when it sees the disconnect.
     time.sleep(0.5)
+
+
+def test_a_firmware_upload_without_an_ota_slot_is_refused(host, token, connect, schema):
+    """Builds with one app slot (C5, C6, debug) say so in the header, and
+    refuse the upload without stopping the radio or rebooting."""
+    c = connect(schema=schema.hash)
+    _, frames, _ = run_sync(c)
+    key = schema.keys["header"]
+    header = next(schema.expand(f["d"][key]) for f in frames if key in f["d"])
+    if header.get("otaSlot", schema.default("otaSlot")):
+        pytest.skip("the device has an OTA slot: an upload would start an update")
+    uptime_before = uptime(schema, frames)
+    status, _, body = upload(host, "/updateFirmware", auth(token))
+    assert status == 400, body
+    assert json.loads(body)["desc"] == "This device has no OTA slot, so its firmware is flashed over USB."
+    # The old reply rebooted half a second later.
+    time.sleep(2)
+    _, frames, _ = run_sync(connect(schema=schema.hash))
+    assert uptime(schema, frames) > uptime_before, "the device restarted"

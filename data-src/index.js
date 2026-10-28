@@ -4169,9 +4169,14 @@ class Firmware {
         div.style.display = '';
     }
     updateFirmware() {
+        let chip = document.getElementById('divContainer').getAttribute('data-chipmodel') || '';
+        // Firmware from before the field leaves it out: undefined, not false.
+        if (proto.model.header.otaSlot === false) {
+            ui.infoMessage(`This device has no OTA slot, so its firmware is flashed over USB with SomfyController.onboard.esp32${chip}.bin. That image holds the web UI and an empty configuration too, so take a backup first and restore it afterwards.`);
+            return;
+        }
         let div = this.createFileUploader('/updateFirmware');
         let inst = div.querySelector('div[id=divInstText]');
-        let chip = document.getElementById('divContainer').getAttribute('data-chipmodel') || '';
         let html = `<div style="font-size:14px;margin-bottom:20px;">Select a binary file [SomfyController.ino.esp32${chip}.bin] containing the device firmware then press the Upload File button.</div>`;
         if (this.isMobile()) {
             html += `<div style="width:100%;color:red;text-align:center;font-weight:bold;"><span style="margin-top:7px;width:100%;background:yellow;padding:3px;display:inline-block;border-radius:5px;background:white;">WARNING<span></div>`;
