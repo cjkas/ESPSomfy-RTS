@@ -8,15 +8,11 @@ import pytest
 
 from proto_client import run_sync
 from test_commands import is_ok, op, synced_model
-from test_routes import http, upload
+from test_routes import auth, http, restore_without_a_file, upload
 from test_settings import desc, settings, uptime, wait_for_restart
 
 # Saved for the round trip and put back by the restore.  .invalid never resolves.
 CHANGED_NTP_SERVER = "restore.e2e.invalid"
-
-
-def auth(token):
-    return {"apikey": token} if token else {}
 
 
 def test_restore_reads_the_options_sent_as_a_form_field(host, token):
@@ -30,6 +26,15 @@ def test_restore_reads_the_options_sent_as_a_form_field(host, token):
     status, _, body = upload(host, "/restore", auth(token), fields={"data": "{"})
     assert status == 500, body
     assert json.loads(body)["desc"] == "JSON parse error"
+
+
+def test_a_refused_restore_leaves_no_upload_behind(host, token):
+    """A later /restore without a file must not find the refused one's upload."""
+    status, _, _ = upload(host, "/restore", auth(token), fields={"data": "{"})
+    assert status == 500
+    status, reason = restore_without_a_file(host, token)
+    assert status == 400
+    assert "didn't complete" in reason, reason
 
 
 def test_a_restore_brings_back_the_parts_that_were_ticked(request, host, token, connect, schema):
@@ -48,7 +53,7 @@ def test_a_restore_brings_back_the_parts_that_were_ticked(request, host, token, 
     assert is_ok(schema, reply), desc(schema, reply)
     try:
         options = json.dumps({"shades": False, "settings": True})
-        status, _, body = upload(host, "/restore", auth(token), content=backup, fields={"data": options})
+        status, _, body = upload(host, "/restore", auth(token), file=backup, fields={"data": options})
         assert status == 200, body
         wait_for_restart(host, token, schema, uptime_before)
     finally:

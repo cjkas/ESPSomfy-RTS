@@ -38,18 +38,23 @@ def http(host, path, method="GET", body=None, headers=None):
         return e.code, e.headers, e.read()
 
 
-def upload(host, path, headers=None, content=b"\0" * 256, fields=None):
+def auth(token):
+    """The header that carries the token, if there is one."""
+    return {"apikey": token} if token else {}
+
+
+def upload(host, path, headers=None, file=b"\0" * 256, fields=None):
     """Posts a form as the web UI does: the file, then the fields.
 
     The file is by default a small one that isn't a backup or an image, and
-    content=None leaves it out.
+    file=None leaves it out.
     """
     boundary = "e2e-upload"
     parts = []
-    if content is not None:
+    if file is not None:
         parts.append(
             f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"e2e.bin\"\r\n"
-            "Content-Type: application/octet-stream\r\n\r\n".encode() + content)
+            "Content-Type: application/octet-stream\r\n\r\n".encode() + file)
     for name, value in (fields or {}).items():
         parts.append(f"--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}".encode())
     body = b"\r\n".join(parts) + f"\r\n--{boundary}--\r\n".encode()
@@ -95,7 +100,7 @@ def test_secured_refuses_a_web_asset_name_below_a_route(host, secured, method, p
 def test_secured_accepts_the_token_on_a_route(host, secured, token):
     if not secured:
         pytest.skip("the device's security is None")
-    status, _, _ = http(host, "/backup", headers={"apikey": token})
+    status, _, _ = http(host, "/backup", headers=auth(token))
     assert status == 200
 
 
@@ -109,7 +114,7 @@ def test_secured_refuses_an_upload_without_a_token(host, secured, path):
 
 
 def restore_without_a_file(host, token):
-    status, _, body = upload(host, "/restore", {"apikey": token}, content=None, fields={"e2e": "1"})
+    status, _, body = upload(host, "/restore", auth(token), file=None, fields={"e2e": "1"})
     return status, json.loads(body or b"{}").get("desc", "")
 
 
