@@ -38,16 +38,21 @@ def http(host, path, method="GET", body=None, headers=None):
         return e.code, e.headers, e.read()
 
 
-def upload(host, path, headers=None, with_file=True):
-    """Posts a small file that isn't a backup or an image, or a form without a file."""
+def upload(host, path, headers=None, content=b"\0" * 256, fields=None):
+    """Posts a form as the web UI does: the file, then the fields.
+
+    The file is by default a small one that isn't a backup or an image, and
+    content=None leaves it out.
+    """
     boundary = "e2e-upload"
-    if with_file:
-        part = (
+    parts = []
+    if content is not None:
+        parts.append(
             f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"e2e.bin\"\r\n"
-            "Content-Type: application/octet-stream\r\n\r\n").encode() + b"\0" * 256
-    else:
-        part = f"--{boundary}\r\nContent-Disposition: form-data; name=\"e2e\"\r\n\r\n1".encode()
-    body = part + f"\r\n--{boundary}--\r\n".encode()
+            "Content-Type: application/octet-stream\r\n\r\n".encode() + content)
+    for name, value in (fields or {}).items():
+        parts.append(f"--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}".encode())
+    body = b"\r\n".join(parts) + f"\r\n--{boundary}--\r\n".encode()
     return http(host, path, "POST", body, {"Content-Type": f"multipart/form-data; boundary={boundary}", **(headers or {})})
 
 
@@ -104,7 +109,7 @@ def test_secured_refuses_an_upload_without_a_token(host, secured, path):
 
 
 def restore_without_a_file(host, token):
-    status, _, body = upload(host, "/restore", {"apikey": token}, with_file=False)
+    status, _, body = upload(host, "/restore", {"apikey": token}, content=None, fields={"e2e": "1"})
     return status, json.loads(body or b"{}").get("desc", "")
 
 

@@ -93,7 +93,11 @@ void registerHttpRoutes(AsyncWebServer &server) {
 
   server.on(AsyncURIMatcher::exact("/restore"), HTTP_POST,
     [](AsyncWebServerRequest *request) {
-      if(webServer.uploadSuccess) {
+      // An upload is restored once: a later /restore without a file must not
+      // find this one.
+      const bool uploaded = webServer.uploadSuccess;
+      webServer.uploadSuccess = false;
+      if(uploaded) {
         restore_options_t opts;
         if(asyncHasParam(request, "data")) {
           String dataStr = asyncParam(request, "data");
@@ -101,6 +105,7 @@ void registerHttpRoutes(AsyncWebServer &server) {
           JsonDocument doc;
           DeserializationError err = deserializeJson(doc, dataStr);
           if(err) {
+            LittleFS.remove("/shades.tmp");
             request->send(500, _encoding_json, "{\"status\":\"ERROR\",\"desc\":\"JSON parse error\"}");
             return;
           }
