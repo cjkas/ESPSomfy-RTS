@@ -12,6 +12,8 @@ We moved every firmware env from `espressif32 @ 6.13.0` (Arduino 2.0.17 on ESP-I
 
 - **Firmware size.** The ESP32 image grows from 1,382,640 bytes (v3.0.14) to 1,555,472 at `CORE_DEBUG_LEVEL=2`, leaving 17 KB of the 1.5 MB OTA slot. At level 3 it doesn't fit, so release envs build at level 2 (warnings and errors) and debug envs stay at 3. PlatformIO's "Flash:" figure counts ELF sections, not the image, and reads about 45 KB low, so CI checks `firmware.bin` against the app partition and fails under 8 KB free (`.github/size_check.py`).
 - **No more C3 builds.** Its image grows by 214 KB to 1,651,216 bytes, 76.5 KB over the OTA slot even at level 2. C3 boards stay on the 3.0.x releases.
+
+  > **Amended in 4.0.0.** The C3 builds again. Without the old API (ports 8080 and 8081), its image is 1,498,512 bytes at level 2 and leaves 72.6 KB of the OTA slot.
 - **Ethernet PHY ids are ours.** Arduino 3.x renumbered `eth_phy_type_t` (`ETH_PHY_GENERIC` is 0). NVS, backups and the web UI keep the Arduino 2.x numbers as `eth_phy_id_t` (`src/EthPhy.h`), translated by name when Ethernet starts. Never cast a stored id to the framework enum.
 - **Ethernet only on the original ESP32.** Arduino 3.x has the RMII MAC API only where `CONFIG_ETH_USE_ESP32_EMAC` is set. S3 and C6 build without Ethernet.
 - **Updates roll back until proven.** We override the core's `verifyRollbackLater()` hook to return true, and `loop()` marks the new firmware valid once it has run 60 s and the network is up. A reset before then boots the previous firmware. The LittleFS image an update wrote stays, so the old firmware runs with the new web UI.
