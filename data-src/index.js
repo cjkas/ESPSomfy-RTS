@@ -4172,7 +4172,7 @@ class Firmware {
         let chip = document.getElementById('divContainer').getAttribute('data-chipmodel') || '';
         // Firmware from before the field leaves it out: undefined, not false.
         if (proto.model.header.hasOtaSlot === false) {
-            ui.infoMessage(`This device has no OTA slot, so its firmware is flashed over USB with SomfyController.onboard.esp32${chip}.bin. That image holds the web UI and an empty configuration too, so take a backup first and restore it afterwards.`);
+            ui.infoMessage(`This device has no OTA slot, so its firmware is flashed over USB with SomfyController.onboard.esp32${chip}.bin, from the release's SomfyController.onboard.esp32${chip}.bin.zip. That image holds the web UI and an empty configuration too, so take a backup first and restore it afterwards.`);
             return;
         }
         let div = this.createFileUploader('/updateFirmware');
