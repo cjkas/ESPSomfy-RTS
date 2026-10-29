@@ -58,6 +58,7 @@ jobs:
       fail-fast: false
       matrix:
         # fwname: firmware-only binary for OTA updates
+        # elfname: the symbols of that binary, to decode a crash's backtrace
         # obname: onboard image (bootloader + partitions + firmware + littlefs merged)
         #         for flashing a new chip via USB/serial
         # addr_bootloader: chip-dependent (ESP32: 0x1000, S3/C3/C6: 0x0, C5: 0x2000)
@@ -70,6 +71,7 @@ jobs:
             addr_bootloader: "0x1000"
             addr_fs: "0x310000"
             fwname: SomfyController.ino.esp32.bin
+            elfname: SomfyController.ino.esp32.elf
             fsname: SomfyController.littlefs.esp32.bin
             obname: SomfyController.onboard.esp32.bin
           - env: esp32s3
@@ -78,6 +80,7 @@ jobs:
             addr_bootloader: "0x0"
             addr_fs: "0x670000"
             fwname: SomfyController.ino.esp32s3.bin
+            elfname: SomfyController.ino.esp32s3.elf
             fsname: SomfyController.littlefs.esp32s3.bin
             obname: SomfyController.onboard.esp32s3.bin
           - env: esp32c3
@@ -86,6 +89,7 @@ jobs:
             addr_bootloader: "0x0"
             addr_fs: "0x310000"
             fwname: SomfyController.ino.esp32c3.bin
+            elfname: SomfyController.ino.esp32c3.elf
             fsname: SomfyController.littlefs.esp32c3.bin
             obname: SomfyController.onboard.esp32c3.bin
           - env: esp32c5
@@ -94,6 +98,7 @@ jobs:
             addr_bootloader: "0x2000"
             addr_fs: "0x310000"
             fwname: SomfyController.ino.esp32c5.bin
+            elfname: SomfyController.ino.esp32c5.elf
             fsname: SomfyController.littlefs.esp32c5.bin
             obname: SomfyController.onboard.esp32c5.bin
           - env: esp32c6
@@ -102,6 +107,7 @@ jobs:
             addr_bootloader: "0x0"
             addr_fs: "0x310000"
             fwname: SomfyController.ino.esp32c6.bin
+            elfname: SomfyController.ino.esp32c6.elf
             fsname: SomfyController.littlefs.esp32c6.bin
             obname: SomfyController.onboard.esp32c6.bin
 
@@ -173,6 +179,16 @@ jobs:
       - name: Compress onboard image
         run: zip ${{ matrix.obname }}.zip ${{ matrix.obname }}
 
+      # A panic prints "ELF file SHA256: <first hex digits>".  The .sha256 file
+      # beside the ELF holds the whole hash, so a crash log shows which build
+      # it came from.
+      - name: Compress ELF
+        run: |
+          cp .pio/build/${{ matrix.env }}/firmware.elf ${{ matrix.elfname }}
+          sha256sum ${{ matrix.elfname }} > ${{ matrix.elfname }}.sha256
+          cat ${{ matrix.elfname }}.sha256
+          zip -9 ${{ matrix.elfname }}.zip ${{ matrix.elfname }} ${{ matrix.elfname }}.sha256
+
       - name: Upload artifacts
         if: github.event_name != 'release'
         uses: actions/upload-artifact@v4
@@ -215,5 +231,16 @@ jobs:
           upload_url: ${{ steps.get_release.outputs.upload_url }}
           asset_name: ${{ matrix.obname }}.zip
           asset_path: ${{ matrix.obname }}.zip
+          overwrite: true
+          asset_content_type: application/zip
+
+      - name: Upload ELF
+        if: github.event_name == 'release'
+        uses: shogo82148/actions-upload-release-asset@v1.7.5
+        with:
+          github_token: ${{ github.token }}
+          upload_url: ${{ steps.get_release.outputs.upload_url }}
+          asset_name: ${{ matrix.elfname }}.zip
+          asset_path: ${{ matrix.elfname }}.zip
           overwrite: true
           asset_content_type: application/zip
