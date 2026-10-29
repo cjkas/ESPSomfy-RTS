@@ -8,19 +8,19 @@
 
 static const char *TAG = "ConfigFile";
 
-
-#define SHADE_HDR_VER 24
-#define SHADE_HDR_SIZE 76
-#define SHADE_REC_SIZE 276
-#define GROUP_REC_SIZE 200
-// writeTransRecord: enabled, 8 one-byte fields, 3 floats, txPower and noiseDetection.
-// It was left at 74 when noiseDetection was added, so files written before
-// the fix declare this record 6 bytes short.
-#define TRANS_REC_SIZE 80
-#define ROOM_REC_SIZE 29
-#define REPEATER_REC_SIZE 77
-
 extern ConfigSettings settings;
+
+// The records' strings are read straight into these fields.
+static_assert(CFG_NAME_LEN == sizeof(SomfyShade::name), "shade name size");
+static_assert(CFG_NAME_LEN == sizeof(SomfyGroup::name), "group name size");
+static_assert(CFG_NAME_LEN == sizeof(SomfyRoom::name), "room name size");
+static_assert(CFG_HOSTNAME_LEN == sizeof(ConfigSettings::hostname), "hostname size");
+static_assert(CFG_NTP_SERVER_LEN == sizeof(NTPSettings::ntpServer), "NTP server size");
+static_assert(CFG_POSIX_ZONE_LEN == sizeof(NTPSettings::posixZone), "time zone size");
+static_assert(CFG_MQTT_PROTOCOL_LEN == sizeof(MQTTSettings::protocol), "MQTT protocol size");
+static_assert(CFG_MQTT_HOSTNAME_LEN == sizeof(MQTTSettings::hostname), "MQTT hostname size");
+static_assert(CFG_MQTT_TOPIC_LEN == sizeof(MQTTSettings::rootTopic), "MQTT root topic size");
+static_assert(CFG_MQTT_TOPIC_LEN == sizeof(MQTTSettings::discoTopic), "MQTT discovery topic size");
 
 bool ConfigFile::begin(const char* filename, bool readOnly) {
   this->file = LittleFS.open(filename, readOnly ? "r" : "w");
@@ -40,369 +40,292 @@ void ConfigFile::end() {
   this->_opened = false;
 }
 bool ConfigFile::isOpen() { return this->_opened; }
-bool ConfigFile::seekChar(const char val) {
-  if(!this->isOpen()) return false;
-  char ch;
-  do {
-    ch = this->readChar('\0');
-    if(ch == '\0') return false;
-  } while(ch != val);
-  return true;
+bool ConfigFile::readByte(uint8_t &val) {
+  if(!this->file) return false;
+  return this->file.read(&val, 1) == 1;
 }
-bool ConfigFile::writeSeparator() {return this->writeChar(CFG_VALUE_SEP); }
-bool ConfigFile::writeRecordEnd() { return this->writeChar(CFG_REC_END); }
-bool ConfigFile::writeHeader() { return this->writeHeader(this->header); }
-bool ConfigFile::writeHeader(const config_header_t &hdr) {
+uint32_t ConfigFile::position() { return this->file.position(); }
+bool ConfigFile::writeBytes(const uint8_t *buf, size_t len) {
   if(!this->isOpen()) return false;
-  this->writeUInt8(hdr.version);
-  this->writeUInt8(hdr.length);
-  this->writeUInt16(hdr.roomRecordSize);
-  this->writeUInt8(hdr.roomRecords);
-  this->writeUInt16(hdr.shadeRecordSize);
-  this->writeUInt8(hdr.shadeRecords);
-  this->writeUInt16(hdr.groupRecordSize);
-  this->writeUInt8(hdr.groupRecords);
-  this->writeUInt16(hdr.repeaterRecordSize);
-  this->writeUInt8(hdr.repeaterRecords);
-  this->writeUInt16(hdr.settingsRecordSize);
-  this->writeUInt16(hdr.netRecordSize);
-  this->writeUInt16(hdr.transRecordSize);
-  this->writeString(settings.serverId, sizeof(hdr.serverId), CFG_REC_END);
-  return true;
+  if(_ramBuf) {
+    for(size_t i = 0; i < len; i++) _ramBuf->concat(static_cast<char>(buf[i]));
+    return true;
+  }
+  return this->file.write(buf, len) == len;
+}
+bool ConfigFile::writeHeader() {
+  if(!this->isOpen()) return false;
+  return writeConfigHeader(*this, this->header);
 }
 bool ConfigFile::readHeader() {
   if(!this->isOpen()) return false;
-  //if(this->file.position() != 0) this->file.seek(0, SeekSet);
-  ESP_LOGD(TAG, "Reading header at %u", this->file.position());
-  this->header.version = this->readUInt8(this->header.version);
-  this->header.length = this->readUInt8(0);
-  if(this->header.version >= 19) {
-    this->header.roomRecordSize = this->readUInt16(this->header.roomRecordSize);
-    this->header.roomRecords = this->readUInt8(this->header.roomRecords);
-  }
-  if(this->header.version >= 13) this->header.shadeRecordSize = this->readUInt16(this->header.shadeRecordSize);
-  else this->header.shadeRecordSize = this->readUInt8((uint8_t)this->header.shadeRecordSize);
-  this->header.shadeRecords = this->readUInt8(this->header.shadeRecords);
-  if(this->header.version > 10) {
-    if(this->header.version >= 13) this->header.groupRecordSize = this->readUInt16(this->header.groupRecordSize);
-    else this->header.groupRecordSize = this->readUInt8(this->header.groupRecordSize);
-    this->header.groupRecords = this->readUInt8(this->header.groupRecords);
-  }
-  if(this->header.version >= 21) {
-    this->header.repeaterRecordSize = this->readUInt16(this->header.repeaterRecordSize);
-    this->header.repeaterRecords = this->readUInt8(this->header.repeaterRecords);
-  }
-  if(this->header.version > 13) {
-    this->header.settingsRecordSize = this->readUInt16(this->header.settingsRecordSize);
-    this->header.netRecordSize = this->readUInt16(this->header.netRecordSize);
-    this->header.transRecordSize = this->readUInt16(this->header.transRecordSize);
-    this->readString(this->header.serverId, sizeof(this->header.serverId));
-  }
+  readConfigHeader(*this, this->header);
   ESP_LOGD(TAG, "version:%u len:%u roomSize:%u roomRecs:%u shadeSize:%u shadeRecs:%u groupSize:%u groupRecs: %u pos:%d", this->header.version, this->header.length, this->header.roomRecordSize, this->header.roomRecords, this->header.shadeRecordSize, this->header.shadeRecords, this->header.groupRecordSize, this->header.groupRecords, this->file.position());
   return true;
 }
-/*
-bool ConfigFile::seekRecordByIndex(uint16_t ndx) {
-  if(!this->file) {
-    return false;
-  }
-  if(((this->header.recordSize * ndx) + this->header.length) > this->file.size()) return false;
-  return true;
+
+// Between the shade model and its records.
+static room_record_t roomRecord(const SomfyRoom *room) {
+  room_record_t rec;
+  rec.roomId = room->roomId;
+  strlcpy(rec.name, room->name, sizeof(rec.name));
+  rec.sortOrder = room->sortOrder;
+  return rec;
 }
-*/
-bool ConfigFile::readString(char *buff, size_t len) {
-  if(!this->file) return false;
-  memset(buff, 0x00, len);
-  uint16_t i = 0;
-  while(i < len) {
-    uint8_t val;
-    if(this->file.read(&val, 1) == 1) {
-      switch(val) {
-        case CFG_REC_END:
-        case CFG_VALUE_SEP:
-          _rtrim(buff);
-          return true;
-      }
-      buff[i++] = val;
-      if(i == len) {
-        _rtrim(buff);
-        return true;
-      }
-    }
-    else 
-      return false;
+static shade_record_t shadeRecord(SomfyShade *shade) {
+  if(shade->tiltType == tilt_types::none || shade->shadeType != shade_types::blind) {
+    shade->clearTilt();
+    shade->tiltType = tilt_types::none;
   }
-  _rtrim(buff);
-  return true;
+  shade_record_t rec;
+  rec.shadeId = shade->getShadeId();
+  rec.paired = shade->paired;
+  rec.shadeType = shade->shadeType;
+  rec.remoteAddress = shade->getRemoteAddress();
+  strlcpy(rec.name, shade->name, sizeof(rec.name));
+  rec.tiltType = shade->tiltType;
+  rec.proto = shade->proto;
+  rec.bitLength = shade->bitLength;
+  rec.upTime = shade->upTime;
+  rec.downTime = shade->downTime;
+  rec.tiltTime = shade->tiltTime;
+  rec.stepSize = shade->stepSize;
+  for(uint8_t j = 0; j < SOMFY_MAX_LINKED_REMOTES; j++) rec.linkedRemotes[j] = shade->linkedRemotes[j].getRemoteAddress();
+  rec.lastRollingCode = shade->lastRollingCode;
+  rec.flags = shade->getFlags();
+  rec.myPos = shade->state().myPos;
+  rec.myTiltPos = shade->state().myTiltPos;
+  rec.currentPos = shade->state().currentPos;
+  rec.currentTiltPos = shade->state().currentTiltPos;
+  rec.flipCommands = shade->flipCommands;
+  rec.flipPosition = shade->flipPosition;
+  rec.repeats = shade->repeats;
+  rec.sortOrder = shade->sortOrder;
+  rec.gpioUp = shade->gpioUp;
+  rec.gpioDown = shade->gpioDown;
+  rec.gpioMy = shade->gpioMy;
+  rec.gpioFlags = shade->gpioFlags;
+  rec.roomId = shade->roomId;
+  return rec;
 }
-bool ConfigFile::skipValue(size_t len) {
-  if(!this->file) return false;
-  uint8_t quotes = 0;
-  uint8_t j = 0;
-  while(j < len) {
-    uint8_t val;
-    j++;
-    if(this->file.read(&val, 1) == 1) {
-      switch(val) {
-        case CFG_VALUE_SEP:
-          if(quotes >= 2 || quotes == 0) return true;
-          break;
-        case CFG_REC_END:
-          return true;
-        case CFG_TOK_QUOTE:
-          quotes++;
-          break;
-      }
-    }
-    else return false;
-  }
-  return true;
+static group_record_t groupRecord(SomfyGroup *group) {
+  group_record_t rec;
+  rec.groupId = group->getGroupId();
+  rec.groupType = group->groupType;
+  rec.remoteAddress = group->getRemoteAddress();
+  strlcpy(rec.name, group->name, sizeof(rec.name));
+  rec.proto = group->proto;
+  rec.bitLength = group->bitLength;
+  memcpy(rec.linkedShades, group->linkedShades, sizeof(rec.linkedShades));
+  rec.repeats = group->repeats;
+  rec.sortOrder = group->sortOrder;
+  rec.flipCommands = group->flipCommands;
+  rec.roomId = group->roomId;
+  rec.lastRollingCode = group->lastRollingCode;
+  return rec;
 }
-bool ConfigFile::readVarString(char *buff, size_t len) {
-  if(!this->file) return false;
-  memset(buff, 0x00, len);
-  uint8_t quotes = 0;
-  uint16_t i = 0;
-  uint16_t j = 0;
-  while(j < len) {
-    uint8_t val;
-    j++;
-    if(this->file.read(&val, 1) == 1) {
-      switch(val) {
-        case CFG_VALUE_SEP:
-          if(quotes >= 2) {
-            _rtrim(buff);
-            return true;
-          }
-          break;
-        case CFG_REC_END:
-          return true;
-        case CFG_TOK_QUOTE:
-          quotes++;
-          continue;
-      }
-      buff[i++] = val;
-      if(i == len) {
-        _rtrim(buff);
-        return true;
-      }
-    }
-    else 
-      return false;
-  }
-  _rtrim(buff);
-  return true;
+static settings_record_t settingsRecord() {
+  settings_record_t rec;
+  strlcpy(rec.fwVersion, settings.fwVersion.name, sizeof(rec.fwVersion));
+  strlcpy(rec.hostname, settings.hostname, sizeof(rec.hostname));
+  strlcpy(rec.ntpServer, settings.NTP.ntpServer, sizeof(rec.ntpServer));
+  strlcpy(rec.posixZone, settings.NTP.posixZone, sizeof(rec.posixZone));
+  rec.ssdpBroadcast = settings.ssdpBroadcast;
+  rec.checkForUpdate = settings.checkForUpdate;
+  return rec;
+}
+static net_record_t netRecord() {
+  net_record_t rec;
+  rec.connType = static_cast<uint8_t>(settings.connType);
+  rec.dhcp = settings.IP.dhcp;
+  strlcpy(rec.ip, settings.IP.ip.toString().c_str(), sizeof(rec.ip));
+  strlcpy(rec.gateway, settings.IP.gateway.toString().c_str(), sizeof(rec.gateway));
+  strlcpy(rec.subnet, settings.IP.subnet.toString().c_str(), sizeof(rec.subnet));
+  strlcpy(rec.dns1, settings.IP.dns1.toString().c_str(), sizeof(rec.dns1));
+  strlcpy(rec.dns2, settings.IP.dns2.toString().c_str(), sizeof(rec.dns2));
+  strlcpy(rec.mqttProtocol, settings.MQTT.protocol, sizeof(rec.mqttProtocol));
+  strlcpy(rec.mqttHostname, settings.MQTT.hostname, sizeof(rec.mqttHostname));
+  rec.mqttPort = settings.MQTT.port;
+  rec.mqttPubDisco = settings.MQTT.pubDisco;
+  strlcpy(rec.mqttRootTopic, settings.MQTT.rootTopic, sizeof(rec.mqttRootTopic));
+  strlcpy(rec.mqttDiscoTopic, settings.MQTT.discoTopic, sizeof(rec.mqttDiscoTopic));
+#if HAS_ETHERNET
+  rec.ethBoardType = settings.Ethernet.boardType;
+  rec.ethPhyType = settings.Ethernet.phyType;
+  rec.ethClkMode = static_cast<uint8_t>(settings.Ethernet.CLKMode);
+  rec.ethPhyAddress = settings.Ethernet.phyAddress;
+  rec.ethPWRPin = settings.Ethernet.PWRPin;
+  rec.ethMDCPin = settings.Ethernet.MDCPin;
+  rec.ethMDIOPin = settings.Ethernet.MDIOPin;
+#endif
+  return rec;
+}
+static trans_record_t transRecord(const transceiver_config_t &cfg) {
+  trans_record_t rec;
+  rec.enabled = cfg.enabled;
+  rec.proto = cfg.proto;
+  rec.type = cfg.type;
+  rec.SCKPin = cfg.SCKPin;
+  rec.CSNPin = cfg.CSNPin;
+  rec.MOSIPin = cfg.MOSIPin;
+  rec.MISOPin = cfg.MISOPin;
+  rec.TXPin = cfg.TXPin;
+  rec.RXPin = cfg.RXPin;
+  rec.frequency = cfg.frequency;
+  rec.rxBandwidth = cfg.rxBandwidth;
+  rec.deviation = cfg.deviation;
+  rec.txPower = cfg.txPower;
+  rec.noiseDetection = cfg.noiseDetection;
+  return rec;
+}
+// NVS keeps the last rolling code each remote sent.
+static uint16_t keepRollingCode(Preferences &pref, SomfyRemote *remote, uint16_t inFile, bool restoring) {
+  const uint16_t stored = pref.getUShort(remote->getRemotePrefId(), 0);
+  const uint16_t code = rollingCodeAfterLoad(stored, inFile, restoring);
+  if(code != stored) pref.putUShort(remote->getRemotePrefId(), code);
+  return code;
 }
 
-bool ConfigFile::writeString(const char *val, size_t len, const char tok) {
-  if(!this->isOpen()) return false;
-  int slen = strlen(val);
-  if(_ramBuf) {
-    if(slen > 0) _ramBuf->concat(val);
-    while(slen < (int)len - 1) { _ramBuf->concat(' '); slen++; }
-    if(tok != CFG_TOK_NONE) _ramBuf->concat(tok);
-    return true;
+void ShadeConfigFile::readRoom(SomfyRoom *room) {
+  room_record_t rec;
+  readRoomRecord(*this, this->header, rec);
+  room->roomId = rec.roomId;
+  strlcpy(room->name, rec.name, sizeof(room->name));
+  room->sortOrder = rec.sortOrder;
+}
+void ShadeConfigFile::readShade(SomfyShade *shade) {
+  shade_record_t rec;
+  readShadeRecord(*this, this->header, rec);
+  if(rec.shadeId == 255) {
+    shade->clear();
+    return;
   }
-  if(slen > 0)
-    if(this->file.write((uint8_t *)val, slen) != slen) return false;
-  // Now we need to pad the end of the string so that it is of a fixed length.
-  while(slen < (int)len - 1) {
-    this->file.write(' ');
-    slen++;
+  Preferences pref;
+  pref.begin("ShadeCodes");
+  shade->setShadeId(rec.shadeId);
+  shade->paired = rec.paired;
+  shade->shadeType = rec.shadeType;
+  shade->setRemoteAddress(rec.remoteAddress);
+  strlcpy(shade->name, rec.name, sizeof(shade->name));
+  shade->tiltType = rec.tiltType;
+  shade->proto = rec.proto;
+  shade->bitLength = rec.bitLength;
+  shade->upTime = rec.upTime;
+  shade->downTime = rec.downTime;
+  shade->tiltTime = rec.tiltTime;
+  shade->stepSize = rec.stepSize;
+  for(uint8_t j = 0; j < SOMFY_MAX_LINKED_REMOTES; j++) {
+    SomfyLinkedRemote *rem = &shade->linkedRemotes[j];
+    rem->setRemoteAddress(rec.linkedRemotes[j]);
+    if(rem->getRemoteAddress() != 0) rem->lastRollingCode = pref.getUShort(rem->getRemotePrefId(), 0);
   }
-  // 255 = len = 4 slen = 3
-  if(tok != CFG_TOK_NONE)
-    return this->writeChar(tok);
-  return true;
-}
-bool ConfigFile::writeVarString(const char *val, const char tok) {
-  if(!this->isOpen()) return false;
-  int slen = strlen(val);
-  if(_ramBuf) {
-    _ramBuf->concat((char)CFG_TOK_QUOTE);
-    if(slen > 0) _ramBuf->concat(val);
-    _ramBuf->concat((char)CFG_TOK_QUOTE);
-    if(tok != CFG_TOK_NONE) _ramBuf->concat(tok);
-    return true;
+  shade->lastRollingCode = rec.lastRollingCode;
+  if(shade->getRemoteAddress() != 0) shade->lastRollingCode = keepRollingCode(pref, shade, rec.lastRollingCode, this->restoring);
+  pref.end();
+  shade->setFlags(rec.flags);
+  // The targets are where the shade is.
+  shade->restore(rec.currentPos, rec.currentTiltPos, rec.myPos, rec.myTiltPos);
+  shade->flipCommands = rec.flipCommands;
+  shade->flipPosition = rec.flipPosition;
+  shade->repeats = rec.repeats;
+  shade->sortOrder = rec.sortOrder;
+  shade->gpioUp = rec.gpioUp;
+  shade->gpioDown = rec.gpioDown;
+  shade->gpioMy = rec.gpioMy;
+  shade->gpioFlags = rec.gpioFlags;
+  shade->roomId = rec.roomId;
+  if(shade->proto == radio_proto::GP_Relay || shade->proto == radio_proto::GP_Remote) {
+    pinMode(shade->gpioUp, OUTPUT);
+    pinMode(shade->gpioDown, OUTPUT);
   }
-  this->writeChar(CFG_TOK_QUOTE);
-  if(slen > 0) if(this->file.write((uint8_t *)val, slen) != slen) return false;
-  this->writeChar(CFG_TOK_QUOTE);
-  if(tok != CFG_TOK_NONE) return this->writeChar(tok);
-  return true;
+  if(shade->proto == radio_proto::GP_Remote)
+    pinMode(shade->gpioMy, OUTPUT);
 }
-bool ConfigFile::writeChar(const char val) {
-  if(!this->isOpen()) return false;
-  if(_ramBuf) { _ramBuf->concat(val); return true; }
-  if(this->file.write(static_cast<uint8_t>(val)) == 1) return true;
-  return false;
-}
-bool ConfigFile::writeInt8(const int8_t val, const char tok) {
-  char buff[5];
-  snprintf(buff, sizeof(buff), "%4d", val);
-  return this->writeString(buff, sizeof(buff), tok);
-}
-bool ConfigFile::writeUInt8(const uint8_t val, const char tok) {
-  char buff[4];
-  snprintf(buff, sizeof(buff), "%3u", val);
-  return this->writeString(buff, sizeof(buff), tok); 
-}
-bool ConfigFile::writeUInt16(const uint16_t val, const char tok) {
-  char buff[6];
-  snprintf(buff, sizeof(buff), "%5u", val);
-  return this->writeString(buff, sizeof(buff), tok); 
-}
-bool ConfigFile::writeUInt32(const uint32_t val, const char tok) {
-  char buff[11];
-  snprintf(buff, sizeof(buff), "%10u", val);
-  return this->writeString(buff, sizeof(buff), tok); 
-}
-bool ConfigFile::writeFloat(const float val, const uint8_t prec, const char tok) {
-  char buff[20];
-  snprintf(buff, sizeof(buff), "%*.*f", 7 + prec, prec, val);
-  return this->writeString(buff, 8 + prec, tok);
-}
-bool ConfigFile::writeBool(const bool val, const char tok) {
-  return this->writeString(val ? "true" : "false", 6, tok);
-}
-char ConfigFile::readChar(const char defVal) {
-  uint8_t ch;
-  if(this->file.read(&ch, 1) == 1) return (char)ch;
-  return defVal;
-}
-int8_t ConfigFile::readInt8(const int8_t defVal) {
-  char buff[5];
-  if(this->readString(buff, sizeof(buff)))
-    return static_cast<int8_t>(atoi(buff));
-  return defVal;
-}
-uint8_t ConfigFile::readUInt8(const uint8_t defVal) {
-  char buff[4];
-  if(this->readString(buff, sizeof(buff)))
-    return static_cast<uint8_t>(atoi(buff));
-  return defVal;
-}
-uint16_t ConfigFile::readUInt16(const uint16_t defVal) {
-  char buff[6];
-  if(this->readString(buff, sizeof(buff)))
-    return static_cast<uint16_t>(atoi(buff));
-  return defVal;
-}
-uint32_t ConfigFile::readUInt32(const uint32_t defVal) {
-  char buff[11];
-  if(this->readString(buff, sizeof(buff)))
-    return static_cast<uint32_t>(atoi(buff));
-  return defVal;
-}
-float ConfigFile::readFloat(const float defVal) {
-  char buff[25];
-  if(this->readString(buff, sizeof(buff)))
-    return atof(buff);
-  return defVal;
-}
-bool ConfigFile::readBool(const bool defVal) {
-  char buff[6];
-  if(this->readString(buff, sizeof(buff))) {
-    switch(buff[0]) {
-      case 't':
-      case 'T':
-      case '1':
-        return true;
-      default: 
-        return false;    
-    }
+void ShadeConfigFile::readGroup(SomfyGroup *group) {
+  group_record_t rec;
+  readGroupRecord(*this, this->header, rec);
+  if(rec.groupId == 255) {
+    group->clear();
+    return;
   }
-  return defVal;
-}
-/*
-bool ShadeConfigFile::seekRecordById(uint8_t id) {
-  if(this->isOpen()) return false;
-  this->file.seek(this->header.length, SeekSet);  // Start at the beginning of the file after the header.
-  uint8_t i = 0;
-  while(i < SOMFY_MAX_SHADES) {
-    uint32_t pos = this->file.position();
-    uint8_t len = this->readUInt8(this->header.recordSize);
-    uint8_t cid = this->readUInt8(255);
-    if(cid == id) {
-      this->file.seek(pos, SeekSet);
-      return true;
-    }
-    pos += len;
-    this->file.seek(pos, SeekSet);
+  group->setGroupId(rec.groupId);
+  group->groupType = rec.groupType;
+  group->setRemoteAddress(rec.remoteAddress);
+  strlcpy(group->name, rec.name, sizeof(group->name));
+  group->proto = rec.proto;
+  group->bitLength = rec.bitLength;
+  memcpy(group->linkedShades, rec.linkedShades, sizeof(group->linkedShades));
+  group->compressLinkedShadeIds();
+  group->repeats = rec.repeats;
+  group->sortOrder = rec.sortOrder;
+  group->flipCommands = rec.flipCommands;
+  group->roomId = rec.roomId;
+  group->lastRollingCode = rec.lastRollingCode;
+  if(group->getRemoteAddress() != 0) {
+    Preferences pref;
+    pref.begin("ShadeCodes");
+    group->lastRollingCode = keepRollingCode(pref, group, rec.lastRollingCode, this->restoring);
+    pref.end();
   }
-  return false;
 }
-*/
+void ShadeConfigFile::readRepeaters(SomfyShadeController *s) {
+  uint32_t repeaters[SOMFY_MAX_REPEATERS];
+  readRepeaterRecord(*this, repeaters);
+  for(uint8_t i = 0; i < SOMFY_MAX_REPEATERS; i++) s->linkRepeater(repeaters[i]);
+}
+
 bool ShadeConfigFile::begin(bool readOnly) { return this->begin("/shades.cfg", readOnly); }
 bool ShadeConfigFile::begin(const char *filename, bool readOnly) { return ConfigFile::begin(filename, readOnly); }
 void ShadeConfigFile::end() { ConfigFile::end(); }
-bool ShadeConfigFile::save(SomfyShadeController *s) {
+bool ShadeConfigFile::writeModel(SomfyShadeController *s) {
   this->header.version = SHADE_HDR_VER;
+  this->header.length = SHADE_HDR_SIZE;
   this->header.roomRecordSize = ROOM_REC_SIZE;
   this->header.roomRecords = s->roomCount();
   this->header.shadeRecordSize = SHADE_REC_SIZE;
-  this->header.length = SHADE_HDR_SIZE;
   this->header.shadeRecords = s->shadeCount();
   this->header.groupRecordSize = GROUP_REC_SIZE;
   this->header.groupRecords = s->groupCount();
   this->header.repeaterRecords = 1;
   this->header.repeaterRecordSize = REPEATER_REC_SIZE;
+  strlcpy(this->header.serverId, settings.serverId, sizeof(this->header.serverId));
+  this->writeHeader();
+  for(uint8_t i = 0; i < SOMFY_MAX_ROOMS; i++) {
+    SomfyRoom *room = &s->rooms[i];
+    if(room->roomId != 0) writeRoomRecord(*this, roomRecord(room));
+  }
+  for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
+    SomfyShade *shade = &s->shades[i];
+    if(shade->getShadeId() != 255) writeShadeRecord(*this, shadeRecord(shade));
+  }
+  for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++) {
+    SomfyGroup *group = &s->groups[i];
+    if(group->getGroupId() != 255) writeGroupRecord(*this, groupRecord(group));
+  }
+  writeRepeaterRecord(*this, s->repeaters);
+  return true;
+}
+bool ShadeConfigFile::save(SomfyShadeController *s) {
   this->header.settingsRecordSize = 0;
   this->header.netRecordSize = 0;
   this->header.transRecordSize = 0;
-  this->writeHeader();
-  for(uint8_t i = 0; i < SOMFY_MAX_ROOMS; i++) {
-    SomfyRoom *room = &s->rooms[i];
-    if(room->roomId != 0)
-      this->writeRoomRecord(room);
-  }
-  for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
-    SomfyShade *shade = &s->shades[i];
-    if(shade->getShadeId() != 255)
-      this->writeShadeRecord(shade);
-  }
-  for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++) {
-    SomfyGroup *group = &s->groups[i];
-    if(group->getGroupId() != 255)
-      this->writeGroupRecord(group);
-  }
-  this->writeRepeaterRecord(s);
-  return true;
+  return this->writeModel(s);
 }
 bool ShadeConfigFile::backup(SomfyShadeController *s) {
-  this->header.version = SHADE_HDR_VER;
-  this->header.roomRecordSize = ROOM_REC_SIZE;
-  this->header.roomRecords = s->roomCount();
-  this->header.shadeRecordSize = SHADE_REC_SIZE;
-  this->header.length = SHADE_HDR_SIZE;
-  this->header.shadeRecords = s->shadeCount();
-  this->header.groupRecordSize = GROUP_REC_SIZE;
-  this->header.groupRecords = s->groupCount();
-  this->header.repeaterRecords = 1;
-  this->header.repeaterRecordSize = REPEATER_REC_SIZE;
-  this->header.settingsRecordSize = settings.calcSettingsRecSize();
-  this->header.netRecordSize = settings.calcNetRecSize();
+  const settings_record_t settingsRec = settingsRecord();
+  const net_record_t netRec = netRecord();
+  const trans_record_t transRec = transRecord(s->transceiver.config);
+  // The header gives each record's size, which a counter measures.
+  ConfigCounter settingsBytes, netBytes;
+  writeSettingsRecord(settingsBytes, settingsRec);
+  writeNetRecord(netBytes, netRec, HAS_ETHERNET);
+  this->header.settingsRecordSize = settingsBytes.bytes;
+  this->header.netRecordSize = netBytes.bytes;
   this->header.transRecordSize = TRANS_REC_SIZE;
-  this->writeHeader();
-  for(uint8_t i = 0; i < SOMFY_MAX_ROOMS; i++) {
-    SomfyRoom *room = &s->rooms[i];
-    if(room->roomId != 0)
-      this->writeRoomRecord(room);
-  }
-  for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
-    SomfyShade *shade = &s->shades[i];
-    if(shade->getShadeId() != 255)
-      this->writeShadeRecord(shade);
-  }
-  for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++) {
-    SomfyGroup *group = &s->groups[i];
-    if(group->getGroupId() != 255)
-      this->writeGroupRecord(group);
-  }
-  this->writeRepeaterRecord(s);
-  this->writeSettingsRecord();
-  this->writeNetRecord();
-  this->writeTransRecord(s->transceiver.config);
+  this->writeModel(s);
+  writeSettingsRecord(*this, settingsRec);
+  writeNetRecord(*this, netRec, HAS_ETHERNET);
+  writeTransRecord(*this, transRec);
   return true;
 }
 bool ShadeConfigFile::validate() {
@@ -415,32 +338,20 @@ bool ShadeConfigFile::validate() {
     ESP_LOGE(TAG, "Invalid Shade Record Size:%u", this->header.shadeRecordSize);
     return false;
   }
-  /*
-  if(this->header.shadeRecords != SOMFY_MAX_SHADES) {
-    ESP_LOGE(TAG, "Invalid Shade Record Count:%u", this->header.shadeRecords);
-    return false;
-  }
-  */
   if(this->header.version > 10) {
     if(this->header.groupRecordSize < 100) {
       ESP_LOGE(TAG, "Invalid Group Record Size:%u", this->header.groupRecordSize);
       return false;
     }
-    /*
-    if(this->header.groupRecords != SOMFY_MAX_GROUPS) {
-      ESP_LOGE(TAG, "Invalid Group Record Count:%u", this->header.groupRecords);
-      return false;
-      
-    }
-    */
   }
   if(this->file.position() != this->header.length) {
     ESP_LOGE(TAG, "File not positioned at %u end of header: %d", this->header.length, this->file.position());
     return false;
   }
-  
-  // Only a warning: older backups declare the transceiver record 6 bytes
-  // short (see TRANS_REC_SIZE), and the record checks below catch real damage.
+
+  // Only a warning: backups written before 4.0 declare the transceiver record
+  // 6 bytes short, and 4.0 backups from boards without Ethernet declare the
+  // network record 28 bytes long.  Records are read to their newline.
   const uint32_t fsize = expectedFileBytes(this->header);
   if(this->file.size() != fsize) {
     ESP_LOGW(TAG, "File is %u bytes but its header adds up to %u", (unsigned)this->file.size(), (unsigned)fsize);
@@ -506,7 +417,7 @@ bool ShadeConfigFile::validate() {
     }
   }
   this->file.seek(startPos, SeekSet);
-  return true;  
+  return true;
 }
 bool ShadeConfigFile::load(SomfyShadeController *s, const char *filename) {
   ShadeConfigFile file;
@@ -546,76 +457,100 @@ bool ShadeConfigFile::restoreFile(SomfyShadeController *s, const char *filename,
     if(opened) this->end();
     return false;
   }
+  this->restoring = true;
   if(opts.shades) {
     ESP_LOGI(TAG, "Restoring Rooms...");
-    for(uint8_t i = 0; i < this->header.roomRecords; i++) {
-      this->readRoomRecord(&s->rooms[i]);
-      ESP_LOGD(TAG, "Room %u", s->rooms[i].roomId);
-    }
+    for(uint8_t i = 0; i < this->header.roomRecords; i++) this->readRoom(&s->rooms[i]);
+    for(uint8_t i = this->header.roomRecords; i < SOMFY_MAX_ROOMS; i++) s->rooms[i].clear();
     ESP_LOGI(TAG, "Restoring Shades...");
-    // We should be valid so start reading.
-    for(uint8_t i = 0; i < this->header.shadeRecords; i++) {
-      this->readShadeRecord(&s->shades[i]);
-      ESP_LOGD(TAG, "Shade %u", s->shades[i].getShadeId());
-    }
-    if(this->header.shadeRecords < SOMFY_MAX_SHADES) {
-      uint8_t ndx = this->header.shadeRecords;
-      // Clear out any positions that are not in the shade file.
-      while(ndx < SOMFY_MAX_SHADES) {
-        ((SomfyShade *)&s->shades[ndx++])->clear();
-      }
-    }
+    for(uint8_t i = 0; i < this->header.shadeRecords; i++) this->readShade(&s->shades[i]);
+    for(uint8_t i = this->header.shadeRecords; i < SOMFY_MAX_SHADES; i++) s->shades[i].clear();
     ESP_LOGI(TAG, "Restoring Groups...");
-    for(uint8_t i = 0; i < this->header.groupRecords; i++) {
-      ESP_LOGD(TAG, "Group %u", s->groups[i].getGroupId());
-      this->readGroupRecord(&s->groups[i]);
-    }
-    if(this->header.groupRecords < SOMFY_MAX_GROUPS) {
-      uint8_t ndx = this->header.groupRecords;
-      // Clear out any positions that are not in the shade file.
-      while(ndx < SOMFY_MAX_GROUPS) {
-        ((SomfyGroup *)&s->groups[ndx++])->clear();
-      }
-    }
+    for(uint8_t i = 0; i < this->header.groupRecords; i++) this->readGroup(&s->groups[i]);
+    for(uint8_t i = this->header.groupRecords; i < SOMFY_MAX_GROUPS; i++) s->groups[i].clear();
   }
   else {
     ESP_LOGI(TAG, "Shade data ignored");
-    // FF past the rooms, shades and groups.
-    this->file.seek(this->file.position() + shadeModelBytes(this->header), SeekSet);
+    skipRecords(*this, this->header.roomRecords + this->header.shadeRecords + this->header.groupRecords);
   }
-  if(opts.repeaters) {
+  if(opts.repeaters && this->header.repeaterRecords > 0) {
     ESP_LOGI(TAG, "Restoring Repeaters...");
-    if(this->header.repeaterRecords > 0) {
-      memset(s->repeaters, 0x00, sizeof(uint32_t) * SOMFY_MAX_REPEATERS);
-      for(uint8_t i = 0; i < this->header.repeaterRecords; i++) {
-        this->readRepeaterRecord(s);
+    memset(s->repeaters, 0x00, sizeof(s->repeaters));
+    for(uint8_t i = 0; i < this->header.repeaterRecords; i++) this->readRepeaters(s);
+  }
+  else skipRecords(*this, this->header.repeaterRecords);
+  if(this->header.settingsRecordSize > 0) {
+    if(opts.settings) {
+      settings_record_t rec;
+      readSettingsRecord(*this, this->header, rec);
+      strlcpy(settings.hostname, rec.hostname, sizeof(settings.hostname));
+      strlcpy(settings.NTP.ntpServer, rec.ntpServer, sizeof(settings.NTP.ntpServer));
+      strlcpy(settings.NTP.posixZone, rec.posixZone, sizeof(settings.NTP.posixZone));
+      settings.ssdpBroadcast = rec.ssdpBroadcast;
+      settings.checkForUpdate = rec.checkForUpdate;
+    }
+    else skipRecords(*this, 1);
+  }
+  if(this->header.netRecordSize > 0) {
+    if(opts.network || opts.mqtt) {
+      // Only the board that wrote the Ethernet settings takes them back.
+      const bool sameBoard = HAS_ETHERNET && strncmp(settings.serverId, this->header.serverId, sizeof(settings.serverId)) == 0;
+      net_record_t rec;
+      readNetRecord(*this, this->header, rec, sameBoard);
+      if(opts.network) {
+        settings.connType = static_cast<conn_types_t>(rec.connType);
+        settings.IP.dhcp = rec.dhcp;
+        settings.IP.ip.fromString(rec.ip);
+        settings.IP.gateway.fromString(rec.gateway);
+        settings.IP.subnet.fromString(rec.subnet);
+        settings.IP.dns1.fromString(rec.dns1);
+        settings.IP.dns2.fromString(rec.dns2);
+#if HAS_ETHERNET
+        if(sameBoard) {
+          ESP_LOGI(TAG, "Restoring Ethernet adapter settings");
+          settings.Ethernet.boardType = rec.ethBoardType;
+          settings.Ethernet.phyType = rec.ethPhyType;
+          settings.Ethernet.CLKMode = static_cast<eth_clock_mode_t>(rec.ethClkMode);
+          settings.Ethernet.phyAddress = rec.ethPhyAddress;
+          settings.Ethernet.PWRPin = rec.ethPWRPin;
+          settings.Ethernet.MDCPin = rec.ethMDCPin;
+          settings.Ethernet.MDIOPin = rec.ethMDIOPin;
+        }
+#endif
+      }
+      if(opts.mqtt && this->header.version >= 22) {
+        strlcpy(settings.MQTT.protocol, rec.mqttProtocol, sizeof(settings.MQTT.protocol));
+        strlcpy(settings.MQTT.hostname, rec.mqttHostname, sizeof(settings.MQTT.hostname));
+        settings.MQTT.port = rec.mqttPort;
+        settings.MQTT.pubDisco = rec.mqttPubDisco;
+        strlcpy(settings.MQTT.rootTopic, rec.mqttRootTopic, sizeof(settings.MQTT.rootTopic));
+        strlcpy(settings.MQTT.discoTopic, rec.mqttDiscoTopic, sizeof(settings.MQTT.discoTopic));
       }
     }
-  }
-  else {
-    this->file.seek(this->file.position() + this->header.repeaterRecordSize, SeekSet);
-  }
-  if(opts.settings) {
-    // First read out the data.
-    this->readSettingsRecord();
-  }
-  else {
-    this->file.seek(this->file.position() + this->header.settingsRecordSize, SeekSet);
-  }
-  if(opts.network || opts.mqtt) {
-    this->readNetRecord(opts);
-  }
-  else {
-    this->file.seek(this->file.position() + this->header.netRecordSize, SeekSet);
+    else skipRecords(*this, 1);
   }
   // The repeaters are saved in shades.cfg too.  Left to somfy.loop(), they
   // race the reboot.
   if(opts.shades || opts.repeaters) s->commit();
-  if(opts.transceiver)
-  {
+  if(opts.transceiver && this->header.transRecordSize > 0) {
     // Read into a copy so the radio task never transmits on a half restored config.
+    trans_record_t rec = transRecord(s->transceiver.config);
+    readTransRecord(*this, rec);
     transceiver_config_t cfg = s->transceiver.config;
-    this->readTransRecord(cfg);
+    cfg.enabled = rec.enabled;
+    cfg.proto = rec.proto;
+    cfg.type = rec.type;
+    cfg.SCKPin = rec.SCKPin;
+    cfg.CSNPin = rec.CSNPin;
+    cfg.MOSIPin = rec.MOSIPin;
+    cfg.MISOPin = rec.MISOPin;
+    cfg.TXPin = rec.TXPin;
+    cfg.RXPin = rec.RXPin;
+    cfg.frequency = rec.frequency;
+    cfg.rxBandwidth = rec.rxBandwidth;
+    cfg.deviation = rec.deviation;
+    cfg.txPower = rec.txPower;
+    cfg.noiseDetection = rec.noiseDetection;
     s->transceiver.setConfig(cfg);
   }
   if(opts.settings || opts.network) settings.save();
@@ -630,271 +565,6 @@ bool ShadeConfigFile::restoreFile(SomfyShadeController *s, const char *filename,
   if(opts.mqtt) settings.MQTT.save();
   return true;
 }
-bool ShadeConfigFile::readNetRecord(restore_options_t &opts) {
-  if(this->header.netRecordSize > 0) {
-    uint32_t startPos = this->file.position();
-    if(opts.network) {
-      ESP_LOGD(TAG, "Reading network settings from file...");
-      settings.connType = static_cast<conn_types_t>(this->readUInt8(static_cast<uint8_t>(conn_types_t::unset)));
-      settings.IP.dhcp = this->readBool(true);
-      char ip[24];
-      this->readVarString(ip, sizeof(ip));
-      settings.IP.ip.fromString(ip);
-      this->readVarString(ip, sizeof(ip));
-      settings.IP.gateway.fromString(ip);
-      this->readVarString(ip, sizeof(ip));
-      settings.IP.subnet.fromString(ip);
-      this->readVarString(ip, sizeof(ip));
-      settings.IP.dns1.fromString(ip);
-      this->readVarString(ip, sizeof(ip));
-      settings.IP.dns2.fromString(ip);
-    }
-    else {
-      this->skipValue(4); // connType
-      this->skipValue(6); // dhcp flag
-      this->skipValue(24); // ip
-      this->skipValue(24); // gateway
-      this->skipValue(24); // subnet
-      this->skipValue(24); // dns1
-      this->skipValue(24); // dns2
-    }
-    if(this->header.version >= 22) {
-      if(opts.mqtt) {
-        this->readVarString(settings.MQTT.protocol, sizeof(settings.MQTT.protocol));
-        this->readVarString(settings.MQTT.hostname, sizeof(settings.MQTT.hostname));
-        settings.MQTT.port = this->readUInt16(1883);
-        settings.MQTT.pubDisco = this->readBool(false);
-        this->readVarString(settings.MQTT.rootTopic, sizeof(settings.MQTT.rootTopic));
-        this->readVarString(settings.MQTT.discoTopic, sizeof(settings.MQTT.discoTopic));
-      }
-      else {
-        this->skipValue(sizeof(settings.MQTT.protocol));
-        this->skipValue(sizeof(settings.MQTT.hostname));
-        this->skipValue(6); // Port
-        this->skipValue(6); // pubDisco
-        this->skipValue(sizeof(settings.MQTT.rootTopic));
-        this->skipValue(sizeof(settings.MQTT.discoTopic));
-      }
-    }
-    // Now lets check to see if we are the same board.  If we are then we will restore
-    // the ethernet phy settings.
-    if(opts.network) {
-      if(strncmp(settings.serverId, this->header.serverId, sizeof(settings.serverId)) == 0) {
-        ESP_LOGI(TAG, "Restoring Ethernet adapter settings");
-#if HAS_ETHERNET
-        settings.Ethernet.boardType = this->readUInt8(1);
-        settings.Ethernet.phyType = this->readUInt8(0);
-        settings.Ethernet.CLKMode = static_cast<eth_clock_mode_t>(this->readUInt8(0));
-        settings.Ethernet.phyAddress = this->readInt8(1);
-        settings.Ethernet.PWRPin = this->readInt8(1);
-        settings.Ethernet.MDCPin = this->readInt8(16);
-        settings.Ethernet.MDIOPin = this->readInt8(23);
-#endif
-      }
-    }
-    if(this->file.position() != startPos + this->header.netRecordSize) {
-      ESP_LOGD(TAG, "Reading to end of network record");
-      this->seekChar(CFG_REC_END);
-    }
-  }
-  return true;
-}
-bool ShadeConfigFile::readTransRecord(transceiver_config_t &cfg) {
-  if(this->header.transRecordSize > 0) {
-    uint32_t startPos = this->file.position();
-    ESP_LOGD(TAG, "Reading Transceiver settings from file...");
-    cfg.enabled = this->readBool(false);
-    cfg.proto = static_cast<radio_proto>(this->readUInt8(0));
-    cfg.type = this->readUInt8(56);
-    cfg.SCKPin = this->readUInt8(cfg.SCKPin);
-    cfg.CSNPin = this->readUInt8(cfg.CSNPin);
-    cfg.MOSIPin = this->readUInt8(cfg.MOSIPin);
-    cfg.MISOPin = this->readUInt8(cfg.MISOPin);
-    cfg.TXPin = this->readUInt8(cfg.TXPin);
-    cfg.RXPin = this->readUInt8(cfg.RXPin);
-    cfg.frequency = this->readFloat(cfg.frequency);
-    cfg.rxBandwidth = this->readFloat(cfg.rxBandwidth);
-    cfg.deviation = this->readFloat(cfg.deviation);
-    cfg.txPower = this->readInt8(cfg.txPower);
-    cfg.noiseDetection = this->readBool(false);
-    if(this->file.position() != startPos + this->header.transRecordSize) {
-      ESP_LOGD(TAG, "Reading to end of transceiver record");
-      this->seekChar(CFG_REC_END);
-    }
-    
-  }
-  return true; 
-}
-bool ShadeConfigFile::readSettingsRecord() {
-  if(this->header.settingsRecordSize > 0) {
-    uint32_t startPos = this->file.position();
-    ESP_LOGD(TAG, "Reading settings from file...");
-    char ver[24];
-    this->readVarString(ver, sizeof(ver));
-    this->readVarString(settings.hostname, sizeof(settings.hostname));
-    this->readVarString(settings.NTP.ntpServer, sizeof(settings.NTP.ntpServer));
-    this->readVarString(settings.NTP.posixZone, sizeof(settings.NTP.posixZone));
-    settings.ssdpBroadcast = this->readBool(false);
-    if(this->header.version >= 20) settings.checkForUpdate = this->readBool(true);
-    if(this->file.position() != startPos + this->header.settingsRecordSize) {
-      ESP_LOGD(TAG, "Reading to end of settings record");
-      this->seekChar(CFG_REC_END);
-    }
-  }
-  return true;
-}
-bool ShadeConfigFile::readGroupRecord(SomfyGroup *group) {
-  Preferences pref;
-  pref.begin("ShadeCodes");
-  uint32_t startPos = this->file.position();
-  group->setGroupId(this->readUInt8(255));
-  group->groupType = static_cast<group_types>(this->readUInt8(0));
-  group->setRemoteAddress(this->readUInt32(0));
-  this->readString(group->name, sizeof(group->name));
-  group->proto = static_cast<radio_proto>(this->readUInt8(0));
-  group->bitLength = this->readUInt8(56);
-  if(this->header.version == 23) group->lastRollingCode = this->readUInt16(0);
-  uint8_t lsd = 0;
-  memset(group->linkedShades, 0x00, sizeof(group->linkedShades));
-  for(uint8_t j = 0; j < SOMFY_MAX_GROUPED_SHADES; j++) {
-    uint8_t shadeId = this->readUInt8(0);
-    // Do this to eliminate gaps.
-    if(shadeId > 0) group->linkedShades[lsd++] = shadeId;
-  }
-  if(this->header.version >= 12) group->repeats = this->readUInt8(1);
-  if(this->header.version >= 13) group->sortOrder = this->readUInt8(group->getGroupId() - 1);
-  else group->sortOrder = group->getGroupId() - 1;
-  
-  if(group->getGroupId() == 255) group->clear();
-  else group->compressLinkedShadeIds();
-  if(this->header.version >= 18) group->flipCommands = this->readBool(false);
-  if(this->header.version >= 19) group->roomId = this->readUInt8(0);
-  if(this->header.version >= 24) group->lastRollingCode = this->readUInt16(0);
-  if(group->getRemoteAddress() != 0) {
-    uint16_t rc = pref.getUShort(group->getRemotePrefId(), 0);
-    group->lastRollingCode = max(rc, group->lastRollingCode);
-    if(rc < group->lastRollingCode) pref.putUShort(group->getRemotePrefId(), group->lastRollingCode);
-  }
-  
-  pref.end();
-  if(this->file.position() != startPos + this->header.groupRecordSize) {
-    ESP_LOGD(TAG, "Reading to end of group record");
-    this->seekChar(CFG_REC_END);
-  }
-  return true;
-}
-bool ShadeConfigFile::readRepeaterRecord(SomfyShadeController *s) {
-  uint32_t startPos = this->file.position();
-  
-  for(uint8_t i = 0; i < SOMFY_MAX_REPEATERS; i++) {
-    s->linkRepeater(this->readUInt32(0));  
-  }
-  if(this->file.position() != startPos + this->header.repeaterRecordSize) {
-    ESP_LOGD(TAG, "Reading to end of repeater record");
-    this->seekChar(CFG_REC_END);
-  }
-  return true;
-}
-bool ShadeConfigFile::readRoomRecord(SomfyRoom *room) {
-  uint32_t startPos = this->file.position();
-  room->roomId = this->readUInt8(0);
-  this->readString(room->name, sizeof(room->name));
-  room->sortOrder = this->readUInt8(room->roomId - 1);
-  if(this->file.position() != startPos + this->header.roomRecordSize) {
-    ESP_LOGD(TAG, "Reading to end of room record");
-    this->seekChar(CFG_REC_END);
-  }
-  return true;
-}
-
-bool ShadeConfigFile::readShadeRecord(SomfyShade *shade) {
-  Preferences pref;
-  pref.begin("ShadeCodes");
-  uint32_t startPos = this->file.position();
-  shade->setShadeId(this->readUInt8(255));
-  shade->paired = this->readBool(false);
-  shade->shadeType = static_cast<shade_types>(this->readUInt8(0));
-  shade->setRemoteAddress(this->readUInt32(0));
-  this->readString(shade->name, sizeof(shade->name));
-  if(this->header.version < 3)
-    shade->tiltType = this->readBool(false) ? tilt_types::none : tilt_types::tiltmotor;
-  else
-    shade->tiltType = static_cast<tilt_types>(this->readUInt8(0));
-  if(this->header.version > 6) shade->proto = static_cast<radio_proto>(this->readUInt8(0));
-  if(this->header.version > 1) shade->bitLength = this->readUInt8(56);
-  shade->upTime = this->readUInt32(shade->upTime);
-  shade->downTime = this->readUInt32(shade->downTime);
-  shade->tiltTime = this->readUInt32(shade->tiltTime);
-  if(this->header.version > 5) shade->stepSize = this->readUInt16(100);
-  for(uint8_t j = 0; j < SOMFY_MAX_LINKED_REMOTES; j++) {
-    SomfyLinkedRemote *rem = &shade->linkedRemotes[j];
-    rem->setRemoteAddress(this->readUInt32(0));
-    if(rem->getRemoteAddress() != 0) rem->lastRollingCode = pref.getUShort(rem->getRemotePrefId(), 0);
-    if(this->header.version < 5 && j == 4) break; // Prior to version 5 we only supported 5 linked remotes.
-  }
-  shade->lastRollingCode = this->readUInt16(0);
-  if(this->header.version > 7) shade->setFlags(this->readUInt8(0));
-  if(shade->getRemoteAddress() != 0) {
-    // If the last rolling code stored on the nvs is less than the rc we currently have
-    // then we need to set it.
-    uint16_t rc = pref.getUShort(shade->getRemotePrefId(), 0);
-    shade->lastRollingCode = max(rc, shade->lastRollingCode);
-    if(rc < shade->lastRollingCode) pref.putUShort(shade->getRemotePrefId(), shade->lastRollingCode);
-  }
-  float myPos = shade->state().myPos;
-  float myTiltPos = shade->state().myTiltPos;
-  if(this->header.version < 4)
-    myPos = static_cast<float>(this->readUInt8(255));
-  else {
-    myPos = this->readFloat(-1);
-    myTiltPos = this->readFloat(-1);
-  }
-  if(myPos > 100 || myPos < 0) myPos = -1;
-  if(myTiltPos > 100 || myTiltPos < 0) myTiltPos = -1;
-  float currentPos = this->readFloat(0);
-  float currentTiltPos = this->readFloat(0);
-  if(shade->tiltType == tilt_types::none || shade->shadeType != shade_types::blind) {
-    myTiltPos = -1;
-    currentTiltPos = 0;
-    shade->tiltType = tilt_types::none;
-  }
-  if(this->header.version < 3) {
-    currentPos = currentPos * 100;
-    currentTiltPos = currentTiltPos * 100;
-  }
-  // The targets are where the shade is.
-  shade->restore(currentPos, currentTiltPos, myPos, myTiltPos);
-  if(this->header.version >= 9) shade->flipCommands = this->readBool(false);
-  if(this->header.version >= 10) shade->flipPosition = this->readBool(false);
-  if(this->header.version >= 12) shade->repeats = this->readUInt8(1);
-  if(this->header.version >= 13) shade->sortOrder = this->readUInt8(shade->getShadeId() - 1);
-  else shade->sortOrder = shade->getShadeId() - 1;
-  if(this->header.version > 14) {
-    shade->gpioUp = this->readUInt8(shade->gpioUp);
-    shade->gpioDown = this->readUInt8(shade->gpioDown);
-  }
-  if(this->header.version > 15)
-    shade->gpioMy = this->readUInt8(shade->gpioMy);
-  if(this->header.version > 16)
-    shade->gpioFlags = this->readUInt8(shade->gpioFlags);
-  if(shade->getShadeId() == 255) shade->clear();
-  else if(shade->tiltType == tilt_types::tiltonly) {
-    shade->restore(100.0f, shade->state().currentTiltPos, 100.0f, shade->state().myTiltPos);
-  }
-  pref.end();
-  if(shade->proto == radio_proto::GP_Relay || shade->proto == radio_proto::GP_Remote) {
-    pinMode(shade->gpioUp, OUTPUT);
-    pinMode(shade->gpioDown, OUTPUT);
-  }
-  if(shade->proto == radio_proto::GP_Remote)
-    pinMode(shade->gpioMy, OUTPUT);
-  if(this->header.version >= 19) shade->roomId = this->readUInt8(0);
-  if(this->file.position() != startPos + this->header.shadeRecordSize) {
-    ESP_LOGD(TAG, "Reading to end of shade record");
-    this->seekChar(CFG_REC_END);
-  }
-  return true;
-}
 bool ShadeConfigFile::loadFile(SomfyShadeController *s, const char *filename) {
   bool opened = false;
   if(!this->isOpen()) {
@@ -907,177 +577,21 @@ bool ShadeConfigFile::loadFile(SomfyShadeController *s, const char *filename) {
     if(opened) this->end();
     return false;
   }
-  for(uint8_t i = 0; i < this->header.roomRecords;i++) {
-    this->readRoomRecord(&s->rooms[i]);
-  }
-  if(this->header.roomRecords < SOMFY_MAX_ROOMS) {
-    uint8_t ndx = this->header.roomRecords;
-    // Clear out any positions that are not in the shade file.
-    while(ndx < SOMFY_MAX_ROOMS) {
-      ((SomfyRoom *)&s->rooms[ndx++])->clear();
-    }
-  }
-  
-  // We should be valid so start reading.
-  for(uint8_t i = 0; i < this->header.shadeRecords; i++) {
-    this->readShadeRecord(&s->shades[i]);
-  }
-  if(this->header.shadeRecords < SOMFY_MAX_SHADES) {
-    uint8_t ndx = this->header.shadeRecords;
-    // Clear out any positions that are not in the shade file.
-    while(ndx < SOMFY_MAX_SHADES) {
-      ((SomfyShade *)&s->shades[ndx++])->clear();
-    }
-  }
-  for(uint8_t i = 0; i < this->header.groupRecords; i++) {
-    this->readGroupRecord(&s->groups[i]);
-  }
-  if(this->header.groupRecords < SOMFY_MAX_GROUPS) {
-    uint8_t ndx = this->header.groupRecords;
-    // Clear out any positions that are not in the shade file.
-    while(ndx < SOMFY_MAX_GROUPS) {
-      ((SomfyGroup *)&s->groups[ndx++])->clear();
-    }
-  }
+  this->restoring = false;
+  for(uint8_t i = 0; i < this->header.roomRecords; i++) this->readRoom(&s->rooms[i]);
+  for(uint8_t i = this->header.roomRecords; i < SOMFY_MAX_ROOMS; i++) s->rooms[i].clear();
+  for(uint8_t i = 0; i < this->header.shadeRecords; i++) this->readShade(&s->shades[i]);
+  for(uint8_t i = this->header.shadeRecords; i < SOMFY_MAX_SHADES; i++) s->shades[i].clear();
+  for(uint8_t i = 0; i < this->header.groupRecords; i++) this->readGroup(&s->groups[i]);
+  for(uint8_t i = this->header.groupRecords; i < SOMFY_MAX_GROUPS; i++) s->groups[i].clear();
   if(this->header.repeaterRecords > 0) {
-    memset(s->repeaters, 0x00, sizeof(uint32_t) * SOMFY_MAX_REPEATERS);
-    for(uint8_t i = 0; i < this->header.repeaterRecords; i++)
-      this->readRepeaterRecord(s);
+    memset(s->repeaters, 0x00, sizeof(s->repeaters));
+    for(uint8_t i = 0; i < this->header.repeaterRecords; i++) this->readRepeaters(s);
   }
   if(opened) {
     ESP_LOGI(TAG, "Closing shade config file");
     this->end();
   }
-  return true;
-}
-bool ShadeConfigFile::writeGroupRecord(SomfyGroup *group) {
-  this->writeUInt8(group->getGroupId());
-  this->writeUInt8(static_cast<uint8_t>(group->groupType));
-  this->writeUInt32(group->getRemoteAddress());
-  this->writeString(group->name, sizeof(group->name));
-  this->writeUInt8(static_cast<uint8_t>(group->proto));
-  this->writeUInt8(group->bitLength);
-  for(uint8_t j = 0; j < SOMFY_MAX_GROUPED_SHADES; j++) {
-    this->writeUInt8(group->linkedShades[j]);
-  }
-  this->writeUInt8(group->repeats);
-  this->writeUInt8(group->sortOrder);
-  this->writeBool(group->flipCommands);
-  this->writeUInt8(group->roomId);
-  this->writeUInt16(group->lastRollingCode, CFG_REC_END);
-  return true;
-}
-bool ShadeConfigFile::writeRepeaterRecord(SomfyShadeController *s) {
-  for(uint8_t i = 0; i < SOMFY_MAX_REPEATERS; i++) {
-    this->writeUInt32(s->repeaters[i], i == SOMFY_MAX_REPEATERS - 1 ? CFG_REC_END : CFG_VALUE_SEP);
-  }
-  return true;
-}
-bool ShadeConfigFile::writeRoomRecord(SomfyRoom *room) {
-  this->writeUInt8(room->roomId);
-  this->writeString(room->name, sizeof(room->name));
-  this->writeUInt8(room->sortOrder, CFG_REC_END);
-  return true;
-}
-bool ShadeConfigFile::writeShadeRecord(SomfyShade *shade) {
-  if(shade->tiltType == tilt_types::none || shade->shadeType != shade_types::blind) {
-    shade->clearTilt();
-    shade->tiltType = tilt_types::none;
-  }
-  this->writeUInt8(shade->getShadeId());
-  this->writeBool(shade->paired);
-  this->writeUInt8(static_cast<uint8_t>(shade->shadeType));
-  this->writeUInt32(shade->getRemoteAddress());
-  this->writeString(shade->name, sizeof(shade->name));
-  this->writeUInt8(static_cast<uint8_t>(shade->tiltType));
-  this->writeUInt8(static_cast<uint8_t>(shade->proto));
-  this->writeUInt8(shade->bitLength);
-  this->writeUInt32(shade->upTime);
-  this->writeUInt32(shade->downTime);
-  this->writeUInt32(shade->tiltTime);
-  this->writeUInt16(shade->stepSize);
-  for(uint8_t j = 0; j < SOMFY_MAX_LINKED_REMOTES; j++) {
-    SomfyLinkedRemote *rem = &shade->linkedRemotes[j];
-    this->writeUInt32(rem->getRemoteAddress());
-  }
-  this->writeUInt16(shade->lastRollingCode);
-  if(shade->getShadeId() != 255) {
-    this->writeUInt8(shade->getFlags());
-    this->writeFloat(shade->state().myPos, 5);
-    this->writeFloat(shade->state().myTiltPos, 5);
-    this->writeFloat(shade->state().currentPos, 5);
-    this->writeFloat(shade->state().currentTiltPos, 5);
-  }
-  else {
-    // Make sure that we write cleared values when the shade is deleted.
-    this->writeUInt8(0);
-    this->writeFloat(-1.0f, 5); // MyPos
-    this->writeFloat(-1.0f, 5); // MyTiltPos
-    this->writeFloat(0.0f, 5);  // currentPos
-    this->writeFloat(0.0f, 5); // currentTiltPos
-  }
-  this->writeBool(shade->flipCommands);
-  this->writeBool(shade->flipPosition);
-  this->writeUInt8(shade->repeats);
-  this->writeUInt8(shade->sortOrder);
-  this->writeUInt8(shade->gpioUp);
-  this->writeUInt8(shade->gpioDown);
-  this->writeUInt8(shade->gpioMy);
-  this->writeUInt8(shade->gpioFlags);
-  this->writeUInt8(shade->roomId, CFG_REC_END);
-  return true;  
-}
-bool ShadeConfigFile::writeSettingsRecord() {
-  this->writeVarString(settings.fwVersion.name);
-  this->writeVarString(settings.hostname);
-  this->writeVarString(settings.NTP.ntpServer);
-  this->writeVarString(settings.NTP.posixZone);
-  this->writeBool(settings.ssdpBroadcast);
-  this->writeBool(settings.checkForUpdate, CFG_REC_END);
-  return true;
-}
-bool ShadeConfigFile::writeNetRecord() {
-  this->writeUInt8(static_cast<uint8_t>(settings.connType));
-  this->writeBool(settings.IP.dhcp); 
-  this->writeVarString(settings.IP.ip.toString().c_str());
-  this->writeVarString(settings.IP.gateway.toString().c_str());
-  this->writeVarString(settings.IP.subnet.toString().c_str());
-  this->writeVarString(settings.IP.dns1.toString().c_str());
-  this->writeVarString(settings.IP.dns2.toString().c_str());
-  this->writeVarString(settings.MQTT.protocol);
-  this->writeVarString(settings.MQTT.hostname);
-  this->writeUInt16(settings.MQTT.port);
-  this->writeBool(settings.MQTT.pubDisco);
-  this->writeVarString(settings.MQTT.rootTopic);
-  this->writeVarString(settings.MQTT.discoTopic);
-#if HAS_ETHERNET
-  this->writeUInt8(settings.Ethernet.boardType);
-  this->writeUInt8(settings.Ethernet.phyType);
-  this->writeUInt8(static_cast<uint8_t>(settings.Ethernet.CLKMode));
-  this->writeInt8(settings.Ethernet.phyAddress);
-  this->writeInt8(settings.Ethernet.PWRPin);
-  this->writeInt8(settings.Ethernet.MDCPin);
-  this->writeInt8(settings.Ethernet.MDIOPin, CFG_REC_END);
-#else
-  this->writeUInt8(0, CFG_REC_END);
-#endif
-  return true;
-}
-bool ShadeConfigFile::writeTransRecord(transceiver_config_t &cfg) {
-  this->writeBool(cfg.enabled);
-  this->writeUInt8(static_cast<uint8_t>(cfg.proto));
-  this->writeUInt8(cfg.type);
-  this->writeUInt8(cfg.SCKPin);
-  this->writeUInt8(cfg.CSNPin);
-  this->writeUInt8(cfg.MOSIPin);
-  this->writeUInt8(cfg.MISOPin);
-  this->writeUInt8(cfg.TXPin);
-  this->writeUInt8(cfg.RXPin);
-  this->writeFloat(cfg.frequency, 3);
-  this->writeFloat(cfg.rxBandwidth, 2);
-  this->writeFloat(cfg.deviation, 2);
-  this->writeInt8(cfg.txPower);
-  this->writeBool(cfg.noiseDetection, CFG_REC_END);
   return true;
 }
 bool ShadeConfigFile::exists() { return LittleFS.exists("/shades.cfg"); }
