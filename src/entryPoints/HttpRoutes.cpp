@@ -93,7 +93,11 @@ void registerHttpRoutes(AsyncWebServer &server) {
 
   server.on(AsyncURIMatcher::exact("/restore"), HTTP_POST,
     [](AsyncWebServerRequest *request) {
-      if(webServer.uploadSuccess) {
+      // An upload is restored once: a later /restore without a file must not
+      // find this one.
+      const bool uploaded = webServer.uploadSuccess;
+      webServer.uploadSuccess = false;
+      if(uploaded) {
         restore_options_t opts;
         if(asyncHasParam(request, "data")) {
           String dataStr = asyncParam(request, "data");
@@ -101,6 +105,7 @@ void registerHttpRoutes(AsyncWebServer &server) {
           JsonDocument doc;
           DeserializationError err = deserializeJson(doc, dataStr);
           if(err) {
+            LittleFS.remove("/shades.tmp");
             request->send(500, _encoding_json, "{\"status\":\"ERROR\",\"desc\":\"JSON parse error\"}");
             return;
           }
@@ -113,6 +118,13 @@ void registerHttpRoutes(AsyncWebServer &server) {
           ESP_LOGD(TAG, "No restore options sent.  Using defaults...");
           opts.shades = true;
         }
+        // Otherwise the device would reboot having restored nothing.
+        const uint8_t parts = restoreParts(opts);
+        if(parts == 0) {
+          LittleFS.remove("/shades.tmp");
+          request->send(400, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No part of the backup was chosen, so nothing was restored.\"}"));
+          return;
+        }
         // Checked here so the client hears about a bad file.  It only reads
         // the file; the shades are still changed on loop() alone.
         if(!ShadeConfigFile::validateFile("/shades.tmp")) {
@@ -124,7 +136,7 @@ void registerHttpRoutes(AsyncWebServer &server) {
         // codes, and then reboots.
         loop_item_t item;
         item.type = loop_item_type_t::restore_shades;
-        item.restoreParts = restoreParts(opts);
+        item.restoreParts = parts;
         if(!queueLoopItem(request, item)) return;
         request->send(200, _encoding_json, "{\"status\":\"Success\",\"desc\":\"Restoring Shade settings\"}");
       }
@@ -152,15 +164,21 @@ void registerHttpRoutes(AsyncWebServer &server) {
   // updateFirmware - file upload
   server.on(AsyncURIMatcher::exact("/updateFirmware"), HTTP_POST,
     [](AsyncWebServerRequest *request) {
+      // Nothing was written or stopped, so there is nothing to reboot for.
+      if(!settings.hasOtaSlot) {
+        request->send(400, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"This device has no OTA slot, so its firmware is flashed over USB.\"}"));
+        return;
+      }
+      // errorString() is one of the updater's fixed messages, none with a quote.
       if(Update.hasError())
-        request->send(500, _encoding_json, "{\"status\":\"ERROR\",\"desc\":\"Error updating firmware: \"}");
+        request->send(500, _encoding_json, String("{\"status\":\"ERROR\",\"desc\":\"Error updating firmware: ") + Update.errorString() + "\"}");
       else
         request->send(200, _encoding_json, "{\"status\":\"SUCCESS\",\"desc\":\"Successfully updated firmware\"}");
       rebootDelay.reboot = true;
       rebootDelay.rebootTime = millis() + 500;
     },
     [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
-      if(!uploadAllowed(request, index)) return;
+      if(!uploadAllowed(request, index) || !settings.hasOtaSlot) return;
       if(index == 0) {
         webServer.uploadSuccess = false;
         ESP_LOGI(TAG, "Update: %s", filename.c_str());
@@ -195,7 +213,7 @@ void registerHttpRoutes(AsyncWebServer &server) {
   server.on(AsyncURIMatcher::exact("/updateApplication"), HTTP_POST,
     [](AsyncWebServerRequest *request) {
       if(Update.hasError())
-        request->send(500, _encoding_json, "{\"status\":\"ERROR\",\"desc\":\"Error updating application: \"}");
+        request->send(500, _encoding_json, String("{\"status\":\"ERROR\",\"desc\":\"Error updating application: ") + Update.errorString() + "\"}");
       else
         request->send(200, _encoding_json, "{\"status\":\"SUCCESS\",\"desc\":\"Successfully updated application\"}");
       rebootDelay.reboot = true;

@@ -86,9 +86,8 @@ def test_a_save_tells_the_other_clients(connect, schema):
 def test_a_wifi_scan_lists_the_networks(connect, schema):
     c = connect(schema=schema.hash)
     _, frames, _ = run_sync(c)
-    header = next(schema.expand(f["d"][schema.keys["header"]]) for f in frames if schema.keys["header"] in f["d"])
     # The connection in use: Ethernet with WiFi as the fallback may be on either.
-    if header.get("connType") != "Wifi":
+    if header(schema, frames).get("connType") != "Wifi":
         pytest.skip("the device isn't on WiFi")
     assert is_ok(schema, op(c, schema, "scanWifi", {}))
     found = c.recv_until(lambda f: f["t"] == schema.type_numbers["wifiNetworks"], timeout=20)[-1]
@@ -123,6 +122,11 @@ def test_reboot(request, host, token, connect, schema):
     uptime_before = uptime(schema, frames)
     assert is_ok(schema, op(c, schema, "reboot", {}))
     assert c.closed.wait(15), "the socket stayed open"
+    wait_for_restart(host, token, schema, uptime_before)
+
+
+def wait_for_restart(host, token, schema, uptime_before):
+    """Waits until the device is back, and checks it restarted."""
     # The device closes its sockets just before it restarts, and may still
     # take a connection in between: that one never gets its hello.
     time.sleep(3)
@@ -145,6 +149,12 @@ def test_reboot(request, host, token, connect, schema):
         finally:
             back.close()
         time.sleep(2)
+
+
+def header(schema, frames):
+    """The header a sync starts with."""
+    key = schema.keys["header"]
+    return next(schema.expand(f["d"][key]) for f in frames if key in f["d"])
 
 
 def uptime(schema, frames):

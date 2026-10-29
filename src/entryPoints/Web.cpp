@@ -143,13 +143,18 @@ bool Web::createAPIToken(const IPAddress ipAddress, char *token) {
 // =====================================================
 // Async API Handlers
 // =====================================================
-// Helper: get a query param as String, or empty if missing
+// The library keeps query parameters and form fields apart, and looks up only
+// the first unless asked.  /restore's options come as a form field.
+static const AsyncWebParameter *queryOrFormParam(AsyncWebServerRequest *request, const char *name) {
+  const AsyncWebParameter *p = request->getParam(name);
+  return p ? p : request->getParam(name, true);
+}
 String asyncParam(AsyncWebServerRequest *request, const char *name) {
-  if(request->hasParam(name)) return request->getParam(name)->value();
-  return String();
+  const AsyncWebParameter *p = queryOrFormParam(request, name);
+  return p ? p->value() : String();
 }
 bool asyncHasParam(AsyncWebServerRequest *request, const char *name) {
-  return request->hasParam(name);
+  return queryOrFormParam(request, name) != nullptr;
 }
 
 // -- Serialization helpers --
