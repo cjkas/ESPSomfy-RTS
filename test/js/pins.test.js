@@ -38,7 +38,7 @@ test('MISO and TX warn, the pins the radio only reads do not', () => {
 });
 
 test('the pre-v3 P4 has the P4 pins', () => {
-    assert.deepEqual(BootPins.radioWarnings('p4es', { SCKPin: 27, CSNPin: 46, MOSIPin: 32, MISOPin: 33, TXPin: 2, RXPin: 35 }),
-        BootPins.radioWarnings('p4', { SCKPin: 27, CSNPin: 46, MOSIPin: 32, MISOPin: 33, TXPin: 2, RXPin: 35 }));
-    assert.equal(BootPins.radioWarnings('p4', { SCKPin: 27, CSNPin: 46, MOSIPin: 32, MISOPin: 33, TXPin: 2, RXPin: 35 }).length, 1);
+    const p4 = { SCKPin: 27, CSNPin: 46, MOSIPin: 32, MISOPin: 33, TXPin: 2, RXPin: 35 };
+    assert.equal(BootPins.radioWarnings('p4', p4).length, 1);
+    assert.deepEqual(BootPins.radioWarnings('p4es', p4), BootPins.radioWarnings('p4', p4));
 });

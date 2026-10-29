@@ -9,7 +9,9 @@
 // the firmware.  The ROM reads them before any code runs, so a radio that
 // drives one at power-up stops the board booting until EN is pressed (issue
 // #34).  The strapping pins that only pick a download mode, quiet the boot
-// log or set the SDIO timing aren't listed.  web UI: data-src/js/pins.js.
+// log or set the SDIO timing aren't listed.  The web UI has the same pins in
+// data-src/js/pins.js, and checks the same radio pins as
+// transceiver_config_t::apply(): keep the three in step.
 //
 // Returns what the pin does at reset, or nullptr for a pin that can't stop
 // the boot.

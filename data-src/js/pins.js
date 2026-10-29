@@ -1,6 +1,8 @@
 // The strapping pins whose level at reset can keep each chip from starting
 // the firmware, as src/BootPins.h has them for the log.  A radio that drives
 // one at power-up stops the board booting until EN is pressed (issue #34).
+// Keep the pins, the radio pins checked and the shared RX/TX rule in step
+// with that file.
 // The minify step joins this file into index.js; Node loads it on its own for
 // the tests (test/js).
 class BootPins {
@@ -9,7 +11,7 @@ class BootPins {
     static radioWarnings(chipModel, config) {
         const chip = BootPins.CHIPS[chipModel || ''] || {};
         const warnings = [];
-        for (const [field, name] of BootPins.RADIO) {
+        for (const [field, name] of BootPins.RADIO_PINS) {
             const pin = config[field];
             if (field === 'RXPin' && pin === config.TXPin) continue;
             const effect = chip[pin];
@@ -32,5 +34,5 @@ BootPins.CHIPS = {
 // The radio pins the CC1101 drives at power-up, before it is set up: GDO0
 // puts out a clock, GDO2 CHIP_RDYn, and SO follows CHIP_RDYn while CSN is
 // low.
-BootPins.RADIO = [['TXPin', 'TX'], ['RXPin', 'RX'], ['MISOPin', 'MISO']];
+BootPins.RADIO_PINS = [['TXPin', 'TX'], ['RXPin', 'RX'], ['MISOPin', 'MISO']];
 if (typeof module !== 'undefined' && module.exports) module.exports = { BootPins };

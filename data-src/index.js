@@ -418,6 +418,9 @@ function sendEdit(name, fields, target, cb) {
 // A command's repeat count, when the caller gave one.
 function repeatOf(repeat) { return typeof repeat === 'number' ? repeat : undefined; }
 function gone(what) { ui.errorMessage(`The ${what} is no longer there.`); }
+// The chip model the header sent: '' for the original ESP32, then s3, p4es
+// and so on.
+function chipModel() { return document.getElementById('divContainer').getAttribute('data-chipmodel') || ''; }
 // The lists redraw from the model after events, a burst of them at once.
 // While the socket is down they wait for the next sync.
 var renderPending = {};
@@ -1601,7 +1604,7 @@ class Wifi {
         this.onETHBoardTypeChanged(document.getElementById('selETHBoardType'));
         this.initialized = true;
     }
-    isP4() { return (document.getElementById('divContainer').getAttribute('data-chipmodel') || '').startsWith('p4'); }
+    isP4() { return chipModel().startsWith('p4'); }
     clockModes() { return this.isP4() ? this.ethClockModesP4 : this.ethClockModes; }
     // The board presets, clock modes and pins of the chip: the ESP32's or the
     // P4's.  The chip comes with the sync, after init().
@@ -1976,8 +1979,7 @@ class Somfy {
     // Warns of radio pins that can stop the board booting (issue #34).
     checkBootPins() {
         let trans = ui.fromElement(document.getElementById('divTransceiverSettings')).transceiver;
-        let chip = document.getElementById('divContainer').getAttribute('data-chipmodel') || '';
-        let warnings = BootPins.radioWarnings(chip, trans.config);
+        let warnings = BootPins.radioWarnings(chipModel(), trans.config);
         let div = document.getElementById('divRadioBootPins');
         div.innerText = warnings.join('\n');
         div.style.display = warnings.length > 0 ? '' : 'none';
@@ -2753,7 +2755,7 @@ class Somfy {
 
     loadPins(type, sel, opt) {
         while (sel.firstChild) sel.removeChild(sel.firstChild);
-        let cm = document.getElementById('divContainer').getAttribute('data-chipmodel');
+        let cm = chipModel();
         // The pre-v3 P4 build has the same pins.
         if (cm === 'p4es') cm = 'p4';
         let pm = this.pinMaps.find(x => x.name === cm) || { name: '', maxPins: 39, inputs: [], outputs: [] };
@@ -4200,7 +4202,7 @@ class Firmware {
         div.style.display = '';
     }
     updateFirmware() {
-        let chip = document.getElementById('divContainer').getAttribute('data-chipmodel') || '';
+        let chip = chipModel();
         // Firmware from before the field leaves it out: undefined, not false.
         if (proto.model.header.hasOtaSlot === false) {
             ui.infoMessage(`This device has no OTA slot, so its firmware is flashed over USB with SomfyController.onboard.esp32${chip}.bin, from the release's SomfyController.onboard.esp32${chip}.bin.zip. That image holds the web UI and an empty configuration too, so take a backup first and restore it afterwards.`);
@@ -4223,7 +4225,7 @@ class Firmware {
         let div = this.createFileUploader('/updateApplication');
         general.reloadApp = true;
         let inst = div.querySelector('div[id=divInstText]');
-        let chip = document.getElementById('divContainer').getAttribute('data-chipmodel') || '';
+        let chip = chipModel();
         inst.innerHTML = `<div style="font-size:14px;">Select a binary file [SomfyController.littlefs.esp32${chip}.bin] containing the littlefs data for the application then press the Upload File button.</div>`;
         if (this.isMobile()) {
             inst.innerHTML += `<div style="width:100%;color:red;text-align:center;font-weight:bold;"><span style="margin-top:7px;width:100%;background:yellow;padding:3px;display:inline-block;border-radius:5px;background:white;">WARNING<span></div>`;

@@ -605,7 +605,7 @@ void transceiver_config_t::apply() {
       ESP_LOGD(TAG, "Applying radio settings - Setting Data Pins RX:%u TX:%u", this->RXPin, this->TXPin);
       // The pins the CC1101 drives at power-up, before it is set up: GDO0
       // puts out a clock, GDO2 CHIP_RDYn, and SO follows CHIP_RDYn while CSN
-      // is low.
+      // is low.  The web UI checks the same (data-src/js/pins.js).
       warnBootPin("TX", this->TXPin);
       if(this->RXPin != this->TXPin) warnBootPin("RX", this->RXPin);
       warnBootPin("MISO", this->MISOPin);
