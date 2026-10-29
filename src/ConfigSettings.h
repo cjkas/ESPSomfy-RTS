@@ -189,8 +189,6 @@ class ConfigSettings: BaseSettings {
     bool save();
     bool load();
     void print();
-    uint16_t calcSettingsRecSize();
-    uint16_t calcNetRecSize();
     bool getAppVersion();
 };
 #endif

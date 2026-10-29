@@ -233,36 +233,6 @@ void ConfigSettings::print() {
   if(this->connType == conn_types_t::ethernet || this->connType == conn_types_t::ethernetpref) this->Ethernet.print();
 #endif
 }
-uint16_t ConfigSettings::calcSettingsRecSize() {
-  return strlen(this->fwVersion.name) + 3 
-    + strlen(this->hostname) + 3
-    + strlen(this->NTP.ntpServer) + 3
-    + strlen(this->NTP.posixZone) + 3
-    + 6  // ssdpbroadcast
-    + 6; // updateCheck
-}
-uint16_t ConfigSettings::calcNetRecSize() {
-  return 4 // connType
-    + 6 // dhcp
-    + this->IP.ip.toString().length() + 3
-    + this->IP.gateway.toString().length() + 3
-    + this->IP.subnet.toString().length() + 3
-    + this->IP.dns1.toString().length() + 3
-    + this->IP.dns2.toString().length() + 3
-    + strlen(this->MQTT.protocol) + 3
-    + strlen(this->MQTT.hostname) + 3
-    + 6 // MQTT Port
-    + 6 // PubDisco
-    + strlen(this->MQTT.rootTopic) + 3
-    + strlen(this->MQTT.discoTopic) + 3
-    + 4 // ETH.boardType
-    + 4 // ETH.phyType
-    + 4 // ETH.clkMode
-    + 5 // ETH.phyAddress
-    + 5 // ETH.PWRPin
-    + 5 // ETH.MDCPin
-    + 5; // ETH.MDIOPin
-}
 bool MQTTSettings::begin() {
   this->load();
   return true;

@@ -3,72 +3,41 @@
 #include "Somfy.h"
 #include "ConfigSettings.h"
 #include "ConfigHeader.h"
+#include "ConfigRecords.h"
 
 #ifndef configfile_h
 #define configfile_h
 
-#define CFG_VALUE_SEP ','
-#define CFG_REC_END '\n'
-#define CFG_TOK_NONE 0x00
-#define CFG_TOK_QUOTE '"'
-
-
-class ConfigFile {
+// Opens shades.cfg or a backup and writes or reads its values
+// (ConfigRecords.h), from the file or into a String in RAM.
+class ConfigFile : public ConfigReader, public ConfigWriter {
   protected:
     File file;
     String *_ramBuf = nullptr;
     bool readOnly = false;
     bool begin(const char *filename, bool readOnly = false);
-    uint32_t startRecPos = 0;
     bool _opened = false;
   public:
     config_header_t header;
     bool beginRAM(String *buf);
     void end();
     bool isOpen();
-    bool seekRecordByIndex(uint16_t ndx);
     bool readHeader();
-    bool seekChar(const char val);
-    bool writeHeader(const config_header_t &header);
     bool writeHeader();
-    bool writeSeparator();
-    bool writeRecordEnd();
-    bool writeChar(const char val);
-    bool writeInt8(const int8_t val, const char tok = CFG_VALUE_SEP);
-    bool writeUInt8(const uint8_t val, const char tok = CFG_VALUE_SEP);
-    bool writeUInt16(const uint16_t val, const char tok = CFG_VALUE_SEP);
-    bool writeUInt32(const uint32_t val, const char tok = CFG_VALUE_SEP);
-    bool writeBool(const bool val, const char tok = CFG_VALUE_SEP);
-    bool writeFloat(const float val, const uint8_t prec, const char tok = CFG_VALUE_SEP);
-    bool readString(char *buff, size_t len);
-    bool readVarString(char *buff, size_t len);
-    bool skipValue(size_t len);
-    bool writeString(const char *val, size_t len, const char tok = CFG_VALUE_SEP);
-    bool writeVarString(const char *val, const char tok = CFG_VALUE_SEP);
-    char readChar(const char defVal = '\0');
-    int8_t readInt8(const int8_t defVal = 0);
-    uint8_t readUInt8(const uint8_t defVal = 0);
-    uint16_t readUInt16(const uint16_t defVal = 0);
-    uint32_t readUInt32(const uint32_t defVal = 0);
-    bool readBool(const bool defVal = false);
-    float readFloat(const float defVal = 0.00);
+    bool readByte(uint8_t &val) override;
+    uint32_t position() override;
+    bool writeBytes(const uint8_t *buf, size_t len) override;
 };
 class ShadeConfigFile : public ConfigFile {
   protected:
-    bool writeRepeaterRecord(SomfyShadeController *s);
-    bool writeRoomRecord(SomfyRoom *room);
-    bool writeShadeRecord(SomfyShade *shade);
-    bool writeGroupRecord(SomfyGroup *group);
-    bool writeSettingsRecord();
-    bool writeNetRecord();
-    bool writeTransRecord(transceiver_config_t &cfg);
-    bool readRepeaterRecord(SomfyShadeController *s);
-    bool readRoomRecord(SomfyRoom *room);
-    bool readShadeRecord(SomfyShade *shade);
-    bool readGroupRecord(SomfyGroup *group);
-    bool readSettingsRecord();
-    bool readNetRecord(restore_options_t &opts);
-    bool readTransRecord(transceiver_config_t &cfg);
+    // A restore takes the rolling codes in the file (rollingCodeAfterLoad).
+    bool restoring = false;
+    bool writeModel(SomfyShadeController *s);
+    void readModel(SomfyShadeController *s);
+    void readRoom(SomfyRoom *room);
+    void readShade(SomfyShade *shade);
+    void readGroup(SomfyGroup *group);
+    void readRepeaters(SomfyShadeController *s);
   public:
     static bool exists();
     static bool load(SomfyShadeController *somfy, const char *filename = "/shades.cfg");
