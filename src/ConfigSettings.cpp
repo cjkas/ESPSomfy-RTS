@@ -7,6 +7,7 @@
 #include "Utils.h"
 #include "Secrets.h"
 #include "esp_chip_info.h"
+#include "esp_ota_ops.h"
 #include "esp_log.h"
 
 static const char *TAG = "Config";
@@ -144,6 +145,7 @@ bool ConfigSettings::begin() {
       break;
   }
   ESP_LOGD(TAG, "Chip Model ESP32-%s", this->chipModel);
+  this->hasOtaSlot = esp_ota_get_next_update_partition(nullptr) != nullptr;
   this->fwVersion.parse(FW_VERSION);
   uint64_t mac = ESP.getEfuseMac();
   for(int i=0; i<17; i=i+8) {
