@@ -169,6 +169,7 @@
   FIELD(hostname, "hn", 's', 0) \
   FIELD(model, "md", 's', 0) \
   FIELD(chipModel, "cp", 's', 0) \
+  FIELD(hasOtaSlot, "os", 'b', 1) \
   FIELD(connType, "ct", 's', 0) \
   /* memory, wifi and ethernet */ \
   FIELD(freeHeap, "fr", 'i', 0) \

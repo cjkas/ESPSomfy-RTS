@@ -2719,6 +2719,7 @@ class Somfy {
         { name: 's2', maxPins: 46, inputs: [0, 19, 20, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 45], outputs: [0, 19, 20, 26, 27, 28, 29, 30, 31, 32, 45, 46]},
         { name: 's3', maxPins: 48, inputs: [19, 20, 22, 23, 24, 25, 27, 28, 29, 30, 31, 32], outputs: [19, 20, 22, 23, 24, 25, 27, 28, 29, 30, 31, 32] },
         { name: 'c3', maxPins: 21, inputs: [11, 12, 13, 14, 15, 16, 17, 18, 19, 20], outputs: [11, 12, 13, 14, 15, 16, 17, 21] },
+        { name: 'c5', maxPins: 28, inputs: [13, 14, 15, 16, 17, 18, 19, 20, 21, 22], outputs: [13, 14, 15, 16, 17, 18, 19, 20, 21, 22] },
         { name: 'c6', maxPins: 23, inputs: [], outputs: [] }
     ];
 
@@ -4169,9 +4170,14 @@ class Firmware {
         div.style.display = '';
     }
     updateFirmware() {
+        let chip = document.getElementById('divContainer').getAttribute('data-chipmodel') || '';
+        // Firmware from before the field leaves it out: undefined, not false.
+        if (proto.model.header.hasOtaSlot === false) {
+            ui.infoMessage(`This device has no OTA slot, so its firmware is flashed over USB with SomfyController.onboard.esp32${chip}.bin, from the release's SomfyController.onboard.esp32${chip}.bin.zip. That image holds the web UI and an empty configuration too, so take a backup first and restore it afterwards.`);
+            return;
+        }
         let div = this.createFileUploader('/updateFirmware');
         let inst = div.querySelector('div[id=divInstText]');
-        let chip = document.getElementById('divContainer').getAttribute('data-chipmodel') || '';
         let html = `<div style="font-size:14px;margin-bottom:20px;">Select a binary file [SomfyController.ino.esp32${chip}.bin] containing the device firmware then press the Upload File button.</div>`;
         if (this.isMobile()) {
             html += `<div style="width:100%;color:red;text-align:center;font-weight:bold;"><span style="margin-top:7px;width:100%;background:yellow;padding:3px;display:inline-block;border-radius:5px;background:white;">WARNING<span></div>`;
@@ -4302,18 +4308,15 @@ class Firmware {
                 security.tokenRefused();
                 return;
             }
-            if (service !== '/restore' && (xhr.status < 200 || xhr.status >= 300)) {
-                ui.errorMessage(el, `The upload failed (${xhr.status}).`);
+            if (xhr.status < 200 || xhr.status >= 300) {
+                // The device's reason, when it sent one.
+                let desc = `The upload failed (${xhr.status}).`;
+                try { desc = JSON.parse(xhr.responseText).desc || desc; } catch (e) { }
+                ui.errorMessage(el, desc);
                 return;
             }
             switch (service) {
                 case '/restore':
-                    if (xhr.status < 200 || xhr.status >= 300) {
-                        let desc = 'The restore failed.';
-                        try { desc = JSON.parse(xhr.responseText).desc || desc; } catch (e) { }
-                        ui.errorMessage(el, desc);
-                        break;
-                    }
                     (async () => {
                         await somfy.init();
                         if (document.getElementById('divUploadFile')) document.getElementById('divUploadFile').remove();

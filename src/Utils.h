@@ -85,7 +85,7 @@ const char *wifiAuthModeName(uint8_t authMode);
 bool otaProven(bool networkUp, unsigned long uptimeMs, unsigned long minUptimeMs);
 // A release asset's name: "SomfyController.<kind>.esp32<chipModel>.bin", kind
 // "ino" for the firmware or "littlefs" for the web UI image, chipModel as in
-// ConfigSettings ("" for the ESP32, "s3", "c3", "c6").
+// ConfigSettings ("" for the ESP32, "s3", "c3", "c5", "c6").
 void releaseAssetName(char *buf, size_t size, const char *kind, const char *chipModel);
 // A coredump backtrace as " 0x%08x" per frame.  bt holds maxFrames entries and
 // depth is how many the dump claims are valid.
