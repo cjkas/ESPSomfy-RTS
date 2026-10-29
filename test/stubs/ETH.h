@@ -13,4 +13,20 @@ typedef enum {
   ETH_PHY_KSZ8081,
   ETH_PHY_MAX
 } eth_phy_type_t;
+#if defined(CONFIG_IDF_TARGET_ESP32P4)
+// The P4's ETH.h takes the IDF's enum, where 0 is a deprecated default.
+typedef enum {
+  EMAC_CLK_DEFAULT,
+  EMAC_CLK_EXT_IN,
+  EMAC_CLK_OUT
+} emac_rmii_clock_mode_t;
+typedef emac_rmii_clock_mode_t eth_clock_mode_t;
+#else
+typedef enum {
+  ETH_CLOCK_GPIO0_IN,
+  ETH_CLOCK_GPIO0_OUT,
+  ETH_CLOCK_GPIO16_OUT,
+  ETH_CLOCK_GPIO17_OUT
+} eth_clock_mode_t;
+#endif
 #endif

@@ -145,6 +145,17 @@ bool ConfigSettings::begin() {
       strcpy(this->chipModel, "c6");
       break;
     #endif
+    #ifdef CONFIG_IDF_TARGET_ESP32P4
+    // Chips before v3.0 run their own build (esp32p4_es libraries), so they
+    // get their own release files.
+    case esp_chip_model_t::CHIP_ESP32P4:
+      #if CONFIG_ESP32P4_SELECTS_REV_LESS_V3
+      strcpy(this->chipModel, "p4es");
+      #else
+      strcpy(this->chipModel, "p4");
+      #endif
+      break;
+    #endif
     default:
       sprintf(this->chipModel, "UNK%d", static_cast<int>(ci.model));
       break;
@@ -499,7 +510,7 @@ bool EthernetSettings::begin() {
 bool EthernetSettings::fromJSON(JsonObject &obj) {
   if(!obj["boardType"].isNull()) this->boardType = obj["boardType"];
   if(!obj["phyAddress"].isNull()) this->phyAddress = obj["phyAddress"];
-  if(!obj["CLKMode"].isNull()) this->CLKMode = static_cast<eth_clock_mode_t>(obj["CLKMode"]);
+  if(!obj["CLKMode"].isNull()) this->CLKMode = obj["CLKMode"];
   if(!obj["phyType"].isNull()) this->phyType = obj["phyType"];
   if(!obj["PWRPin"].isNull()) this->PWRPin = obj["PWRPin"];
   if(!obj["MDCPin"].isNull()) this->MDCPin = obj["MDCPin"];
@@ -507,9 +518,7 @@ bool EthernetSettings::fromJSON(JsonObject &obj) {
   return true;
 }
 bool EthernetSettings::usesPin(uint8_t pin) {
-  if((this->CLKMode == 0 || this->CLKMode == 1) && pin == 0) return true;
-  else if(this->CLKMode == 2 && pin == 16) return true;
-  else if(this->CLKMode == 3 && pin == 17) return true;
+  if(ethClockPin(this->CLKMode) == pin) return true;
   else if(this->PWRPin == pin) return true;
   else if(this->MDCPin == pin) return true;
   else if(this->MDIOPin == pin) return true;
@@ -522,7 +531,7 @@ bool EthernetSettings::save() {
   pref.putChar("boardType", this->boardType);
   pref.putChar("phyAddress", this->phyAddress);
   pref.putChar("phyType", this->phyType);
-  pref.putChar("CLKMode", static_cast<uint8_t>(this->CLKMode));
+  pref.putChar("CLKMode", this->CLKMode);
   pref.putChar("PWRPin", this->PWRPin);
   pref.putChar("MDCPin", this->MDCPin);
   pref.putChar("MDIOPin", this->MDIOPin);
@@ -534,7 +543,7 @@ bool EthernetSettings::load() {
   pref.begin("ETH");
   this->boardType = pref.getChar("boardType", this->boardType);
   this->phyType = pref.getChar("phyType", this->phyType);
-  this->CLKMode = static_cast<eth_clock_mode_t>(pref.getChar("CLKMode", ETH_CLOCK_GPIO0_IN));
+  this->CLKMode = pref.getChar("CLKMode", this->CLKMode);
   this->phyAddress = pref.getChar("phyAddress", this->phyAddress);
   this->PWRPin = pref.getChar("PWRPin", this->PWRPin);
   this->MDCPin = pref.getChar("MDCPin", this->MDCPin);

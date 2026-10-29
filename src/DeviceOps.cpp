@@ -62,7 +62,7 @@ static void writeSettings(ProtoWriter &w, settings_section_t section) {
       w.add(proto_field_t::hasEthernet, true);
       w.add(proto_field_t::boardType, settings.Ethernet.boardType);
       w.add(proto_field_t::phyType, settings.Ethernet.phyType);
-      w.add(proto_field_t::CLKMode, static_cast<uint8_t>(settings.Ethernet.CLKMode));
+      w.add(proto_field_t::CLKMode, settings.Ethernet.CLKMode);
       w.add(proto_field_t::phyAddress, settings.Ethernet.phyAddress);
       w.add(proto_field_t::PWRPin, settings.Ethernet.PWRPin);
       w.add(proto_field_t::MDCPin, settings.Ethernet.MDCPin);

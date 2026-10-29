@@ -1578,23 +1578,22 @@ class Wifi {
     { val: 4, label: 'T-Internet POE - LILYGO', clk: 3, ct: 0, addr: 0, pwr: 16, mdc: 23, mdio: 18 },
     { val: 5, label: 'wESP32 v7+ - Silicognition', clk: 0, ct: 2, addr: 0, pwr: -1, mdc: 16, mdio: 17 },
     { val: 6, label: 'wESP32 < v7 - Silicognition', clk: 0, ct: 0, addr: 0, pwr: -1, mdc: 16, mdio: 17 },
-    { val: 1, label: 'WT32-ETH01 - Wireless Tag', clk: 0, ct: 0, addr: 1, pwr: 16, mdc: 23, mdio: 18 }
+    { val: 1, label: 'WT32-ETH01 - Wireless Tag', clk: 0, ct: 0, addr: 1, pwr: 16, mdc: 23, mdio: 18 },
+    { val: 8, label: 'ESP32-P4-ETH - Waveshare', clk: 0, ct: 1, addr: 1, pwr: 51, mdc: 31, mdio: 52, p4: true }
     ];
     ethClockModes = [{ val: 0, label: 'GPIO0 IN' }, { val: 1, label: 'GPIO0 OUT' }, { val: 2, label: 'GPIO16 OUT' }, { val: 3, label: 'GPIO17 OUT' }];
+    // The P4 takes the clock in on GPIO 50 only (eth_clock_id_t in EthPhy.h).
+    ethClockModesP4 = [{ val: 0, label: 'GPIO50 IN' }];
     // The ids the firmware stores (eth_phy_id_t in EthPhy.h).  4 is the DM9051, an SPI chip the ESP32's MAC can't drive.
     ethPhyTypes = [{ val: 0, label: 'LAN8720' }, { val: 1, label: 'TLK110' }, { val: 2, label: 'RTL8201' }, { val: 3, label: 'DP83848' }, { val: 5, label: 'KSZ8041' }, { val: 6, label: 'KSZ8081' }];
     init() {
         document.getElementById("divNetworkStrength").innerHTML = this.displaySignal(-100);
         if (this.initialized) return;
         let addr = [];
-        this.loadETHDropdown(document.getElementById('selETHClkMode'), this.ethClockModes);
         this.loadETHDropdown(document.getElementById('selETHPhyType'), this.ethPhyTypes);
-        this.loadETHDropdown(document.getElementById('selETHBoardType'), this.ethBoardTypes);
         for (let i = 0; i < 32; i++) addr.push({ val: i, label: `PHY ${i}` });
         this.loadETHDropdown(document.getElementById('selETHAddress'), addr);
-        this.loadETHPins(document.getElementById('selETHPWRPin'), 'power');
-        this.loadETHPins(document.getElementById('selETHMDCPin'), 'mdc', 23);
-        this.loadETHPins(document.getElementById('selETHMDIOPin'), 'mdio', 18);
+        this.loadETHOptions();
         ui.toElement(document.getElementById('divNetAdapter'), {
             wifi: {ssid:'', passphrase:''},
             ethernet: { boardType: 1, wirelessFallback: false, dhcp: true, dns1: '', dns2: '', ip: '', gateway: '' }
@@ -1602,14 +1601,27 @@ class Wifi {
         this.onETHBoardTypeChanged(document.getElementById('selETHBoardType'));
         this.initialized = true;
     }
-    loadETHPins(sel, type, selected) {
+    isP4() { return (document.getElementById('divContainer').getAttribute('data-chipmodel') || '').startsWith('p4'); }
+    clockModes() { return this.isP4() ? this.ethClockModesP4 : this.ethClockModes; }
+    // The board presets, clock modes and pins of the chip: the ESP32's or the
+    // P4's.  The chip comes with the sync, after init().
+    loadETHOptions() {
+        let p4 = this.isP4();
+        this.loadETHDropdown(document.getElementById('selETHClkMode'), this.clockModes());
+        this.loadETHDropdown(document.getElementById('selETHBoardType'), this.ethBoardTypes.filter(b => b.val === 0 || (b.p4 === true) === p4));
+        let maxPin = p4 ? 54 : 35;
+        this.loadETHPins(document.getElementById('selETHPWRPin'), 'power', undefined, maxPin);
+        this.loadETHPins(document.getElementById('selETHMDCPin'), 'mdc', p4 ? 31 : 23, maxPin);
+        this.loadETHPins(document.getElementById('selETHMDIOPin'), 'mdio', p4 ? 52 : 18, maxPin);
+    }
+    loadETHPins(sel, type, selected, maxPin) {
         let arr = [];
         switch (type) {
             case 'power':
                 arr.push({ val: -1, label: 'None' });
                 break;
         }
-        for (let i = 0; i < 36; i++) {
+        for (let i = 0; i <= maxPin; i++) {
             arr.push({ val: i, label: `GPIO ${i}` });
         }
         this.loadETHDropdown(sel, arr, selected);
@@ -1652,6 +1664,7 @@ class Wifi {
             else {
                 let settings = ProtoViews.network(proto.schema, reply);
                 console.log(settings);
+                this.loadETHOptions();
                 let hasEthernet = settings.hasEthernet;
                 this.hasEthernet = hasEthernet;
                 document.getElementById('divHardwired').style.display = hasEthernet ? '' : 'none';
@@ -1815,7 +1828,7 @@ class Wifi {
         if (obj.connType >= 2) {
             let boardType = this.ethBoardTypes.find(elem => obj.ethernet.boardType === elem.val);
             let phyType = this.ethPhyTypes.find(elem => obj.ethernet.phyType === elem.val);
-            let clkMode = this.ethClockModes.find(elem => obj.ethernet.CLKMode === elem.val);
+            let clkMode = this.clockModes().find(elem => obj.ethernet.CLKMode === elem.val);
             let div = document.createElement('div');
             let html = `<div id="divLanSettings" class="inst-overlay">`;
             html += '<div style="width:100%;color:red;text-align:center;font-weight:bold;"><span style="padding:10px;display:inline-block;width:100%;border-radius:5px;border-top-right-radius:17px;border-top-left-radius:17px;background:white;">BEWARE ... WARNING ... DANGER<span></div>';
@@ -2720,12 +2733,17 @@ class Somfy {
         { name: 's3', maxPins: 48, inputs: [19, 20, 22, 23, 24, 25, 27, 28, 29, 30, 31, 32], outputs: [19, 20, 22, 23, 24, 25, 27, 28, 29, 30, 31, 32] },
         { name: 'c3', maxPins: 21, inputs: [11, 12, 13, 14, 15, 16, 17, 18, 19, 20], outputs: [11, 12, 13, 14, 15, 16, 17, 21] },
         { name: 'c5', maxPins: 28, inputs: [13, 14, 15, 16, 17, 18, 19, 20, 21, 22], outputs: [13, 14, 15, 16, 17, 18, 19, 20, 21, 22] },
-        { name: 'c6', maxPins: 23, inputs: [], outputs: [] }
+        { name: 'c6', maxPins: 23, inputs: [], outputs: [] },
+        // Without the C6's SDIO link (14-19, 54), USB Serial/JTAG (24, 25),
+        // Ethernet (28-31, 34, 35, 49-52) and UART0 (37, 38).
+        { name: 'p4', maxPins: 54, inputs: [14, 15, 16, 17, 18, 19, 24, 25, 28, 29, 30, 31, 34, 35, 37, 38, 49, 50, 51, 52, 54], outputs: [14, 15, 16, 17, 18, 19, 24, 25, 28, 29, 30, 31, 34, 35, 37, 38, 49, 50, 51, 52, 54] }
     ];
 
     loadPins(type, sel, opt) {
         while (sel.firstChild) sel.removeChild(sel.firstChild);
         let cm = document.getElementById('divContainer').getAttribute('data-chipmodel');
+        // The pre-v3 P4 build has the same pins.
+        if (cm === 'p4es') cm = 'p4';
         let pm = this.pinMaps.find(x => x.name === cm) || { name: '', maxPins: 39, inputs: [], outputs: [] };
         //console.log({ cm: cm, pm: pm });
         for (let i = 0; i <= pm.maxPins; i++) {
