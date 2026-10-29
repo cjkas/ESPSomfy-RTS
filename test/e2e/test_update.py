@@ -3,6 +3,10 @@
 Pass --firmware with a firmware.bin built for the device's chip, e.g.
 .pio/build/esp32s3/firmware.bin.  The device must have an OTA slot: the
 release builds do, the C5, C6 and debug builds don't.
+
+It can't tell the new firmware from the old when both have the same
+version, and it doesn't make the update fail.  test/e2e/README.md has the
+rollback check by hand.
 """
 import time
 

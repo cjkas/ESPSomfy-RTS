@@ -4,6 +4,7 @@
 #include "SomfySnapshot.h"
 #include "MqttConnection.h"
 #include "MqttDisco.h"
+#include "MqttTopics.h"
 
 extern SomfyShadeController somfy;
 extern ConfigSettings settings;
@@ -118,25 +119,7 @@ void SomfyGroup::unpublish() { SomfyGroup::unpublish(this->groupId); }
 void SomfyShade::unpublish() { SomfyShade::unpublish(this->shadeId); }
 void SomfyShade::unpublish(uint8_t id) {
   if(mqtt.connected()) {
-    SomfyShade::unpublish(id, "shadeId");
-    SomfyShade::unpublish(id, "name");
-    SomfyShade::unpublish(id, "remoteAddress");
-    SomfyShade::unpublish(id, "shadeType");
-    SomfyShade::unpublish(id, "tiltType");
-    SomfyShade::unpublish(id, "flags");
-    SomfyShade::unpublish(id, "flipCommands");
-    SomfyShade::unpublish(id, "flipPosition");
-    SomfyShade::unpublish(id, "position");
-    SomfyShade::unpublish(id, "direction");
-    SomfyShade::unpublish(id, "target");
-    SomfyShade::unpublish(id, "lastRollingCode");
-    SomfyShade::unpublish(id, "mypos");
-    SomfyShade::unpublish(id, "myTiltPos");
-    SomfyShade::unpublish(id, "tiltDirection");
-    SomfyShade::unpublish(id, "tiltPosition");
-    SomfyShade::unpublish(id, "tiltTarget");
-    SomfyShade::unpublish(id, "windy");
-    SomfyShade::unpublish(id, "sunny");
+    for(const char *topic : SHADE_TOPICS) SomfyShade::unpublish(id, topic);
     if(settings.MQTT.pubDisco) {
       char topic[128] = "";
       shadeDiscoTopic(settings.MQTT.discoTopic, id, false, topic, sizeof(topic));
@@ -148,15 +131,7 @@ void SomfyShade::unpublish(uint8_t id) {
 }
 void SomfyGroup::unpublish(uint8_t id) {
   if(mqtt.connected()) {
-    SomfyGroup::unpublish(id, "groupId");
-    SomfyGroup::unpublish(id, "name");
-    SomfyGroup::unpublish(id, "remoteAddress");
-    SomfyGroup::unpublish(id, "groupType");
-    SomfyGroup::unpublish(id, "direction");
-    SomfyGroup::unpublish(id, "lastRollingCode");
-    SomfyGroup::unpublish(id, "flags");
-    SomfyGroup::unpublish(id, "sunSensor");
-    SomfyGroup::unpublish(id, "flipCommands");
+    for(const char *topic : GROUP_TOPICS) SomfyGroup::unpublish(id, topic);
   }
 }
 void SomfyGroup::unpublish(uint8_t id, const char *topic) {

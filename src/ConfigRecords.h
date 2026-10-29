@@ -61,7 +61,6 @@ class ConfigReader {
     bool readFixedString(char *buff, size_t len);
     // A quoted value of any length, cut to fit buff.
     bool readVarString(char *buff, size_t len);
-    char readChar(const char defVal = '\0');
     int8_t readInt8(const int8_t defVal = 0);
     uint8_t readUInt8(const uint8_t defVal = 0);
     uint16_t readUInt16(const uint16_t defVal = 0);
@@ -139,6 +138,8 @@ struct group_record_t {
   bool flipCommands = false;
   uint8_t roomId = 0;
   uint16_t lastRollingCode = 0;
+  // Versions before 23 have none.
+  bool hasRollingCode = false;
 };
 struct settings_record_t {
   // The firmware that wrote the backup.  Not restored.
@@ -190,10 +191,12 @@ struct trans_record_t {
   bool noiseDetection = false;
 };
 
+// The readers leave alone what the record's version lacks, so a record that
+// starts as the shade, group or settings it is read into keeps their values.
 bool writeConfigHeader(ConfigWriter &w, const config_header_t &header);
 bool readConfigHeader(ConfigReader &r, config_header_t &header);
 bool writeRoomRecord(ConfigWriter &w, const room_record_t &rec);
-bool readRoomRecord(ConfigReader &r, const config_header_t &header, room_record_t &rec);
+bool readRoomRecord(ConfigReader &r, room_record_t &rec);
 bool writeShadeRecord(ConfigWriter &w, const shade_record_t &rec);
 bool readShadeRecord(ConfigReader &r, const config_header_t &header, shade_record_t &rec);
 bool writeGroupRecord(ConfigWriter &w, const group_record_t &rec);
@@ -210,13 +213,4 @@ bool readTransRecord(ConfigReader &r, trans_record_t &rec);
 // Moves past count records without reading them.
 bool skipRecords(ConfigReader &r, uint32_t count);
 
-// The rolling code a remote goes on with.  NVS holds the last code sent and
-// shades.cfg the code when it was saved, so a load keeps the higher.  A
-// restore takes the backup's code even when it is lower.  A motor ignores
-// codes below the last one it heard, so after restoring an older backup to
-// the same device it ignores the shade until the codes pass that one.
-inline uint16_t rollingCodeAfterLoad(uint16_t stored, uint16_t inFile, bool restoring) {
-  if(restoring) return inFile;
-  return stored > inFile ? stored : inFile;
-}
 #endif

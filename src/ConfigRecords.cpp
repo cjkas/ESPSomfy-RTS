@@ -66,11 +66,6 @@ bool ConfigReader::readVarString(char *buff, size_t len) {
   }
   return false;
 }
-char ConfigReader::readChar(const char defVal) {
-  uint8_t ch;
-  if(this->next(ch)) return (char)ch;
-  return defVal;
-}
 int8_t ConfigReader::readInt8(const int8_t defVal) {
   char buff[5];
   if(this->readString(buff, sizeof(buff))) return static_cast<int8_t>(atoi(buff));
@@ -213,8 +208,7 @@ bool writeRoomRecord(ConfigWriter &w, const room_record_t &rec) {
   w.writeString(rec.name, sizeof(rec.name));
   return w.writeUInt8(static_cast<uint8_t>(rec.sortOrder), CFG_REC_END);
 }
-bool readRoomRecord(ConfigReader &r, const config_header_t &header, room_record_t &rec) {
-  (void)header;
+bool readRoomRecord(ConfigReader &r, room_record_t &rec) {
   r.beginRecord();
   rec.roomId = r.readUInt8(0);
   r.readFixedString(rec.name, sizeof(rec.name));
@@ -349,6 +343,7 @@ bool readGroupRecord(ConfigReader &r, const config_header_t &header, group_recor
   rec.bitLength = r.readUInt8(56);
   // Version 23 put the rolling code here, version 24 at the end.
   if(ver == 23) rec.lastRollingCode = r.readUInt16(0);
+  rec.hasRollingCode = ver >= 23;
   memset(rec.linkedShades, 0x00, sizeof(rec.linkedShades));
   uint8_t linked = 0;
   for(uint8_t j = 0; j < SOMFY_MAX_GROUPED_SHADES; j++) {

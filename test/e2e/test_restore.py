@@ -91,3 +91,22 @@ def test_a_restore_of_the_radio_alone_brings_it_back_as_it_was(request, host, to
     wait_for_restart(host, token, schema, booted)
     c, _, _ = synced_model(connect, schema)
     assert settings(c, schema, "radio") == radio
+
+
+def test_a_restore_of_the_shades_brings_them_back_as_they_were(request, host, token, connect, schema):
+    """Every shade and group, their rolling codes included, from a backup taken a moment before."""
+    if not request.config.getoption("--reboot"):
+        pytest.skip("restores a backup and reboots the device: pass --reboot")
+    _, shades, groups = synced_model(connect, schema)
+    _, frames, _ = run_sync(connect(schema=schema.hash))
+    booted = boot_time(schema, frames)
+    status, _, backup = http(host, "/backup", headers=auth(token))
+    assert status == 200
+
+    options = json.dumps({"shades": True})
+    status, _, body = upload(host, "/restore", auth(token), file=backup, fields={"data": options})
+    assert status == 200, body
+    wait_for_restart(host, token, schema, booted)
+    _, shades_after, groups_after = synced_model(connect, schema)
+    assert shades_after == shades
+    assert groups_after == groups

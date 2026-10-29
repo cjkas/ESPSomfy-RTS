@@ -21,4 +21,11 @@ A plain run sends nothing on air, changes no setting (it saves only values the d
 
 The web UI holds one of the device's 5 socket slots for each open tab, and Home Assistant holds one. The tests that fill every slot fill the ones left, so close the UI's tabs for the full load.
 
+A rollback is checked by hand, on a release build with an OTA slot:
+
+1. Note the version the web UI shows.
+2. Build firmware that restarts before it is marked good: add `abort();` at the end of `setup()` in `src/SomfyController.cpp`, and change `data-src/appversion` so the two versions differ.
+3. Update to it through the web UI, with the serial monitor open.
+4. The crash restarts the device, and the bootloader boots the old firmware ([ADR 0003](../../docs/adr/0003-pioarduino-idf55.md)). The web UI shows the version from step 1 again.
+
 The tests run in whatever security mode the device is in; the suite never changes it. To test both modes, run the suite once in each.

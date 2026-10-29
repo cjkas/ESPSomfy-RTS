@@ -1,5 +1,9 @@
 #include <unity.h>
+#include <string>
+#include <vector>
 #include "MqttDisco.h"
+#include "MqttTopics.h"
+#include "ShadeChanges.h"
 
 void setUp() {}
 void tearDown() {}
@@ -170,6 +174,29 @@ static void test_the_config_topic_of_each_kind() {
   TEST_ASSERT_FALSE(isDiscoSwitch(shade_types::garage1));
 }
 
+static bool hasTopic(const char *const *topics, size_t count, const std::string &topic) {
+  for(size_t i = 0; i < count; i++) if(topic == topics[i]) return true;
+  return false;
+}
+static void keepRetained(const char *topic, int32_t value, bool retain, void *ctx) {
+  (void)value;
+  if(retain) static_cast<std::vector<std::string> *>(ctx)->push_back(topic);
+}
+// A deleted shade leaves none of its topics at the broker.
+static void test_deleting_a_shade_clears_every_state_topic_the_broker_keeps() {
+  shade_snapshot_t shade{};
+  std::vector<std::string> retained;
+  publishShadeTopics(SHADE_CHANGED_TOPICS, shade, keepRetained, &retained);
+  TEST_ASSERT_FALSE(retained.empty());
+  for(const std::string &topic : retained)
+    TEST_ASSERT_TRUE_MESSAGE(hasTopic(SHADE_TOPICS, SHADE_TOPIC_COUNT, topic), topic.c_str());
+}
+// Group unpublish named it SunSensor, so a deleted group's stayed.
+static void test_deleting_a_group_clears_its_sun_sensor_topic() {
+  TEST_ASSERT_TRUE(hasTopic(GROUP_TOPICS, GROUP_TOPIC_COUNT, "sunSensor"));
+  TEST_ASSERT_FALSE(hasTopic(GROUP_TOPICS, GROUP_TOPIC_COUNT, "SunSensor"));
+}
+
 int main(int argc, char **argv) {
   UNITY_BEGIN();
   RUN_TEST(test_a_roller_is_a_cover_under_the_discovery_topic);
@@ -183,5 +210,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_a_tilt_only_blind_has_only_the_tilt);
   RUN_TEST(test_a_dry_contact_is_a_switch);
   RUN_TEST(test_the_config_topic_of_each_kind);
+  RUN_TEST(test_deleting_a_shade_clears_every_state_topic_the_broker_keeps);
+  RUN_TEST(test_deleting_a_group_clears_its_sun_sensor_topic);
   return UNITY_END();
 }

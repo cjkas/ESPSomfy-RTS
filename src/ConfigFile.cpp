@@ -5,6 +5,7 @@
 #include "ConfigFile.h"
 #include "Utils.h"
 #include "ConfigSettings.h"
+#include "RollingCode.h"
 
 static const char *TAG = "ConfigFile";
 
@@ -73,10 +74,6 @@ static room_record_t roomRecord(const SomfyRoom *room) {
   return rec;
 }
 static shade_record_t shadeRecord(SomfyShade *shade) {
-  if(shade->tiltType == tilt_types::none || shade->shadeType != shade_types::blind) {
-    shade->clearTilt();
-    shade->tiltType = tilt_types::none;
-  }
   shade_record_t rec;
   rec.shadeId = shade->getShadeId();
   rec.paired = shade->paired;
@@ -178,6 +175,62 @@ static trans_record_t transRecord(const transceiver_config_t &cfg) {
   rec.noiseDetection = cfg.noiseDetection;
   return rec;
 }
+static void applySettingsRecord(const settings_record_t &rec) {
+  strlcpy(settings.hostname, rec.hostname, sizeof(settings.hostname));
+  strlcpy(settings.NTP.ntpServer, rec.ntpServer, sizeof(settings.NTP.ntpServer));
+  strlcpy(settings.NTP.posixZone, rec.posixZone, sizeof(settings.NTP.posixZone));
+  settings.ssdpBroadcast = rec.ssdpBroadcast;
+  settings.checkForUpdate = rec.checkForUpdate;
+}
+static void applyNetRecord(const net_record_t &rec, const restore_options_t &opts, bool sameBoard) {
+  if(opts.network) {
+    settings.connType = static_cast<conn_types_t>(rec.connType);
+    settings.IP.dhcp = rec.dhcp;
+    settings.IP.ip.fromString(rec.ip);
+    settings.IP.gateway.fromString(rec.gateway);
+    settings.IP.subnet.fromString(rec.subnet);
+    settings.IP.dns1.fromString(rec.dns1);
+    settings.IP.dns2.fromString(rec.dns2);
+#if HAS_ETHERNET
+    if(sameBoard) {
+      ESP_LOGI(TAG, "Restoring Ethernet adapter settings");
+      settings.Ethernet.boardType = rec.ethBoardType;
+      settings.Ethernet.phyType = rec.ethPhyType;
+      settings.Ethernet.CLKMode = static_cast<eth_clock_mode_t>(rec.ethClkMode);
+      settings.Ethernet.phyAddress = rec.ethPhyAddress;
+      settings.Ethernet.PWRPin = rec.ethPWRPin;
+      settings.Ethernet.MDCPin = rec.ethMDCPin;
+      settings.Ethernet.MDIOPin = rec.ethMDIOPin;
+    }
+#else
+    (void)sameBoard;
+#endif
+  }
+  if(opts.mqtt) {
+    strlcpy(settings.MQTT.protocol, rec.mqttProtocol, sizeof(settings.MQTT.protocol));
+    strlcpy(settings.MQTT.hostname, rec.mqttHostname, sizeof(settings.MQTT.hostname));
+    settings.MQTT.port = rec.mqttPort;
+    settings.MQTT.pubDisco = rec.mqttPubDisco;
+    strlcpy(settings.MQTT.rootTopic, rec.mqttRootTopic, sizeof(settings.MQTT.rootTopic));
+    strlcpy(settings.MQTT.discoTopic, rec.mqttDiscoTopic, sizeof(settings.MQTT.discoTopic));
+  }
+}
+static void applyTransRecord(const trans_record_t &rec, transceiver_config_t &cfg) {
+  cfg.enabled = rec.enabled;
+  cfg.proto = rec.proto;
+  cfg.type = rec.type;
+  cfg.SCKPin = rec.SCKPin;
+  cfg.CSNPin = rec.CSNPin;
+  cfg.MOSIPin = rec.MOSIPin;
+  cfg.MISOPin = rec.MISOPin;
+  cfg.TXPin = rec.TXPin;
+  cfg.RXPin = rec.RXPin;
+  cfg.frequency = rec.frequency;
+  cfg.rxBandwidth = rec.rxBandwidth;
+  cfg.deviation = rec.deviation;
+  cfg.txPower = rec.txPower;
+  cfg.noiseDetection = rec.noiseDetection;
+}
 // NVS keeps the last rolling code each remote sent.
 static uint16_t keepRollingCode(Preferences &pref, SomfyRemote *remote, uint16_t inFile, bool restoring) {
   const uint16_t stored = pref.getUShort(remote->getRemotePrefId(), 0);
@@ -187,14 +240,14 @@ static uint16_t keepRollingCode(Preferences &pref, SomfyRemote *remote, uint16_t
 }
 
 void ShadeConfigFile::readRoom(SomfyRoom *room) {
-  room_record_t rec;
-  readRoomRecord(*this, this->header, rec);
+  room_record_t rec = roomRecord(room);
+  readRoomRecord(*this, rec);
   room->roomId = rec.roomId;
   strlcpy(room->name, rec.name, sizeof(room->name));
   room->sortOrder = rec.sortOrder;
 }
 void ShadeConfigFile::readShade(SomfyShade *shade) {
-  shade_record_t rec;
+  shade_record_t rec = shadeRecord(shade);
   readShadeRecord(*this, this->header, rec);
   if(rec.shadeId == 255) {
     shade->clear();
@@ -242,7 +295,7 @@ void ShadeConfigFile::readShade(SomfyShade *shade) {
     pinMode(shade->gpioMy, OUTPUT);
 }
 void ShadeConfigFile::readGroup(SomfyGroup *group) {
-  group_record_t rec;
+  group_record_t rec = groupRecord(group);
   readGroupRecord(*this, this->header, rec);
   if(rec.groupId == 255) {
     group->clear();
@@ -264,7 +317,8 @@ void ShadeConfigFile::readGroup(SomfyGroup *group) {
   if(group->getRemoteAddress() != 0) {
     Preferences pref;
     pref.begin("ShadeCodes");
-    group->lastRollingCode = keepRollingCode(pref, group, rec.lastRollingCode, this->restoring);
+    // A backup from before version 23 has no code for the group to restore.
+    group->lastRollingCode = keepRollingCode(pref, group, rec.lastRollingCode, this->restoring && rec.hasRollingCode);
     pref.end();
   }
 }
@@ -274,6 +328,15 @@ void ShadeConfigFile::readRepeaters(SomfyShadeController *s) {
   for(uint8_t i = 0; i < SOMFY_MAX_REPEATERS; i++) s->linkRepeater(repeaters[i]);
 }
 
+// The rooms, shades and groups, in place of the ones the controller has.
+void ShadeConfigFile::readModel(SomfyShadeController *s) {
+  for(uint8_t i = 0; i < this->header.roomRecords; i++) this->readRoom(&s->rooms[i]);
+  for(uint8_t i = this->header.roomRecords; i < SOMFY_MAX_ROOMS; i++) s->rooms[i].clear();
+  for(uint8_t i = 0; i < this->header.shadeRecords; i++) this->readShade(&s->shades[i]);
+  for(uint8_t i = this->header.shadeRecords; i < SOMFY_MAX_SHADES; i++) s->shades[i].clear();
+  for(uint8_t i = 0; i < this->header.groupRecords; i++) this->readGroup(&s->groups[i]);
+  for(uint8_t i = this->header.groupRecords; i < SOMFY_MAX_GROUPS; i++) s->groups[i].clear();
+}
 bool ShadeConfigFile::begin(bool readOnly) { return this->begin("/shades.cfg", readOnly); }
 bool ShadeConfigFile::begin(const char *filename, bool readOnly) { return ConfigFile::begin(filename, readOnly); }
 void ShadeConfigFile::end() { ConfigFile::end(); }
@@ -296,7 +359,13 @@ bool ShadeConfigFile::writeModel(SomfyShadeController *s) {
   }
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
     SomfyShade *shade = &s->shades[i];
-    if(shade->getShadeId() != 255) writeShadeRecord(*this, shadeRecord(shade));
+    if(shade->getShadeId() == 255) continue;
+    // Only a blind tilts: the others forget any tilt they were given.
+    if(shade->tiltType == tilt_types::none || shade->shadeType != shade_types::blind) {
+      shade->clearTilt();
+      shade->tiltType = tilt_types::none;
+    }
+    writeShadeRecord(*this, shadeRecord(shade));
   }
   for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++) {
     SomfyGroup *group = &s->groups[i];
@@ -459,15 +528,8 @@ bool ShadeConfigFile::restoreFile(SomfyShadeController *s, const char *filename,
   }
   this->restoring = true;
   if(opts.shades) {
-    ESP_LOGI(TAG, "Restoring Rooms...");
-    for(uint8_t i = 0; i < this->header.roomRecords; i++) this->readRoom(&s->rooms[i]);
-    for(uint8_t i = this->header.roomRecords; i < SOMFY_MAX_ROOMS; i++) s->rooms[i].clear();
-    ESP_LOGI(TAG, "Restoring Shades...");
-    for(uint8_t i = 0; i < this->header.shadeRecords; i++) this->readShade(&s->shades[i]);
-    for(uint8_t i = this->header.shadeRecords; i < SOMFY_MAX_SHADES; i++) s->shades[i].clear();
-    ESP_LOGI(TAG, "Restoring Groups...");
-    for(uint8_t i = 0; i < this->header.groupRecords; i++) this->readGroup(&s->groups[i]);
-    for(uint8_t i = this->header.groupRecords; i < SOMFY_MAX_GROUPS; i++) s->groups[i].clear();
+    ESP_LOGI(TAG, "Restoring the rooms, shades and groups");
+    this->readModel(s);
   }
   else {
     ESP_LOGI(TAG, "Shade data ignored");
@@ -481,13 +543,9 @@ bool ShadeConfigFile::restoreFile(SomfyShadeController *s, const char *filename,
   else skipRecords(*this, this->header.repeaterRecords);
   if(this->header.settingsRecordSize > 0) {
     if(opts.settings) {
-      settings_record_t rec;
+      settings_record_t rec = settingsRecord();
       readSettingsRecord(*this, this->header, rec);
-      strlcpy(settings.hostname, rec.hostname, sizeof(settings.hostname));
-      strlcpy(settings.NTP.ntpServer, rec.ntpServer, sizeof(settings.NTP.ntpServer));
-      strlcpy(settings.NTP.posixZone, rec.posixZone, sizeof(settings.NTP.posixZone));
-      settings.ssdpBroadcast = rec.ssdpBroadcast;
-      settings.checkForUpdate = rec.checkForUpdate;
+      applySettingsRecord(rec);
     }
     else skipRecords(*this, 1);
   }
@@ -495,37 +553,9 @@ bool ShadeConfigFile::restoreFile(SomfyShadeController *s, const char *filename,
     if(opts.network || opts.mqtt) {
       // Only the board that wrote the Ethernet settings takes them back.
       const bool sameBoard = HAS_ETHERNET && strncmp(settings.serverId, this->header.serverId, sizeof(settings.serverId)) == 0;
-      net_record_t rec;
+      net_record_t rec = netRecord();
       readNetRecord(*this, this->header, rec, sameBoard);
-      if(opts.network) {
-        settings.connType = static_cast<conn_types_t>(rec.connType);
-        settings.IP.dhcp = rec.dhcp;
-        settings.IP.ip.fromString(rec.ip);
-        settings.IP.gateway.fromString(rec.gateway);
-        settings.IP.subnet.fromString(rec.subnet);
-        settings.IP.dns1.fromString(rec.dns1);
-        settings.IP.dns2.fromString(rec.dns2);
-#if HAS_ETHERNET
-        if(sameBoard) {
-          ESP_LOGI(TAG, "Restoring Ethernet adapter settings");
-          settings.Ethernet.boardType = rec.ethBoardType;
-          settings.Ethernet.phyType = rec.ethPhyType;
-          settings.Ethernet.CLKMode = static_cast<eth_clock_mode_t>(rec.ethClkMode);
-          settings.Ethernet.phyAddress = rec.ethPhyAddress;
-          settings.Ethernet.PWRPin = rec.ethPWRPin;
-          settings.Ethernet.MDCPin = rec.ethMDCPin;
-          settings.Ethernet.MDIOPin = rec.ethMDIOPin;
-        }
-#endif
-      }
-      if(opts.mqtt && this->header.version >= 22) {
-        strlcpy(settings.MQTT.protocol, rec.mqttProtocol, sizeof(settings.MQTT.protocol));
-        strlcpy(settings.MQTT.hostname, rec.mqttHostname, sizeof(settings.MQTT.hostname));
-        settings.MQTT.port = rec.mqttPort;
-        settings.MQTT.pubDisco = rec.mqttPubDisco;
-        strlcpy(settings.MQTT.rootTopic, rec.mqttRootTopic, sizeof(settings.MQTT.rootTopic));
-        strlcpy(settings.MQTT.discoTopic, rec.mqttDiscoTopic, sizeof(settings.MQTT.discoTopic));
-      }
+      applyNetRecord(rec, opts, sameBoard);
     }
     else skipRecords(*this, 1);
   }
@@ -537,20 +567,7 @@ bool ShadeConfigFile::restoreFile(SomfyShadeController *s, const char *filename,
     trans_record_t rec = transRecord(s->transceiver.config);
     readTransRecord(*this, rec);
     transceiver_config_t cfg = s->transceiver.config;
-    cfg.enabled = rec.enabled;
-    cfg.proto = rec.proto;
-    cfg.type = rec.type;
-    cfg.SCKPin = rec.SCKPin;
-    cfg.CSNPin = rec.CSNPin;
-    cfg.MOSIPin = rec.MOSIPin;
-    cfg.MISOPin = rec.MISOPin;
-    cfg.TXPin = rec.TXPin;
-    cfg.RXPin = rec.RXPin;
-    cfg.frequency = rec.frequency;
-    cfg.rxBandwidth = rec.rxBandwidth;
-    cfg.deviation = rec.deviation;
-    cfg.txPower = rec.txPower;
-    cfg.noiseDetection = rec.noiseDetection;
+    applyTransRecord(rec, cfg);
     s->transceiver.setConfig(cfg);
   }
   if(opts.settings || opts.network) settings.save();
@@ -578,12 +595,7 @@ bool ShadeConfigFile::loadFile(SomfyShadeController *s, const char *filename) {
     return false;
   }
   this->restoring = false;
-  for(uint8_t i = 0; i < this->header.roomRecords; i++) this->readRoom(&s->rooms[i]);
-  for(uint8_t i = this->header.roomRecords; i < SOMFY_MAX_ROOMS; i++) s->rooms[i].clear();
-  for(uint8_t i = 0; i < this->header.shadeRecords; i++) this->readShade(&s->shades[i]);
-  for(uint8_t i = this->header.shadeRecords; i < SOMFY_MAX_SHADES; i++) s->shades[i].clear();
-  for(uint8_t i = 0; i < this->header.groupRecords; i++) this->readGroup(&s->groups[i]);
-  for(uint8_t i = this->header.groupRecords; i < SOMFY_MAX_GROUPS; i++) s->groups[i].clear();
+  this->readModel(s);
   if(this->header.repeaterRecords > 0) {
     memset(s->repeaters, 0x00, sizeof(s->repeaters));
     for(uint8_t i = 0; i < this->header.repeaterRecords; i++) this->readRepeaters(s);

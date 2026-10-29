@@ -33,6 +33,7 @@ class ShadeConfigFile : public ConfigFile {
     // A restore takes the rolling codes in the file (rollingCodeAfterLoad).
     bool restoring = false;
     bool writeModel(SomfyShadeController *s);
+    void readModel(SomfyShadeController *s);
     void readRoom(SomfyRoom *room);
     void readShade(SomfyShade *shade);
     void readGroup(SomfyGroup *group);

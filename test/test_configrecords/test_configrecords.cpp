@@ -272,7 +272,7 @@ static void test_a_room_reads_back() {
   writeRoomRecord(w, room);
   TextReader r(w.text);
   room_record_t got;
-  readRoomRecord(r, header(), got);
+  readRoomRecord(r, got);
   TEST_ASSERT_EQUAL_UINT8(2, got.roomId);
   TEST_ASSERT_EQUAL_STRING("Living room", got.name);
   TEST_ASSERT_EQUAL_INT8(5, got.sortOrder);
@@ -401,7 +401,7 @@ static void test_the_longest_name_reads_back() {
   writeRoomRecord(w, room);
   TextReader r(w.text);
   room_record_t got;
-  readRoomRecord(r, header(), got);
+  readRoomRecord(r, got);
   TEST_ASSERT_EQUAL_STRING("12345678901234567890", got.name);
   TEST_ASSERT_EQUAL_INT8(7, got.sortOrder);
 }
@@ -506,8 +506,8 @@ static void test_values_a_newer_version_added_are_skipped() {
   writeRoomRecord(w, room_record_t{2, "Attic", 1});
   TextReader r(w.text);
   room_record_t got;
-  readRoomRecord(r, header(), got);
-  readRoomRecord(r, header(), got);
+  readRoomRecord(r, got);
+  readRoomRecord(r, got);
   TEST_ASSERT_EQUAL_UINT8(2, got.roomId);
   TEST_ASSERT_EQUAL_STRING("Attic", got.name);
 }
@@ -522,11 +522,11 @@ static void test_a_short_record_never_reads_the_next() {
   writeRoomRecord(w, room_record_t{2, "Attic", 1});
   TextReader r(text + w.text);
   room_record_t got;
-  readRoomRecord(r, header(), got);
+  readRoomRecord(r, got);
   TEST_ASSERT_EQUAL_UINT8(1, got.roomId);
   TEST_ASSERT_EQUAL_STRING("Hall", got.name);
   TEST_ASSERT_EQUAL_INT8(0, got.sortOrder);
-  readRoomRecord(r, header(), got);
+  readRoomRecord(r, got);
   TEST_ASSERT_EQUAL_UINT8(2, got.roomId);
   TEST_ASSERT_EQUAL_INT8(1, got.sortOrder);
 }
@@ -538,7 +538,7 @@ static void test_skipping_records_passes_their_newlines() {
   TextReader r(w.text);
   TEST_ASSERT_TRUE(skipRecords(r, 2));
   room_record_t got;
-  readRoomRecord(r, header(), got);
+  readRoomRecord(r, got);
   TEST_ASSERT_EQUAL_STRING("Last", got.name);
   TEST_ASSERT_FALSE(skipRecords(r, 1));
 }
@@ -551,7 +551,7 @@ static void writeShadeStart(TextWriter &w, uint8_t id) {
   w.writeUInt32(0x111111);
   w.writeString("Old", CFG_NAME_LEN);
 }
-static void test_a_version_4_shade() {
+static std::string version4Shade() {
   TextWriter w;
   writeShadeStart(w, 2);
   w.writeUInt8(0);        // tiltType
@@ -565,23 +565,62 @@ static void test_a_version_4_shade() {
   w.writeFloat(-1, 5);    // myTiltPos
   w.writeFloat(25, 5);    // currentPos
   w.writeFloat(0, 5, CFG_REC_END);
-  TextReader r(w.text);
+  return w.text;
+}
+static void test_a_version_4_shade() {
+  const std::string text = version4Shade();
+  TextReader r(text);
   shade_record_t got;
   readShadeRecord(r, header(4), got);
   TEST_ASSERT_EQUAL_UINT8(2, got.shadeId);
+  TEST_ASSERT_TRUE(got.paired);
+  TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(shade_types::roller), static_cast<uint8_t>(got.shadeType));
+  TEST_ASSERT_EQUAL_HEX32(0x111111, got.remoteAddress);
   TEST_ASSERT_EQUAL_STRING("Old", got.name);
+  TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(tilt_types::none), static_cast<uint8_t>(got.tiltType));
   TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(radio_proto::RTS), static_cast<uint8_t>(got.proto));
+  TEST_ASSERT_EQUAL_UINT8(56, got.bitLength);
   TEST_ASSERT_EQUAL_UINT32(15000, got.upTime);
+  TEST_ASSERT_EQUAL_UINT32(14000, got.downTime);
+  TEST_ASSERT_EQUAL_UINT32(0, got.tiltTime);
   TEST_ASSERT_EQUAL_UINT16(100, got.stepSize);
   TEST_ASSERT_EQUAL_HEX32(0x222222, got.linkedRemotes[0]);
+  TEST_ASSERT_EQUAL_HEX32(0, got.linkedRemotes[4]);
   TEST_ASSERT_EQUAL_HEX32(0, got.linkedRemotes[5]);
   TEST_ASSERT_EQUAL_UINT16(300, got.lastRollingCode);
+  TEST_ASSERT_EQUAL_HEX8(0, got.flags);
   TEST_ASSERT_EQUAL_FLOAT(50, got.myPos);
+  TEST_ASSERT_EQUAL_FLOAT(-1, got.myTiltPos);
   TEST_ASSERT_EQUAL_FLOAT(25, got.currentPos);
+  TEST_ASSERT_EQUAL_FLOAT(0, got.currentTiltPos);
+  TEST_ASSERT_FALSE(got.flipCommands);
+  TEST_ASSERT_FALSE(got.flipPosition);
   TEST_ASSERT_EQUAL_UINT8(1, got.repeats);
   TEST_ASSERT_EQUAL_INT8(1, got.sortOrder);
+  TEST_ASSERT_EQUAL_UINT8(0, got.gpioUp);
   TEST_ASSERT_EQUAL_UINT8(0, got.roomId);
-  TEST_ASSERT_EQUAL(w.text.size(), r.position());
+  TEST_ASSERT_EQUAL(text.size(), r.position());
+}
+// A restore reads into a record that starts as the shade it replaces, and
+// what an older version lacks stays as it was.
+static void test_what_an_older_version_lacks_stays_as_it_was() {
+  const std::string text = version4Shade();
+  TextReader r(text);
+  shade_record_t got = aShade();
+  readShadeRecord(r, header(4), got);
+  TEST_ASSERT_EQUAL_UINT32(15000, got.upTime);
+  TEST_ASSERT_EQUAL_HEX32(0x222222, got.linkedRemotes[0]);
+  TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(radio_proto::GP_Remote), static_cast<uint8_t>(got.proto));
+  TEST_ASSERT_EQUAL_UINT16(250, got.stepSize);
+  TEST_ASSERT_EQUAL_HEX32(0x200005, got.linkedRemotes[5]);
+  TEST_ASSERT_EQUAL_HEX8(0x21, got.flags);
+  TEST_ASSERT_TRUE(got.flipCommands);
+  TEST_ASSERT_TRUE(got.flipPosition);
+  TEST_ASSERT_EQUAL_UINT8(4, got.repeats);
+  TEST_ASSERT_EQUAL_UINT8(25, got.gpioUp);
+  TEST_ASSERT_EQUAL_UINT8(27, got.gpioMy);
+  TEST_ASSERT_EQUAL_UINT8(2, got.gpioFlags);
+  TEST_ASSERT_EQUAL_UINT8(5, got.roomId);
 }
 // Version 2 saved positions as fractions and the favorite as a byte.
 static void test_a_version_2_shade_has_fractions() {
@@ -664,6 +703,7 @@ static void test_a_version_23_group() {
   group_record_t got;
   readGroupRecord(r, header(23), got);
   TEST_ASSERT_EQUAL_UINT16(4321, got.lastRollingCode);
+  TEST_ASSERT_TRUE(got.hasRollingCode);
   TEST_ASSERT_EQUAL_UINT8(2, got.linkedShades[1]);
   TEST_ASSERT_EQUAL_UINT8(6, got.roomId);
   TEST_ASSERT_EQUAL(w.text.size(), r.position());
@@ -681,14 +721,34 @@ static void test_a_version_11_group() {
   TEST_ASSERT_FALSE(got.flipCommands);
   TEST_ASSERT_EQUAL_UINT16(0, got.lastRollingCode);
 }
-// Before version 20 the settings had no update check.
-static void test_version_19_settings_check_for_updates() {
+// Before version 23 a group had no rolling code, so a restore leaves the one
+// NVS holds.
+static void test_a_group_before_version_23_has_no_rolling_code() {
+  TextWriter w;
+  writeGroupStart(w);
+  for(uint8_t j = 0; j < SOMFY_MAX_GROUPED_SHADES; j++) w.writeUInt8(0, j == SOMFY_MAX_GROUPED_SHADES - 1 ? CFG_REC_END : CFG_VALUE_SEP);
+  TextReader r(w.text);
+  group_record_t got = aGroup();
+  readGroupRecord(r, header(11), got);
+  TEST_ASSERT_FALSE(got.hasRollingCode);
+  TEST_ASSERT_EQUAL_UINT16(1234, got.lastRollingCode);
+  TEST_ASSERT_TRUE(got.flipCommands);
+  TEST_ASSERT_EQUAL_UINT8(4, got.roomId);
+  TextWriter v24;
+  writeGroupRecord(v24, aGroup());
+  TextReader r24(v24.text);
+  readGroupRecord(r24, header(), got);
+  TEST_ASSERT_TRUE(got.hasRollingCode);
+}
+// Before version 20 the settings had no update check, which stays as it was.
+static void test_version_19_settings_leave_the_update_check() {
   TextReader r("\"v2.0.0\",\"host\",\"pool.ntp.org\",\"\",true \n");
   settings_record_t got;
+  got.checkForUpdate = false;
   readSettingsRecord(r, header(19), got);
   TEST_ASSERT_EQUAL_STRING("host", got.hostname);
   TEST_ASSERT_TRUE(got.ssdpBroadcast);
-  TEST_ASSERT_TRUE(got.checkForUpdate);
+  TEST_ASSERT_FALSE(got.checkForUpdate);
 }
 // Before version 22 the network record had no MQTT settings.
 static void test_a_version_21_network_has_no_mqtt() {
@@ -701,15 +761,6 @@ static void test_a_version_21_network_has_no_mqtt() {
   TEST_ASSERT_EQUAL_INT8(-1, got.ethPWRPin);
   r.beginRecord();
   TEST_ASSERT_EQUAL_UINT8(9, r.readUInt8(0));
-}
-
-static void test_a_load_keeps_the_higher_rolling_code() {
-  TEST_ASSERT_EQUAL_UINT16(500, rollingCodeAfterLoad(500, 300, false));
-  TEST_ASSERT_EQUAL_UINT16(700, rollingCodeAfterLoad(500, 700, false));
-}
-static void test_a_restore_takes_the_backups_rolling_code() {
-  TEST_ASSERT_EQUAL_UINT16(300, rollingCodeAfterLoad(500, 300, true));
-  TEST_ASSERT_EQUAL_UINT16(700, rollingCodeAfterLoad(500, 700, true));
 }
 
 // A real backup, which isn't in the repo: it holds the remotes' addresses.
@@ -727,7 +778,7 @@ static void test_a_real_backup_reads_to_its_end() {
   TEST_ASSERT_EQUAL(static_cast<uint32_t>(h.length), r.position());
   for(uint8_t i = 0; i < h.roomRecords; i++) {
     room_record_t rec;
-    readRoomRecord(r, h, rec);
+    readRoomRecord(r, rec);
     TEST_ASSERT_NOT_EQUAL(0, rec.roomId);
   }
   for(uint8_t i = 0; i < h.shadeRecords; i++) {
@@ -786,14 +837,14 @@ int main(int argc, char **argv) {
   RUN_TEST(test_a_short_record_never_reads_the_next);
   RUN_TEST(test_skipping_records_passes_their_newlines);
   RUN_TEST(test_a_version_4_shade);
+  RUN_TEST(test_what_an_older_version_lacks_stays_as_it_was);
   RUN_TEST(test_a_version_2_shade_has_fractions);
   RUN_TEST(test_a_version_13_shade);
   RUN_TEST(test_a_version_23_group);
   RUN_TEST(test_a_version_11_group);
-  RUN_TEST(test_version_19_settings_check_for_updates);
+  RUN_TEST(test_a_group_before_version_23_has_no_rolling_code);
+  RUN_TEST(test_version_19_settings_leave_the_update_check);
   RUN_TEST(test_a_version_21_network_has_no_mqtt);
-  RUN_TEST(test_a_load_keeps_the_higher_rolling_code);
-  RUN_TEST(test_a_restore_takes_the_backups_rolling_code);
   RUN_TEST(test_a_real_backup_reads_to_its_end);
   return UNITY_END();
 }
