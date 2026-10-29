@@ -52,6 +52,45 @@ static void test_rejects_unknown_ids() {
   TEST_ASSERT_FALSE(ethPhyType(255, type));
 }
 
+/*********************************************************************
+ * Clock modes
+ ********************************************************************/
+static void test_clock_ids_match_stored_values() {
+  TEST_ASSERT_EQUAL_UINT8(0, static_cast<uint8_t>(eth_clock_id_t::GPIO0_IN));
+  TEST_ASSERT_EQUAL_UINT8(1, static_cast<uint8_t>(eth_clock_id_t::GPIO0_OUT));
+  TEST_ASSERT_EQUAL_UINT8(2, static_cast<uint8_t>(eth_clock_id_t::GPIO16_OUT));
+  TEST_ASSERT_EQUAL_UINT8(3, static_cast<uint8_t>(eth_clock_id_t::GPIO17_OUT));
+}
+static void test_translates_each_clock_mode() {
+  eth_clock_mode_t mode;
+  TEST_ASSERT_TRUE(ethClockMode(0, mode));
+  TEST_ASSERT_EQUAL(ETH_CLOCK_GPIO0_IN, mode);
+  TEST_ASSERT_TRUE(ethClockMode(1, mode));
+  TEST_ASSERT_EQUAL(ETH_CLOCK_GPIO0_OUT, mode);
+  TEST_ASSERT_TRUE(ethClockMode(2, mode));
+  TEST_ASSERT_EQUAL(ETH_CLOCK_GPIO16_OUT, mode);
+  TEST_ASSERT_TRUE(ethClockMode(3, mode));
+  TEST_ASSERT_EQUAL(ETH_CLOCK_GPIO17_OUT, mode);
+}
+static void test_rejects_unknown_clock_ids() {
+  eth_clock_mode_t mode;
+  TEST_ASSERT_FALSE(ethClockMode(4, mode));
+  TEST_ASSERT_FALSE(ethClockMode(255, mode));
+}
+static void test_a_save_takes_each_clock_id_that_translates() {
+  eth_clock_mode_t mode;
+  TEST_ASSERT_EQUAL_UINT8(3, ETH_CLOCK_ID_MAX);
+  TEST_ASSERT_TRUE(ethClockMode(ETH_CLOCK_ID_MAX, mode));
+  TEST_ASSERT_FALSE(ethClockMode(ETH_CLOCK_ID_MAX + 1, mode));
+}
+static void test_clock_pins() {
+  TEST_ASSERT_EQUAL_INT8(0, ethClockPin(0));
+  TEST_ASSERT_EQUAL_INT8(0, ethClockPin(1));
+  TEST_ASSERT_EQUAL_INT8(16, ethClockPin(2));
+  TEST_ASSERT_EQUAL_INT8(17, ethClockPin(3));
+  TEST_ASSERT_EQUAL_INT8(-1, ethClockPin(4));
+}
+
 int main(int, char **) {
   UNITY_BEGIN();
   RUN_TEST(test_ids_match_stored_values);
@@ -59,5 +98,10 @@ int main(int, char **) {
   RUN_TEST(test_lan8720_is_not_the_framework_zero);
   RUN_TEST(test_rejects_dm9051);
   RUN_TEST(test_rejects_unknown_ids);
+  RUN_TEST(test_clock_ids_match_stored_values);
+  RUN_TEST(test_translates_each_clock_mode);
+  RUN_TEST(test_rejects_unknown_clock_ids);
+  RUN_TEST(test_a_save_takes_each_clock_id_that_translates);
+  RUN_TEST(test_clock_pins);
   return UNITY_END();
 }

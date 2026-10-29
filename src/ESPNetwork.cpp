@@ -356,11 +356,14 @@ bool ESPNetwork::connectWired() {
       ETH.setHostname("ESPSomfy-RTS");
     ESP_LOGD(TAG, "Set hostname to: %s", ETH.getHostname());
     eth_phy_type_t phyType;
+    eth_clock_mode_t clkMode;
     bool begun = false;
     if(!ethPhyType(settings.Ethernet.phyType, phyType))
       ESP_LOGE(TAG, "Ethernet PHY type %u is not supported", (unsigned int)settings.Ethernet.phyType);
+    else if(!ethClockMode(settings.Ethernet.CLKMode, clkMode))
+      ESP_LOGE(TAG, "Ethernet clock mode %u is not supported", (unsigned int)settings.Ethernet.CLKMode);
     else
-      begun = ETH.begin(phyType, settings.Ethernet.phyAddress, settings.Ethernet.MDCPin, settings.Ethernet.MDIOPin, settings.Ethernet.PWRPin, settings.Ethernet.CLKMode);
+      begun = ETH.begin(phyType, settings.Ethernet.phyAddress, settings.Ethernet.MDCPin, settings.Ethernet.MDIOPin, settings.Ethernet.PWRPin, clkMode);
     if(!begun) {
       ESP_LOGE(TAG, "Ethernet Begin failed");
       this->ethStarted = false;

@@ -284,6 +284,10 @@ static void test_releaseAssetName_matches_the_release_workflow() {
   TEST_ASSERT_EQUAL_STRING("SomfyController.ino.esp32c5.bin", buf);
   releaseAssetName(buf, sizeof(buf), "littlefs", "c6");
   TEST_ASSERT_EQUAL_STRING("SomfyController.littlefs.esp32c6.bin", buf);
+  releaseAssetName(buf, sizeof(buf), "ino", "p4");
+  TEST_ASSERT_EQUAL_STRING("SomfyController.ino.esp32p4.bin", buf);
+  releaseAssetName(buf, sizeof(buf), "littlefs", "p4es");
+  TEST_ASSERT_EQUAL_STRING("SomfyController.littlefs.esp32p4es.bin", buf);
 }
 
 /*********************************************************************

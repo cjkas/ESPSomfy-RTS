@@ -61,7 +61,7 @@ jobs:
         # elfname: the symbols of that binary, to decode a crash's backtrace
         # obname: onboard image (bootloader + partitions + firmware + littlefs merged)
         #         for flashing a new chip via USB/serial
-        # addr_bootloader: chip-dependent (ESP32: 0x1000, S3/C3/C6: 0x0, C5: 0x2000)
+        # addr_bootloader: chip-dependent (ESP32: 0x1000, S3/C3/C6: 0x0, C5/P4: 0x2000)
         # addr_fs: must match the spiffs offset in the env's partition table
         #          (0x310000 in both esp32_3MB.csv and esp32_huge_app.csv)
         include:
@@ -110,6 +110,24 @@ jobs:
             elfname: SomfyController.ino.esp32c6.elf
             fsname: SomfyController.littlefs.esp32c6.bin
             obname: SomfyController.onboard.esp32c6.bin
+          - env: esp32p4
+            name: ESP32-P4
+            chip: ESP32-P4
+            addr_bootloader: "0x2000"
+            addr_fs: "0x310000"
+            fwname: SomfyController.ino.esp32p4.bin
+            elfname: SomfyController.ino.esp32p4.elf
+            fsname: SomfyController.littlefs.esp32p4.bin
+            obname: SomfyController.onboard.esp32p4.bin
+          - env: esp32p4es
+            name: ESP32-P4 (before v2.0)
+            chip: ESP32-P4
+            addr_bootloader: "0x2000"
+            addr_fs: "0x310000"
+            fwname: SomfyController.ino.esp32p4es.bin
+            elfname: SomfyController.ino.esp32p4es.elf
+            fsname: SomfyController.littlefs.esp32p4es.bin
+            obname: SomfyController.onboard.esp32p4es.bin
 
     steps:
       - name: Get Release

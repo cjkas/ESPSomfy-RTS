@@ -507,6 +507,21 @@ void transceiver_config_t::load() {
         this->CSNPin = 0;
         break;
 #endif
+#ifdef CONFIG_IDF_TARGET_ESP32P4
+      case esp_chip_model_t::CHIP_ESP32P4:
+        // The SPI pins of the framework's variant for Waveshare's ESP32-P4-ETH
+        // (variants/waveshare_p4_poe_eth); TX and RX take 2 and 3, which that
+        // board leaves free.  The C6's SDIO link holds 14-19 and 54, Ethernet
+        // 28-31, 34, 35 and 49-52, and 34-38 are strapping pins.  46 is on LDO
+        // channel 4, which the core turns on when a pin of it is used.
+        this->TXPin = 2;
+        this->RXPin = 3;
+        this->MOSIPin = 32;
+        this->MISOPin = 33;
+        this->SCKPin = 27;
+        this->CSNPin = 46;
+        break;
+#endif
       default:
         this->TXPin = 13;
         this->RXPin = 12;

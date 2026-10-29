@@ -88,14 +88,26 @@ class WifiSettings: BaseSettings {
 class EthernetSettings: BaseSettings {
   public:
     EthernetSettings();
+    uint8_t CLKMode = static_cast<uint8_t>(eth_clock_id_t::GPIO0_IN); // An eth_clock_id_t, see EthPhy.h.
+#if defined(CONFIG_IDF_TARGET_ESP32P4)
+    // The IP101 wiring of Espressif's P4 boards, which Waveshare's ESP32-P4-ETH
+    // boards copy, and the web UI's board type for it.  The ESP32's defaults
+    // would put MDIO on an SDIO pin.
+    uint8_t boardType = 8;
+    uint8_t phyType = static_cast<uint8_t>(eth_phy_id_t::TLK110);
+    int8_t phyAddress = 1;
+    int8_t PWRPin = 51;
+    int8_t MDCPin = 31;
+    int8_t MDIOPin = 52;
+#else
     uint8_t boardType = 0; // These board types are enumerated in the ui and used to set the chip settings.
     uint8_t phyType = static_cast<uint8_t>(eth_phy_id_t::LAN8720); // An eth_phy_id_t, see EthPhy.h.
-    eth_clock_mode_t CLKMode = ETH_CLOCK_GPIO0_IN;
     // The LAN8720 wiring Arduino 2.x defaulted to.  3.x has no defaults.
     int8_t phyAddress = 0;
     int8_t PWRPin = -1;
     int8_t MDCPin = 23;
     int8_t MDIOPin = 18;
+#endif
 
     bool begin();
     bool fromJSON(JsonObject &obj);

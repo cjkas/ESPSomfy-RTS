@@ -93,11 +93,18 @@ static void test_whole_numbers_are_checked_against_what_the_setting_holds() {
   TEST_ASSERT_EQUAL_STRING("connMode must be 1-3", expand(R"({"se":"network","cn":0})"));
   TEST_ASSERT_EQUAL_STRING("port must be 1-65535", expand(R"({"se":"mqtt","po":65536})"));
   TEST_ASSERT_EQUAL_STRING("txPower must be -30-12", expand(R"({"se":"radio","tp":13})"));
-  TEST_ASSERT_EQUAL_STRING("TXPin must be 0-48", expand(R"({"se":"radio","tx":-1})"));
+  TEST_ASSERT_EQUAL_STRING("TXPin must be 0-54", expand(R"({"se":"radio","tx":-1})"));
   TEST_ASSERT_EQUAL_STRING("securityType must be 0-2", expand(R"({"se":"security","sy":3})"));
   TEST_ASSERT_EQUAL_STRING("port must be 1-65535", expand(R"({"se":"mqtt","po":18446744073709551615})"));
   // A pin of -1 is none.
   TEST_ASSERT_GOOD(expand(R"({"se":"network","pw":-1})"));
+  // Pins run to GPIO 54, the P4's last.
+  TEST_ASSERT_GOOD(expand(R"({"se":"radio","tx":54})"));
+  TEST_ASSERT_EQUAL_STRING("TXPin must be 0-54", expand(R"({"se":"radio","tx":55})"));
+  TEST_ASSERT_GOOD(expand(R"({"se":"network","mi":54})"));
+  // The ESP32's four clock modes; a P4 build takes 0 only (ETH_CLOCK_ID_MAX).
+  TEST_ASSERT_GOOD(expand(R"({"se":"network","ck":3})"));
+  TEST_ASSERT_EQUAL_STRING("CLKMode must be 0-3", expand(R"({"se":"network","ck":4})"));
   TEST_ASSERT_GOOD(expand(R"({"se":"radio","tp":-30})"));
 }
 static void test_the_bit_length_is_56_or_80() {

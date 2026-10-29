@@ -3,6 +3,7 @@
 #include <string.h>
 #include "ProtoSettings.h"
 #include "ProtoParse.h"
+#include "EthPhy.h"
 
 static const char *const SECTIONS[] = {"general", "network", "mqtt", "security", "radio"};
 const char *settingsSectionName(settings_section_t section) { return SECTIONS[static_cast<uint8_t>(section)]; }
@@ -45,11 +46,12 @@ static const settings_field_t FIELDS[] = {
   {settings_part_t::wifi, proto_field_t::hidden, nullptr, 0, 0},
   {settings_part_t::ethernet, proto_field_t::boardType, nullptr, 0, 255},
   {settings_part_t::ethernet, proto_field_t::phyType, nullptr, 0, 255},
-  {settings_part_t::ethernet, proto_field_t::CLKMode, nullptr, 0, 3},
+  {settings_part_t::ethernet, proto_field_t::CLKMode, nullptr, 0, ETH_CLOCK_ID_MAX},
   {settings_part_t::ethernet, proto_field_t::phyAddress, nullptr, -1, 31},
-  {settings_part_t::ethernet, proto_field_t::PWRPin, nullptr, -1, 48},
-  {settings_part_t::ethernet, proto_field_t::MDCPin, nullptr, 0, 48},
-  {settings_part_t::ethernet, proto_field_t::MDIOPin, nullptr, 0, 48},
+  // Pins run to GPIO 54, the P4's last.
+  {settings_part_t::ethernet, proto_field_t::PWRPin, nullptr, -1, 54},
+  {settings_part_t::ethernet, proto_field_t::MDCPin, nullptr, 0, 54},
+  {settings_part_t::ethernet, proto_field_t::MDIOPin, nullptr, 0, 54},
   {settings_part_t::ip, proto_field_t::dhcp, nullptr, 0, 0},
   {settings_part_t::ip, proto_field_t::ip, nullptr, 0, 15},
   {settings_part_t::ip, proto_field_t::gateway, nullptr, 0, 15},
@@ -75,12 +77,12 @@ static const settings_field_t FIELDS[] = {
   // RTS, RTW, RTV, GP Relay or GP Remote (radio_proto), checked on its own.
   {settings_part_t::radio, proto_field_t::proto, nullptr, 0, 9},
   {settings_part_t::radio, proto_field_t::enabled, nullptr, 0, 0},
-  {settings_part_t::radio, proto_field_t::TXPin, nullptr, 0, 48},
-  {settings_part_t::radio, proto_field_t::RXPin, nullptr, 0, 48},
-  {settings_part_t::radio, proto_field_t::SCKPin, nullptr, 0, 48},
-  {settings_part_t::radio, proto_field_t::MOSIPin, nullptr, 0, 48},
-  {settings_part_t::radio, proto_field_t::MISOPin, nullptr, 0, 48},
-  {settings_part_t::radio, proto_field_t::CSNPin, nullptr, 0, 48},
+  {settings_part_t::radio, proto_field_t::TXPin, nullptr, 0, 54},
+  {settings_part_t::radio, proto_field_t::RXPin, nullptr, 0, 54},
+  {settings_part_t::radio, proto_field_t::SCKPin, nullptr, 0, 54},
+  {settings_part_t::radio, proto_field_t::MOSIPin, nullptr, 0, 54},
+  {settings_part_t::radio, proto_field_t::MISOPin, nullptr, 0, 54},
+  {settings_part_t::radio, proto_field_t::CSNPin, nullptr, 0, 54},
   // What the CC1101 can be set to, in MHz and kHz.
   {settings_part_t::radio, proto_field_t::frequency, nullptr, 30000, 92800},
   {settings_part_t::radio, proto_field_t::rxBandwidth, nullptr, 5803, 81250},
@@ -137,7 +139,8 @@ static const char *checkValue(const settings_field_t &s, const proto_field_info_
       return why;
     }
     if(inRange) return nullptr;
-    snprintf(why, sizeof(why), "%s must be %ld-%ld", f.name, (long)s.lo, (long)s.hi);
+    if(s.lo == s.hi) snprintf(why, sizeof(why), "%s must be %ld", f.name, (long)s.lo);
+    else snprintf(why, sizeof(why), "%s must be %ld-%ld", f.name, (long)s.lo, (long)s.hi);
     return why;
   }
   if(f.kind == 'n') {

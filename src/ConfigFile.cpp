@@ -149,7 +149,7 @@ static net_record_t netRecord() {
 #if HAS_ETHERNET
   rec.ethBoardType = settings.Ethernet.boardType;
   rec.ethPhyType = settings.Ethernet.phyType;
-  rec.ethClkMode = static_cast<uint8_t>(settings.Ethernet.CLKMode);
+  rec.ethClkMode = settings.Ethernet.CLKMode;
   rec.ethPhyAddress = settings.Ethernet.phyAddress;
   rec.ethPWRPin = settings.Ethernet.PWRPin;
   rec.ethMDCPin = settings.Ethernet.MDCPin;
@@ -196,7 +196,7 @@ static void applyNetRecord(const net_record_t &rec, const restore_options_t &opt
       ESP_LOGI(TAG, "Restoring Ethernet adapter settings");
       settings.Ethernet.boardType = rec.ethBoardType;
       settings.Ethernet.phyType = rec.ethPhyType;
-      settings.Ethernet.CLKMode = static_cast<eth_clock_mode_t>(rec.ethClkMode);
+      settings.Ethernet.CLKMode = rec.ethClkMode;
       settings.Ethernet.phyAddress = rec.ethPhyAddress;
       settings.Ethernet.PWRPin = rec.ethPWRPin;
       settings.Ethernet.MDCPin = rec.ethMDCPin;
