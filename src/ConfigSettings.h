@@ -164,7 +164,7 @@ class ConfigSettings: BaseSettings {
     char hostname[32] = "ESPSomfyRTS";
     char chipModel[10] = "ESP32";
     // Whether the partition table has a second app slot for /updateFirmware
-    // to write.  Builds with one 3 MB slot (C6, debug) are flashed over USB.
+    // to write.  Builds with one 3 MB slot (C5, C6, debug) are flashed over USB.
     bool hasOtaSlot = true;
     conn_types_t connType = conn_types_t::unset;
     appver_t fwVersion;
