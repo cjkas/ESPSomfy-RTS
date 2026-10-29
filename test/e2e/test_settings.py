@@ -120,20 +120,20 @@ def test_reboot(request, host, token, connect, schema):
         pytest.skip("reboots the device: pass --reboot")
     c = connect(schema=schema.hash)
     _, frames, _ = run_sync(c)
-    uptime_before = uptime(schema, frames)
+    booted = boot_time(schema, frames)
     assert is_ok(schema, op(c, schema, "reboot", {}))
     assert c.closed.wait(15), "the socket stayed open"
-    wait_for_restart(host, token, schema, uptime_before)
+    wait_for_restart(host, token, schema, booted)
 
 
-def wait_for_restart(host, token, schema, uptime_before):
-    """Waits until the device is back, and checks it restarted."""
+def wait_for_restart(host, token, schema, booted):
+    """Waits until the device has restarted since it booted at booted (boot_time)."""
     # The device closes its sockets just before it restarts, and may still
     # take a connection in between: that one never gets its hello.
     time.sleep(3)
     end = time.time() + 90
     while True:
-        assert time.time() < end, "the device didn't come back"
+        assert time.time() < end, "the device didn't restart"
         try:
             back = ProtoClient(host, params={"apikey": token} if token else None, timeout=3)
         except OSError:
@@ -143,13 +143,20 @@ def wait_for_restart(host, token, schema, uptime_before):
             if back.status == 101:
                 hello, frames, _ = run_sync(back, timeout=10)
                 assert hello["d"]["sh"] == schema.hash
-                assert uptime(schema, frames) < uptime_before, "the device didn't restart"
-                return
+                # Compared as boot times: a device that restarted a moment
+                # ago may have had less uptime than it has now.
+                if boot_time(schema, frames) > booted + 2:
+                    return
         except TimeoutError:
             pass  # not back yet
         finally:
             back.close()
         time.sleep(2)
+
+
+def boot_time(schema, frames):
+    """When the device booted, as a time.time(), from the status a sync ends with."""
+    return time.time() - uptime(schema, frames) / 1000
 
 
 def uptime(schema, frames):

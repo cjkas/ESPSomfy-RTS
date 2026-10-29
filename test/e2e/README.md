@@ -12,7 +12,8 @@ Runs against a real device on your network, by hand, never in CI. It checks sock
 | `--password`, `--username` / `--pin` | the credentials of a Secured device |
 | `--radio --shade <id>` | also send real commands: that shade moves a little and back |
 | `--edit` | also add a room and delete it again |
-| `--reboot` | also reboot the device and wait for it to come back, and restore the settings from a backup taken a moment before (it changes the NTP server, which the restore puts back) |
+| `--reboot` | also reboot the device and wait for it to come back, and restore the settings from a backup taken a moment before (it changes the NTP server, which the restore puts back), and restore the radio settings alone |
+| `--firmware <firmware.bin>` | also update the device to that firmware, built for its chip, and check it is still running a minute later, after it marks the update good. Needs a build with an OTA slot |
 | `--lockout` | on a Secured device, also fail `/login` until this PC is refused, then wait out the 30 s lockout |
 | `--record` | save hello, the sync and the schema to `test/fixtures/proto2/`, for the web UI and Home Assistant tests |
 

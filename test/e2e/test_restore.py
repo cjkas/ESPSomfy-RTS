@@ -9,7 +9,7 @@ import pytest
 from proto_client import run_sync
 from test_commands import is_ok, op, synced_model
 from test_routes import auth, http, restore_without_a_file, upload
-from test_settings import desc, settings, uptime, wait_for_restart
+from test_settings import boot_time, desc, settings, wait_for_restart
 
 # Saved for the round trip and put back by the restore.  .invalid never resolves.
 CHANGED_NTP_SERVER = "restore.e2e.invalid"
@@ -50,7 +50,7 @@ def test_a_restore_brings_back_the_parts_that_were_ticked(request, host, token, 
         pytest.skip("restores a backup and reboots the device: pass --reboot")
     c = connect(schema=schema.hash)
     _, frames, _ = run_sync(c)
-    uptime_before = uptime(schema, frames)
+    booted = boot_time(schema, frames)
     general = settings(c, schema, "general")
     ntp = {name: general.get(name, schema.default(name)) for name in ("ntpServer", "posixZone")}
     assert ntp["ntpServer"] != CHANGED_NTP_SERVER
@@ -63,10 +63,31 @@ def test_a_restore_brings_back_the_parts_that_were_ticked(request, host, token, 
         options = json.dumps({"shades": False, "settings": True})
         status, _, body = upload(host, "/restore", auth(token), file=backup, fields={"data": options})
         assert status == 200, body
-        wait_for_restart(host, token, schema, uptime_before)
+        wait_for_restart(host, token, schema, booted)
     finally:
         c, _, _ = synced_model(connect, schema)
         restored = settings(c, schema, "general").get("ntpServer", schema.default("ntpServer"))
         if restored != ntp["ntpServer"]:
             op(c, schema, "saveSettings", dict(ntp, section="general"))
     assert restored == ntp["ntpServer"]
+
+
+def test_a_restore_of_the_radio_alone_brings_it_back_as_it_was(request, host, token, connect, schema):
+    """4.0 boards without Ethernet declared their network record 28 bytes
+    longer than they wrote, so a restore that skipped it read the radio from
+    the middle of its record."""
+    if not request.config.getoption("--reboot"):
+        pytest.skip("restores a backup and reboots the device: pass --reboot")
+    c = connect(schema=schema.hash)
+    _, frames, _ = run_sync(c)
+    booted = boot_time(schema, frames)
+    radio = settings(c, schema, "radio")
+    status, _, backup = http(host, "/backup", headers=auth(token))
+    assert status == 200
+
+    options = json.dumps({"shades": False, "transceiver": True})
+    status, _, body = upload(host, "/restore", auth(token), file=backup, fields={"data": options})
+    assert status == 200, body
+    wait_for_restart(host, token, schema, booted)
+    c, _, _ = synced_model(connect, schema)
+    assert settings(c, schema, "radio") == radio
