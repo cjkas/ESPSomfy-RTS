@@ -35,9 +35,16 @@ enum class eth_clock_id_t : uint8_t {
   GPIO16_OUT = 2,
   GPIO17_OUT = 3
 };
+// The highest clock id the chip takes: the P4's ETH.begin() takes the clock
+// in on GPIO 50 only.
+#if defined(CONFIG_IDF_TARGET_ESP32P4)
+constexpr uint8_t ETH_CLOCK_ID_MAX = 0;
+#else
+constexpr uint8_t ETH_CLOCK_ID_MAX = 3;
+#endif
 
 // The GPIO a stored clock id puts the RMII clock on, -1 for an id the chip
-// can't use.  The P4's ETH.begin() takes the clock in on GPIO 50 only.
+// can't use.
 inline int8_t ethClockPin(uint8_t id) {
 #if defined(CONFIG_IDF_TARGET_ESP32P4)
   return static_cast<eth_clock_id_t>(id) == eth_clock_id_t::GPIO0_IN ? 50 : -1;

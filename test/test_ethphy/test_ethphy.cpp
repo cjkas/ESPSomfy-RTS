@@ -77,6 +77,12 @@ static void test_rejects_unknown_clock_ids() {
   TEST_ASSERT_FALSE(ethClockMode(4, mode));
   TEST_ASSERT_FALSE(ethClockMode(255, mode));
 }
+static void test_a_save_takes_each_clock_id_that_translates() {
+  eth_clock_mode_t mode;
+  TEST_ASSERT_EQUAL_UINT8(3, ETH_CLOCK_ID_MAX);
+  TEST_ASSERT_TRUE(ethClockMode(ETH_CLOCK_ID_MAX, mode));
+  TEST_ASSERT_FALSE(ethClockMode(ETH_CLOCK_ID_MAX + 1, mode));
+}
 static void test_clock_pins() {
   TEST_ASSERT_EQUAL_INT8(0, ethClockPin(0));
   TEST_ASSERT_EQUAL_INT8(0, ethClockPin(1));
@@ -95,6 +101,7 @@ int main(int, char **) {
   RUN_TEST(test_clock_ids_match_stored_values);
   RUN_TEST(test_translates_each_clock_mode);
   RUN_TEST(test_rejects_unknown_clock_ids);
+  RUN_TEST(test_a_save_takes_each_clock_id_that_translates);
   RUN_TEST(test_clock_pins);
   return UNITY_END();
 }

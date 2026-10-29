@@ -3,6 +3,7 @@
 #include <string.h>
 #include "ProtoSettings.h"
 #include "ProtoParse.h"
+#include "EthPhy.h"
 
 static const char *const SECTIONS[] = {"general", "network", "mqtt", "security", "radio"};
 const char *settingsSectionName(settings_section_t section) { return SECTIONS[static_cast<uint8_t>(section)]; }
@@ -45,7 +46,7 @@ static const settings_field_t FIELDS[] = {
   {settings_part_t::wifi, proto_field_t::hidden, nullptr, 0, 0},
   {settings_part_t::ethernet, proto_field_t::boardType, nullptr, 0, 255},
   {settings_part_t::ethernet, proto_field_t::phyType, nullptr, 0, 255},
-  {settings_part_t::ethernet, proto_field_t::CLKMode, nullptr, 0, 3},
+  {settings_part_t::ethernet, proto_field_t::CLKMode, nullptr, 0, ETH_CLOCK_ID_MAX},
   {settings_part_t::ethernet, proto_field_t::phyAddress, nullptr, -1, 31},
   // Pins run to GPIO 54, the P4's last.
   {settings_part_t::ethernet, proto_field_t::PWRPin, nullptr, -1, 54},
@@ -138,7 +139,8 @@ static const char *checkValue(const settings_field_t &s, const proto_field_info_
       return why;
     }
     if(inRange) return nullptr;
-    snprintf(why, sizeof(why), "%s must be %ld-%ld", f.name, (long)s.lo, (long)s.hi);
+    if(s.lo == s.hi) snprintf(why, sizeof(why), "%s must be %ld", f.name, (long)s.lo);
+    else snprintf(why, sizeof(why), "%s must be %ld-%ld", f.name, (long)s.lo, (long)s.hi);
     return why;
   }
   if(f.kind == 'n') {

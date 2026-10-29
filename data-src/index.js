@@ -1579,7 +1579,7 @@ class Wifi {
     { val: 5, label: 'wESP32 v7+ - Silicognition', clk: 0, ct: 2, addr: 0, pwr: -1, mdc: 16, mdio: 17 },
     { val: 6, label: 'wESP32 < v7 - Silicognition', clk: 0, ct: 0, addr: 0, pwr: -1, mdc: 16, mdio: 17 },
     { val: 1, label: 'WT32-ETH01 - Wireless Tag', clk: 0, ct: 0, addr: 1, pwr: 16, mdc: 23, mdio: 18 },
-    { val: 8, label: 'ESP32-P4-ETH - Waveshare', clk: 0, ct: 1, addr: 1, pwr: 51, mdc: 31, mdio: 52, p4: true }
+    { val: 8, label: 'ESP32-P4-WIFI6-POE-ETH - Waveshare', clk: 0, ct: 1, addr: 1, pwr: 51, mdc: 31, mdio: 52, p4: true }
     ];
     ethClockModes = [{ val: 0, label: 'GPIO0 IN' }, { val: 1, label: 'GPIO0 OUT' }, { val: 2, label: 'GPIO16 OUT' }, { val: 3, label: 'GPIO17 OUT' }];
     // The P4 takes the clock in on GPIO 50 only (eth_clock_id_t in EthPhy.h).
@@ -2735,8 +2735,9 @@ class Somfy {
         { name: 'c5', maxPins: 28, inputs: [13, 14, 15, 16, 17, 18, 19, 20, 21, 22], outputs: [13, 14, 15, 16, 17, 18, 19, 20, 21, 22] },
         { name: 'c6', maxPins: 23, inputs: [], outputs: [] },
         // Without the C6's SDIO link (14-19, 54), USB Serial/JTAG (24, 25),
-        // Ethernet (28-31, 34, 35, 49-52) and UART0 (37, 38).
-        { name: 'p4', maxPins: 54, inputs: [14, 15, 16, 17, 18, 19, 24, 25, 28, 29, 30, 31, 34, 35, 37, 38, 49, 50, 51, 52, 54], outputs: [14, 15, 16, 17, 18, 19, 24, 25, 28, 29, 30, 31, 34, 35, 37, 38, 49, 50, 51, 52, 54] }
+        // Ethernet (28-31, 34, 35, 49-52), UART0 (37, 38) and the strapping
+        // pins (34-38).
+        { name: 'p4', maxPins: 54, inputs: [14, 15, 16, 17, 18, 19, 24, 25, 28, 29, 30, 31, 34, 35, 36, 37, 38, 49, 50, 51, 52, 54], outputs: [14, 15, 16, 17, 18, 19, 24, 25, 28, 29, 30, 31, 34, 35, 36, 37, 38, 49, 50, 51, 52, 54] }
     ];
 
     loadPins(type, sel, opt) {

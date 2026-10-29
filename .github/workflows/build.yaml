@@ -120,7 +120,7 @@ jobs:
             fsname: SomfyController.littlefs.esp32p4.bin
             obname: SomfyController.onboard.esp32p4.bin
           - env: esp32p4es
-            name: ESP32-P4 (before v3.0)
+            name: ESP32-P4 (before v2.0)
             chip: ESP32-P4
             addr_bootloader: "0x2000"
             addr_fs: "0x310000"

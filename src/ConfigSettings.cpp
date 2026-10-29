@@ -146,8 +146,8 @@ bool ConfigSettings::begin() {
       break;
     #endif
     #ifdef CONFIG_IDF_TARGET_ESP32P4
-    // Chips before v3.0 run their own build (esp32p4_es libraries), so they
-    // get their own release files.
+    // Chips before v2.0 run their own build (esp32p4_es libraries), so they
+    // get their own release files.  v2.x and v3.00 run neither.
     case esp_chip_model_t::CHIP_ESP32P4:
       #if CONFIG_ESP32P4_SELECTS_REV_LESS_V3
       strcpy(this->chipModel, "p4es");

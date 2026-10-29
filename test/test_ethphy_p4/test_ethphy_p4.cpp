@@ -32,6 +32,14 @@ static void test_rejects_clock_out() {
   TEST_ASSERT_FALSE(ethClockMode(3, mode));
   TEST_ASSERT_FALSE(ethClockMode(4, mode));
 }
+static void test_a_save_takes_clock_in_only() {
+  // ProtoSettings refuses a CLKMode over this, so a save can't store a mode
+  // that stops Ethernet at the next start.
+  eth_clock_mode_t mode;
+  TEST_ASSERT_EQUAL_UINT8(0, ETH_CLOCK_ID_MAX);
+  TEST_ASSERT_TRUE(ethClockMode(ETH_CLOCK_ID_MAX, mode));
+  TEST_ASSERT_FALSE(ethClockMode(ETH_CLOCK_ID_MAX + 1, mode));
+}
 static void test_clock_pin_is_50() {
   TEST_ASSERT_EQUAL_INT8(50, ethClockPin(0));
   TEST_ASSERT_EQUAL_INT8(-1, ethClockPin(1));
@@ -44,6 +52,7 @@ int main(int, char **) {
   RUN_TEST(test_ip101_is_the_tlk110_id);
   RUN_TEST(test_clock_in_is_ext_in);
   RUN_TEST(test_rejects_clock_out);
+  RUN_TEST(test_a_save_takes_clock_in_only);
   RUN_TEST(test_clock_pin_is_50);
   return UNITY_END();
 }
