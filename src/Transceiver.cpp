@@ -577,7 +577,7 @@ void transceiver_config_t::load() {
 }
 static void warnBootPin(const char *name, uint8_t pin) {
   const char *effect = bootPinEffect(pin);
-  if(effect) ESP_LOGW(TAG, "Radio %s is on GPIO%u, a strapping pin: %s.  The radio can hold it there and stop the board booting after a power cut, so move it to another pin.", name, pin, effect);
+  if(effect) ESP_LOGW(TAG, "Radio %s is on GPIO%u, a strapping pin the radio can drive at reset.  %s", name, pin, effect);
 }
 void transceiver_config_t::apply() {
     Preferences pref;
@@ -603,9 +603,10 @@ void transceiver_config_t::apply() {
       pref.end();
       if(!radioInit) return;
       ESP_LOGD(TAG, "Applying radio settings - Setting Data Pins RX:%u TX:%u", this->RXPin, this->TXPin);
-      // The pins the CC1101 drives at power-up, before it is set up: GDO0
-      // puts out a clock, GDO2 CHIP_RDYn, and SO follows CHIP_RDYn while CSN
-      // is low.  The web UI checks the same (data-src/js/pins.js).
+      // The pins the CC1101 drives: at power-up GDO0 puts out a clock, GDO2
+      // CHIP_RDYn, and SO follows CHIP_RDYn while CSN is low.  Once it is
+      // set up, GDO2 puts out what it hears.  The web UI checks the same
+      // (data-src/js/pins.js).
       warnBootPin("TX", this->TXPin);
       if(this->RXPin != this->TXPin) warnBootPin("RX", this->RXPin);
       warnBootPin("MISO", this->MISOPin);

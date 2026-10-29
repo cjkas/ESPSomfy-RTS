@@ -18,6 +18,22 @@ test('RX on GPIO12 warns of the flash voltage on the original ESP32', () => {
     assert.match(warnings[0], /1\.8 V/);
 });
 
+test('TX on GPIO2 warns of flashing over USB on the original ESP32', () => {
+    // The WT32-ETH01 wiring in the wiki.
+    const warnings = BootPins.radioWarnings('', Object.assign({}, esp32Defaults, { TXPin: 2 }));
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0], /^TX is on GPIO-2, .*Held high, it stops flashing over USB, so disconnect it to flash\.$/);
+});
+
+test('GPIO8 held low blocks flashing on the C3 and C6', () => {
+    const config = { SCKPin: 4, CSNPin: 7, MOSIPin: 6, MISOPin: 5, TXPin: 10, RXPin: 8 };
+    for (const chip of ['c3', 'c6']) {
+        const warnings = BootPins.radioWarnings(chip, config);
+        assert.equal(warnings.length, 1);
+        assert.match(warnings[0], /^RX is on GPIO-8, .*Held low, it stops flashing over USB/);
+    }
+});
+
 test('an unknown chip model warns of nothing', () => {
     assert.deepEqual(BootPins.radioWarnings('h2', Object.assign({}, esp32Defaults, { RXPin: 12 })), []);
 });

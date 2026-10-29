@@ -17,6 +17,12 @@ static void test_gpio0_picks_the_boot_mode() {
   TEST_ASSERT_NOT_NULL(bootPinEffect(0));
 }
 
+static void test_gpio46_blocks_flashing_over_usb() {
+  const char *effect = bootPinEffect(46);
+  TEST_ASSERT_NOT_NULL(effect);
+  TEST_ASSERT_NOT_NULL(strstr(effect, "USB"));
+}
+
 static void test_gpio12_is_safe() {
   // 12 is the S3's default SCK.
   TEST_ASSERT_NULL(bootPinEffect(12));
@@ -32,6 +38,7 @@ int main(int, char **) {
   UNITY_BEGIN();
   RUN_TEST(test_gpio45_picks_the_flash_voltage);
   RUN_TEST(test_gpio0_picks_the_boot_mode);
+  RUN_TEST(test_gpio46_blocks_flashing_over_usb);
   RUN_TEST(test_gpio12_is_safe);
   RUN_TEST(test_default_radio_pins_are_safe);
   return UNITY_END();
