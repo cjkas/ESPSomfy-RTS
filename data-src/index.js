@@ -1944,8 +1944,9 @@ class Somfy {
         this.loadPins('input', document.getElementById('selTransRXPin'));
         //this.loadSomfy();
         ui.toElement(document.getElementById('divTransceiverSettings'), {
-            transceiver: { config: { proto: 0, SCKPin: 18, CSNPin: 5, MOSIPin: 23, MISOPin: 19, TXPin: 12, RXPin: 13, frequency: 433.42, rxBandwidth: 97.96, type: 56, deviation: 11.43, txPower: 10, enabled: false, noiseDetection: false } }
+            transceiver: { config: { proto: 0, SCKPin: 18, CSNPin: 5, MOSIPin: 23, MISOPin: 19, TXPin: 13, RXPin: 35, frequency: 433.42, rxBandwidth: 97.96, type: 56, deviation: 11.43, txPower: 10, enabled: false, noiseDetection: false } }
         });
+        this.checkBootPins();
         this.loadPins('out', document.getElementById('selShadeGPIOUp'));
         this.loadPins('out', document.getElementById('selShadeGPIODown'));
         this.loadPins('out', document.getElementById('selShadeGPIOMy'));
@@ -1969,7 +1970,17 @@ class Somfy {
             let config = ProtoViews.radio(proto.schema, radio);
             ui.toElement(document.getElementById('divTransceiverSettings'), { transceiver: { config: config } });
             document.getElementById('divRadioError').style.display = config.radioInit ? 'none' : '';
+            this.checkBootPins();
         });
+    }
+    // Warns of radio pins that can stop the board booting (issue #34).
+    checkBootPins() {
+        let trans = ui.fromElement(document.getElementById('divTransceiverSettings')).transceiver;
+        let chip = document.getElementById('divContainer').getAttribute('data-chipmodel') || '';
+        let warnings = BootPins.radioWarnings(chip, trans.config);
+        let div = document.getElementById('divRadioBootPins');
+        div.innerText = warnings.join('\n');
+        div.style.display = warnings.length > 0 ? '' : 'none';
     }
     saveRadio() {
         let valid = true;

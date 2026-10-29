@@ -30,7 +30,7 @@ struct transceiver_config_t {
     radio_proto proto = radio_proto::RTS;
     uint8_t SCKPin = 18;
     uint8_t TXPin = 13;
-    uint8_t RXPin = 12;
+    uint8_t RXPin = 35;
     uint8_t MOSIPin = 23;
     uint8_t MISOPin = 19;
     uint8_t CSNPin = 5;

@@ -58,7 +58,7 @@ PNG_EXTENSIONS = {".png"}
 # comes before index.js, which uses it.  A source listed here isn't copied on
 # its own.
 BUNDLES = {
-    "index.js": ["js/schema.js", "js/model.js", "js/client.js", "js/views.js", "index.js"],
+    "index.js": ["js/schema.js", "js/model.js", "js/client.js", "js/views.js", "js/pins.js", "index.js"],
     "app.css": ["main.css", "widgets.css", "icons.css"],
 }
 
