@@ -5,8 +5,8 @@
 #include <sdkconfig.h>
 #endif
 
-// Ethernet needs the RMII MAC, which only the original ESP32 has.  The C3, S3
-// and C6 build without it.
+// Ethernet needs the RMII MAC, which only the original ESP32 has.  The C3, C5,
+// S3 and C6 build without it.
 #if defined(CONFIG_ETH_USE_ESP32_EMAC) && CONFIG_ETH_USE_ESP32_EMAC
 #define HAS_ETHERNET 1
 #else
