@@ -199,7 +199,7 @@ static void test_rssiNeedsEmit_either_direction() {
  ********************************************************************/
 static RssiBroadcast broadcastOf(int rssi, int channel) {
   RssiBroadcast b;
-  b.sent(true, rssi, channel);
+  b.sent(rssi, channel);
   return b;
 }
 static void test_rssiBroadcast_first_status_is_due() {
@@ -208,17 +208,9 @@ static void test_rssiBroadcast_first_status_is_due() {
   RssiBroadcast b;
   TEST_ASSERT_TRUE(b.due(-60, 6, 3));
 }
-static void test_rssiBroadcast_client_emit_keeps_baseline() {
-  // A new client gets the current RSSI right as it drops 5 dBm.  The clients
-  // already connected must still get the change.
-  RssiBroadcast b = broadcastOf(-60, 6);
-  b.sent(false, -65, 6);
-  TEST_ASSERT_EQUAL_INT(-60, b.rssi);
-  TEST_ASSERT_TRUE(b.due(-65, 6, 3));
-}
 static void test_rssiBroadcast_broadcast_moves_baseline() {
   RssiBroadcast b = broadcastOf(-60, 6);
-  b.sent(true, -65, 6);
+  b.sent(-65, 6);
   TEST_ASSERT_EQUAL_INT(-65, b.rssi);
   // Measured from the new baseline.
   TEST_ASSERT_FALSE(b.due(-66, 6, 3));
@@ -227,12 +219,6 @@ static void test_rssiBroadcast_broadcast_moves_baseline() {
 static void test_rssiBroadcast_channel_change_is_due() {
   RssiBroadcast b = broadcastOf(-60, 6);
   TEST_ASSERT_TRUE(b.due(-60, 11, 3));
-}
-static void test_rssiBroadcast_client_emit_on_disconnect_keeps_baseline() {
-  RssiBroadcast b = broadcastOf(-60, 6);
-  b.sent(false, -100, -1);
-  TEST_ASSERT_EQUAL_INT(6, b.channel);
-  TEST_ASSERT_FALSE(b.due(-60, 6, 3));
 }
 
 /*********************************************************************
@@ -246,7 +232,7 @@ static void test_emitAllowed_refuses_another_task() {
   TEST_ASSERT_FALSE(emitAllowed(&wifiEventTask, &loopTask));
 }
 static void test_emitAllowed_before_the_owner_is_known() {
-  // setup() before SocketEmitter::begin(), which is loop()'s task anyway.
+  // setup() before ProtoSocket::begin(), which is loop()'s task anyway.
   TEST_ASSERT_TRUE(emitAllowed(&loopTask, nullptr));
 }
 
@@ -292,14 +278,16 @@ static void test_releaseAssetName_matches_the_release_workflow() {
   TEST_ASSERT_EQUAL_STRING("SomfyController.ino.esp32.bin", buf);
   releaseAssetName(buf, sizeof(buf), "littlefs", "s3");
   TEST_ASSERT_EQUAL_STRING("SomfyController.littlefs.esp32s3.bin", buf);
-  releaseAssetName(buf, sizeof(buf), "littlefs", "c6");
-  TEST_ASSERT_EQUAL_STRING("SomfyController.littlefs.esp32c6.bin", buf);
-}
-static void test_releaseAssetName_keeps_c3() {
-  // C3 is out of the IDF 5.5 builds for now (ADR 0003) but is coming back.
-  char buf[64];
   releaseAssetName(buf, sizeof(buf), "ino", "c3");
   TEST_ASSERT_EQUAL_STRING("SomfyController.ino.esp32c3.bin", buf);
+  releaseAssetName(buf, sizeof(buf), "ino", "c5");
+  TEST_ASSERT_EQUAL_STRING("SomfyController.ino.esp32c5.bin", buf);
+  releaseAssetName(buf, sizeof(buf), "littlefs", "c6");
+  TEST_ASSERT_EQUAL_STRING("SomfyController.littlefs.esp32c6.bin", buf);
+  releaseAssetName(buf, sizeof(buf), "ino", "p4");
+  TEST_ASSERT_EQUAL_STRING("SomfyController.ino.esp32p4.bin", buf);
+  releaseAssetName(buf, sizeof(buf), "littlefs", "p4es");
+  TEST_ASSERT_EQUAL_STRING("SomfyController.littlefs.esp32p4es.bin", buf);
 }
 
 /*********************************************************************
@@ -434,10 +422,8 @@ int main(int argc, char **argv) {
   RUN_TEST(test_rssiNeedsEmit_real_change_emits);
   RUN_TEST(test_rssiNeedsEmit_either_direction);
   RUN_TEST(test_rssiBroadcast_first_status_is_due);
-  RUN_TEST(test_rssiBroadcast_client_emit_keeps_baseline);
   RUN_TEST(test_rssiBroadcast_broadcast_moves_baseline);
   RUN_TEST(test_rssiBroadcast_channel_change_is_due);
-  RUN_TEST(test_rssiBroadcast_client_emit_on_disconnect_keeps_baseline);
   RUN_TEST(test_emitAllowed_on_the_loop_task);
   RUN_TEST(test_emitAllowed_refuses_another_task);
   RUN_TEST(test_emitAllowed_before_the_owner_is_known);
@@ -448,7 +434,6 @@ int main(int argc, char **argv) {
   RUN_TEST(test_otaProven_not_before_the_minimum_uptime);
   RUN_TEST(test_otaProven_not_without_network);
   RUN_TEST(test_releaseAssetName_matches_the_release_workflow);
-  RUN_TEST(test_releaseAssetName_keeps_c3);
   RUN_TEST(test_formatBacktrace_frames_the_dump_holds);
   RUN_TEST(test_formatBacktrace_garbage_depth_stays_in_bounds);
   RUN_TEST(test_formatBacktrace_stops_when_the_buffer_is_full);

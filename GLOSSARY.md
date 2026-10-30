@@ -84,15 +84,11 @@ The seam through which a shade's behaviour reports what happened: changes for th
 
 **Entry point**
 Where a request from outside reaches the firmware: an HTTP route, an MQTT command topic or a frame received from a remote.
-_Avoid_: controller (it already names the owner of the shade list and the `/controller` read)
+_Avoid_: controller (it already names the owner of the shade list)
 
-**WebUiRoutes**
-The HTTP routes on port 80 that the config web UI calls, plus the UI's own files.
-_Avoid_: WebUiController, Web
-
-**ApiRoutes**
-The HTTP routes on port 8081 that integrations such as Home Assistant call.
-_Avoid_: WebApiController
+**HttpRoutes**
+The HTTP routes on port 80: the web UI's files, login, the file transfers and the three commands for scripts. Everything else is an op on the socket.
+_Avoid_: WebUiRoutes, ApiRoutes, WebApiController
 
 **MqttCommands**
 The MQTT topics ending in `/set` that command a shade or group.
@@ -102,16 +98,58 @@ _Avoid_: MQTTController
 What sends the state of rooms, shades and groups, and the Home Assistant discovery config, to the MQTT broker.
 _Avoid_: MQTTController
 
-**SocketEmitter**
-What pushes state events to WebSocket clients on port 8080. A client can only join or leave a room; it sends no commands.
-_Avoid_: WebSocketController
-
 **MqttConnection**
 The link to the MQTT broker that MqttCommands and MqttPublisher share: connecting, the root topic and the subscriptions.
 _Avoid_: MQTTClass
 
 **Change fan-out**
 What sends everything that changed about a shade or group in one pass of `loop()` once: its changed MQTT topics, then one state event.
+
+## Socket protocol
+
+**Op**
+A request a client sends over the socket: a command, a read, a model edit or a settings change.
+_Avoid_: action, call
+
+**Reply**
+The answer to one op, sent only to the client that sent it: done, or an error with a code. Every op gets exactly one.
+_Avoid_: response, request result
+
+**Event**
+A message the device sends without being asked: a change to a shade, group, room or setting, or a status update. Events come from the change fan-out and go to every client allowed to see them.
+_Avoid_: increment, push
+
+**Sync**
+How a client catches up with the device: the shade model and status, sent item by item at the client's pace, after which events keep it current. It describes no single moment.
+_Avoid_: snapshot (an item snapshot is a copy of one moment), initial load
+
+**Feed**
+A stream of events a client subscribes to on its own, such as received remote frames or a frequency scan.
+_Avoid_: topic (MQTT's word), room (a room is part of the shade model)
+
+**Schema**
+The device's description of the protocol it speaks: what each message type, field and error code is, and what a field is when left out.
+
+## Security
+
+**Security mode**
+Whether the device asks for login: *None* (everything open) or *Secured* (a PIN or password).
+_Avoid_: Secure Config Only (removed)
+
+**Public route**
+What anyone may reach under Secured without a token: the web UI's files, `/loginContext`, `/login`, `/upnp.xml` and preflight requests. `/ws` counts as one at the HTTP level, because the socket checks the token itself in the handshake. Static serving answers the web UI's files alone, so `shades.cfg` isn't one.
+
+**Token**
+What logging in returns. It stands for the PIN or password, on one client address, and every request under Secured carries it.
+_Avoid_: session, API key (the name of the field it travels in)
+
+**Token key**
+The secret a token is made with: random bytes the device makes on first boot and never sends anywhere. Changing it refuses every token.
+_Avoid_: API key, server key
+
+**Login throttle**
+How the device slows down guessing: a client address with too many failed logins is refused for a while, and each refusal is a *lockout*, longer than the one before.
+_Avoid_: login backoff, rate limit
 
 ## Domain modules
 
@@ -130,10 +168,10 @@ The domain module that carries out shade requests, whichever entry point they ca
 The domain module that adds, changes, deletes, links and orders the rooms, shades, groups and repeaters of the shade model.
 _Avoid_: ShadeConfig, InstallationEditor
 
-**ModelSnapshot**
-A copy of the shade model taken for one read, so the reply describes a single moment.
-_Avoid_: InstallationSnapshot
+**Item snapshot**
+A copy of one room, shade or group, which an event, an MQTT topic or a command reply is written from.
+_Avoid_: ModelSnapshot (the whole-model copy the HTTP reads used, removed in 4.0.0)
 
 **LoopQueue**
-The single queue through which shade requests, model edits and snapshot requests reach `loop()` from other tasks, in the order they arrived.
+The single queue through which shade requests, model edits, socket reads and settings ops, and restores reach `loop()` from other tasks, in the order they arrived.
 _Avoid_: web command queue

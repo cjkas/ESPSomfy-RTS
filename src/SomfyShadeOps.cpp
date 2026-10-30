@@ -1,5 +1,6 @@
 #include "SomfyShadeOps.h"
 #include "Somfy.h"
+#include "ShadeChanges.h"
 
 extern SomfyShadeController somfy;
 
@@ -15,6 +16,7 @@ bool SomfyShadeOps::findShade(uint8_t shadeId, shade_info_t &info) {
   info.currentPos = shade->state().currentPos;
   info.myPos = shade->state().myPos;
   info.myTiltPos = shade->state().myTiltPos;
+  info.idle = shade->isIdle();
   return true;
 }
 bool SomfyShadeOps::findGroup(uint8_t groupId, uint8_t &repeats) {
@@ -47,6 +49,7 @@ void SomfyShadeOps::setUnpaired(uint8_t shadeId) {
   SomfyShade *shade = somfy.getShadeById(shadeId);
   shade->paired = false;
   shade->save();
+  shade->configChanged();
 }
 void SomfyShadeOps::setRollingCode(uint8_t shadeId, uint16_t code) { somfy.getShadeById(shadeId)->setRollingCode(code); }
 bool SomfyShadeOps::sendGroupCommand(uint8_t groupId, somfy_commands cmd, uint8_t repeat, uint8_t stepSize) {

@@ -10,15 +10,16 @@
 #include "soc/soc_caps.h"
 #include "esp_log.h"
 #include "Utils.h"
+#include "BootPins.h"
 #include "ConfigSettings.h"
 #include "Somfy.h"
 #include "SomfyWaveform.h"
-#include "outputs/SocketEmitter.h"
+#include "outputs/ProtoSocket.h"
+#include "ProtoSync.h"
 
 static const char *TAG = "Somfy";
 
 extern SomfyShadeController somfy;
-extern SocketEmitter sockEmit;
 extern ConfigSettings settings;
 
 uint8_t rxmode = 0;  // Indicates whether the radio is in receive mode.  Just to ensure there isn't more than one interrupt hooked.
@@ -212,7 +213,7 @@ int markRSSI = -100;
 uint32_t lastScan = 0;
 static uint32_t scanStart = 0;
 // Scan state changes made off loop() (the web handlers and apply() run on
-// async_tcp) are only flagged here.  The socket event buffer is shared, so
+// async_tcp) are only flagged here.  The socket's frame buffer is shared, so
 // loop() sends the event.
 static std::atomic<bool> scanEmitPending{false};
 // A scan nobody ended (closed browser tab) stops on its own after this long so
@@ -279,16 +280,16 @@ void Transceiver::endFrequencyScan() {
   // Even if something else already ended the scan, nothing may keep TX suspended.
   this->resumeTx(TX_SUSPEND_SCAN);
 }
-void Transceiver::emitFrequencyScan(uint8_t num) {
-  JsonSockEvent *json = sockEmit.beginEmit("frequencyScan");
-  json->beginObject();
-  json->addElem("scanning", rxmode == 3);
-  json->addElem("testFreq", currFreq);
-  json->addElem("testRSSI", (int32_t)currRSSI);
-  json->addElem("frequency", markFreq);
-  json->addElem("RSSI", (int32_t)markRSSI);
-  json->endObject();
-  sockEmit.endEmit(num);
+void Transceiver::emitFrequencyScan() {
+  if(protoSocket.subscribed(proto_feed_t::frequencyScan)) {
+    ProtoWriter w = protoSocket.beginFeed(proto_type_t::frequencyScan);
+    w.add(proto_field_t::scanning, rxmode == 3);
+    w.add(proto_field_t::testFreq, currFreq);
+    w.add(proto_field_t::testRssi, (int32_t)currRSSI);
+    w.add(proto_field_t::frequency, markFreq);
+    w.add(proto_field_t::rssi, (int32_t)markRSSI);
+    protoSocket.endFeed(proto_feed_t::frequencyScan);
+  }
 }
 bool Transceiver::receive(somfy_rx_t *rx) {
     // Check to see if there is anything in the buffer
@@ -307,33 +308,28 @@ bool Transceiver::receive(somfy_rx_t *rx) {
     return false;
 }
 void Transceiver::emitFrame(somfy_frame_t *frame, somfy_rx_t *rx) {
-  // The largest socket event: every pulse as up to 10 digits and a comma,
-  // plus about 300 bytes of fields and framing.
-  static_assert(MAX_TIMINGS * 11 + 512 <= MAX_SOCK_RESPONSE, "remoteFrame can outgrow the socket buffer");
-  if(sockEmit.activeClients(ROOM_EMIT_FRAME) > 0) {
-    JsonSockEvent *json = sockEmit.beginEmit("remoteFrame");
-    json->beginObject();
-    json->addElem("encKey", frame->encKey);
-    json->addElem("address", (uint32_t)frame->remoteAddress);
-    json->addElem("rcode", (uint32_t)frame->rollingCode);
-    json->addElem("command", translateSomfyCommand(frame->cmd).c_str());
-    json->addElem("rawCmd", frame->rawCmd);
-    json->addElem("rssi", (int32_t)frame->rssi);
-    json->addElem("bits", rx->bit_length);
-    json->addElem("proto", static_cast<uint8_t>(frame->proto));
-    json->addElem("valid", frame->valid);
-    json->addElem("sync", frame->hwsync);
-    if(frame->cmd == somfy_commands::StepUp || frame->cmd == somfy_commands::StepDown)
-      json->addElem("stepSize", frame->stepSize);
-    json->beginArray("pulses");
-    if(rx) {
-      for(uint16_t i = 0; i < rx->pulseCount; i++) {
-        json->addElem((uint32_t)rx->pulses[i]);
-      }
+  // The largest event: every pulse as up to 10 digits and a comma, plus the
+  // other fields and framing.
+  static_assert(MAX_TIMINGS * 11 + 512 <= PROTO_MAX_FRAME, "a frame event can outgrow the socket's frame buffer");
+  if(protoSocket.subscribed(proto_feed_t::frames)) {
+    ProtoWriter w = protoSocket.beginFeed(proto_type_t::frame);
+    w.add(proto_field_t::encKey, frame->encKey);
+    w.add(proto_field_t::remoteAddress, (uint32_t)frame->remoteAddress);
+    w.add(proto_field_t::lastRollingCode, (uint32_t)frame->rollingCode);
+    w.add(proto_field_t::command, translateSomfyCommand(frame->cmd).c_str());
+    w.add(proto_field_t::rawCmd, frame->rawCmd);
+    w.add(proto_field_t::rssi, (int32_t)frame->rssi);
+    w.add(proto_field_t::bits, rx ? rx->bit_length : (uint8_t)0);
+    w.add(proto_field_t::proto, static_cast<uint8_t>(frame->proto));
+    w.add(proto_field_t::valid, frame->valid);
+    w.add(proto_field_t::hwsync, frame->hwsync);
+    if(frame->cmd == somfy_commands::StepUp || frame->cmd == somfy_commands::StepDown) w.add(proto_field_t::stepSize, frame->stepSize);
+    if(rx && rx->pulseCount) {
+      w.beginList(proto_field_t::pulses);
+      for(uint16_t i = 0; i < rx->pulseCount; i++) w.item(rx->pulses[i]);
+      w.endList();
     }
-    json->endArray();
-    json->endObject();
-    sockEmit.endEmitRoom(ROOM_EMIT_FRAME);
+    protoSocket.endFeed(proto_feed_t::frames);
   }
 }
 void Transceiver::clearReceived(void) {
@@ -449,13 +445,28 @@ void transceiver_config_t::load() {
         this->CSNPin = 34;
         break;
       case esp_chip_model_t::CHIP_ESP32C3:
-        this->TXPin = 13;
-        this->RXPin = 12;
-        this->MOSIPin = 16;
-        this->MISOPin = 17;
-        this->SCKPin = 15;
-        this->CSNPin = 14;
+        // The framework's default SPI pins (variants/esp32c3).  12-17 hold the
+        // SPI flash, and 2, 8 and 9 are strapping pins.
+        this->TXPin = 10;
+        this->RXPin = 3;
+        this->MOSIPin = 6;
+        this->MISOPin = 5;
+        this->SCKPin = 4;
+        this->CSNPin = 7;
         break;
+#ifdef CONFIG_IDF_TARGET_ESP32C5
+      case esp_chip_model_t::CHIP_ESP32C5:
+        // The framework's default SPI pins (variants/esp32c5).  TX and RX take
+        // 4 and 5, the LP UART's pins, which nothing here uses; 2, 3, 7 and
+        // 25-28 are strapping pins and 11-22 hold UART0, USB and the flash.
+        this->TXPin = 4;
+        this->RXPin = 5;
+        this->MOSIPin = 8;
+        this->MISOPin = 9;
+        this->SCKPin = 10;
+        this->CSNPin = 6;
+        break;
+#endif
 #ifdef CONFIG_IDF_TARGET_ESP32C6
       case esp_chip_model_t::CHIP_ESP32C6:
       // Pinout applicable for the ESP32-C6-WROOM-1 module (ESP32-C6-DevKitC-1-N4)
@@ -467,9 +478,27 @@ void transceiver_config_t::load() {
         this->CSNPin = 0;
         break;
 #endif
+#ifdef CONFIG_IDF_TARGET_ESP32P4
+      case esp_chip_model_t::CHIP_ESP32P4:
+        // The SPI pins of the framework's variant for Waveshare's ESP32-P4-ETH
+        // (variants/waveshare_p4_poe_eth); TX and RX take 2 and 3, which that
+        // board leaves free.  The C6's SDIO link holds 14-19 and 54, Ethernet
+        // 28-31, 34, 35 and 49-52, and 34-38 are strapping pins.  46 is on LDO
+        // channel 4, which the core turns on when a pin of it is used.
+        this->TXPin = 2;
+        this->RXPin = 3;
+        this->MOSIPin = 32;
+        this->MISOPin = 33;
+        this->SCKPin = 27;
+        this->CSNPin = 46;
+        break;
+#endif
       default:
+        // RX was on 12, a strapping pin (issue #34).  A board that saved its
+        // radio settings keeps its pins.  35 is input only, which RX is; 36
+        // and 39 take false interrupts.
         this->TXPin = 13;
-        this->RXPin = 12;
+        this->RXPin = 35;
         this->MOSIPin = 23;
         this->MISOPin = 19;
         this->SCKPin = 18;
@@ -516,6 +545,10 @@ void transceiver_config_t::load() {
     pref.end();
     //this->printBuffer = somfy.transceiver.printBuffer;
 }
+static void warnBootPin(const char *name, uint8_t pin) {
+  const char *effect = bootPinEffect(pin);
+  if(effect) ESP_LOGW(TAG, "Radio %s is on GPIO%u, a strapping pin the radio can drive at reset.  %s", name, pin, effect);
+}
 void transceiver_config_t::apply() {
     Preferences pref;
     // A transmission in flight stops after its current frame so the radio can
@@ -540,6 +573,13 @@ void transceiver_config_t::apply() {
       pref.end();
       if(!radioInit) return;
       ESP_LOGD(TAG, "Applying radio settings - Setting Data Pins RX:%u TX:%u", this->RXPin, this->TXPin);
+      // The pins the CC1101 drives: at power-up GDO0 puts out a clock, GDO2
+      // CHIP_RDYn, and SO follows CHIP_RDYn while CSN is low.  Once it is
+      // set up, GDO2 puts out what it hears.  The web UI checks the same
+      // (data-src/js/pins.js).
+      warnBootPin("TX", this->TXPin);
+      if(this->RXPin != this->TXPin) warnBootPin("RX", this->RXPin);
+      warnBootPin("MISO", this->MISOPin);
       //if(this->TXPin != this->RXPin)
       //  pinMode(this->TXPin, OUTPUT);
       //pinMode(this->RXPin, INPUT);

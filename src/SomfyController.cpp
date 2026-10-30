@@ -5,19 +5,20 @@
 #include "ConfigSettings.h"
 #include "ESPNetwork.h"
 #include "entryPoints/Web.h"
-#include "outputs/SocketEmitter.h"
+#include "outputs/ProtoSocket.h"
 #include "Utils.h"
 #include "Somfy.h"
 #include "MqttConnection.h"
 #include "LoopQueue.h"
 #include "ShadeRequests.h"
 #include "SomfyShadeOps.h"
-#include "ModelSnapshot.h"
-#include "GitOTA.h"
 #include "esp_core_dump.h"
 #include "esp_system.h"
 #include "esp_app_desc.h"
 #include "esp_ota_ops.h"
+#include "esp_heap_caps.h"
+#include "esp_rom_sys.h"
+#include <inttypes.h>
 #include "Timing.h"
 
 static const char *TAG = "Main";
@@ -37,16 +38,13 @@ static bool otaPending = false;
 
 ConfigSettings settings;
 Web webServer;
-SocketEmitter sockEmit;
 ESPNetwork net;
 rebootDelay_t rebootDelay;
 SomfyShadeController somfy;
 MqttConnection mqtt;
-GitUpdater git;
 SomfyShadeOps shadeOps;
 ShadeRequests shadeRequests(shadeOps);
 LoopQueue loopQueue;
-SnapshotSlots snapshotSlots;
 LoopStats loopStats;
 
 uint32_t oldheap = 0;
@@ -70,8 +68,18 @@ void listDir(const char *dirname, uint8_t levels) {
     }
 }
 
-void setup() {  
+// A failed allocation in library code aborts with only the backtrace, so this
+// leaves the size and what the heap had left next to it.  Printed by the ROM
+// as the logger might need the heap itself.
+static void onAllocFailed(size_t size, uint32_t caps, const char *function) {
+  esp_rom_printf("Alloc of %u bytes (caps 0x%" PRIx32 ") failed in %s: free %u, largest block %u, min free %u\n",
+    (unsigned)size, caps, function ? function : "?", (unsigned)heap_caps_get_free_size(caps),
+    (unsigned)heap_caps_get_largest_free_block(caps), (unsigned)heap_caps_get_minimum_free_size(caps));
+}
+
+void setup() {
   Serial.begin(SERIAL_BAUD);
+  heap_caps_register_failed_alloc_callback(onAllocFailed);
   ESP_LOGI(TAG, "Startup/Boot....");
   esp_core_dump_summary_t summary;
   if (esp_core_dump_get_summary(&summary) == ESP_OK) {
@@ -133,7 +141,6 @@ void setup() {
   delay(1000);
   net.setup();  
   somfy.begin();
-  //git.checkForUpdate();
   // The core starts the watchdog with a 5s timeout before setup(), so
   // esp_task_wdt_init() would fail and keep that.
   const esp_task_wdt_config_t wdt_config = { .timeout_ms = 15000, .idle_core_mask = 1, .trigger_panic = true };
@@ -148,7 +155,7 @@ void setup() {
 void loop() {
   // put your main code here, to run repeatedly:
   //uint32_t heap = ESP.getFreeHeap();
-  // Times the whole pass for memStatus, including any time the loop task was
+  // Times the whole pass for the memory event, including any time the loop task was
   // pre-empted, since that delays the loop too.
   ElapsedTimer pass;
   if(rebootDelay.reboot && millis() > rebootDelay.rebootTime) {
@@ -173,15 +180,10 @@ void loop() {
   logIfSlow(TAG, "Loop changes", timing.lap(), LOOP_SLOW_MS);
   esp_task_wdt_reset();
   if(net.connected() || net.softAPOpened) {
-    if(!rebootDelay.reboot && net.connected() && !net.softAPOpened) {
-      git.loop();
-      logIfSlow(TAG, "Loop git", timing.lap(), LOOP_SLOW_MS);
-      esp_task_wdt_reset();
-    }
     webServer.loop();
     logIfSlow(TAG, "Loop web server", timing.lap(), LOOP_SLOW_MS);
     esp_task_wdt_reset();
-    sockEmit.loop();
+    protoSocket.loop();
     logIfSlow(TAG, "Loop sockets", timing.lap(), LOOP_SLOW_MS);
     esp_task_wdt_reset();
   }

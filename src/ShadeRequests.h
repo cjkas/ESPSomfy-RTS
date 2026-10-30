@@ -40,6 +40,8 @@ struct shade_request_t {
 
 // Whether the request sends anything on air.
 bool shadeRequestUsesRadio(shade_request_type_t type);
+// Whether the request's id is a group id rather than a shade id.
+bool shadeRequestIsForGroup(shade_request_type_t type);
 // A repeat count from a client: negative for the default, capped at what fits.
 int8_t requestRepeat(int32_t repeat);
 // A target from a client: -1 unless it is 0-100.
@@ -55,6 +57,7 @@ struct shade_info_t {
   float currentPos = 0.0f;
   float myPos = -1.0f;
   float myTiltPos = -1.0f;
+  bool idle = true;  // not moving, and at its target
 };
 
 // The seam between ShadeRequests and the shades and groups it acts on.  On the
@@ -85,16 +88,22 @@ class ShadeOps {
     virtual bool sendGroupSensorCommand(uint8_t groupId, int8_t windy, int8_t sunny, uint8_t repeat) = 0;
 };
 
+// How a request went.  One with nothing in range to do is done.
+enum class shade_request_result_t : uint8_t {
+  done,
+  not_found,      // no shade or group with that id; nothing was done
+  radio_refused,  // the radio didn't take a command it sent
+  shade_moving,   // a favorite is only set on a shade at rest; nothing was done
+  no_tilt         // only a tilt was given, for a shade without one; nothing was done
+};
+
 // Carries out shade requests, whichever entry point they came from: finds
 // the shade or group, turns client positions into stored ones, checks
 // ranges and fills in default repeats.  Runs on loop() only.
 class ShadeRequests {
   public:
     explicit ShadeRequests(ShadeOps &ops) : ops(ops) {}
-    // False when the radio refused a command it sent.  A request for a shade
-    // or group that doesn't exist, or with nothing in range to do, is dropped
-    // and returns true.
-    bool run(const shade_request_t &req);
+    shade_request_result_t run(const shade_request_t &req);
   private:
     ShadeOps &ops;
 };

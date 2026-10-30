@@ -20,7 +20,11 @@ static const shade_request_type_t RADIO_REQUESTS[] = {
 static const shade_request_type_t OFF_RADIO_REQUESTS[] = {
   shade_request_type_t::set_positions, shade_request_type_t::set_rolling_code
 };
-static const loop_item_type_t OTHER_ITEMS[] = { loop_item_type_t::restore_shades, loop_item_type_t::load_shades };
+static const loop_item_type_t OTHER_ITEMS[] = {
+  loop_item_type_t::restore_shades, loop_item_type_t::model_edit, loop_item_type_t::proto_read,
+  // A frequency scan's end among them, so it never waits for the radio.
+  loop_item_type_t::proto_device
+};
 
 void setUp() {}
 void tearDown() {}

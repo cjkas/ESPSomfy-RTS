@@ -1,6 +1,7 @@
 #include <ESPAsyncWebServer.h>
 #include <AsyncJson.h>
 #include "Somfy.h"
+#include "ApiToken.h"
 #ifndef webserver_h
 #define webserver_h
 
@@ -10,32 +11,22 @@ class Web {
     void startup();
     void begin();
     void loop();
-    // Auth helpers
+    // Auth helpers.  token holds API_TOKEN_SIZE; false leaves it empty.
     bool createAPIToken(const IPAddress ipAddress, char *token);
     bool createAPIToken(const char *payload, char *token);
     bool createAPIPinToken(const IPAddress ipAddress, const char *pin, char *token);
     bool createAPIPasswordToken(const IPAddress ipAddress, const char *username, const char *password, char *token);
-    bool isAuthenticated(AsyncWebServerRequest *request, bool cfg = false);
+    // True under None, or when given is the token for the request's client.
+    bool tokenAccepted(AsyncWebServerRequest *request, const char *given);
+    // tokenAccepted with the apikey header, which is where HTTP sends it.
+    bool isAuthenticated(AsyncWebServerRequest *request);
 
-    // Async API handlers
-    void handleDiscovery(AsyncWebServerRequest *request);
-    void handleGetRooms(AsyncWebServerRequest *request);
-    void handleGetShades(AsyncWebServerRequest *request);
-    void handleGetGroups(AsyncWebServerRequest *request);
-    void handleController(AsyncWebServerRequest *request);
-    void handleRoom(AsyncWebServerRequest *request);
-    void handleShade(AsyncWebServerRequest *request);
-    void handleGroup(AsyncWebServerRequest *request);
+    // HTTP handlers
     void handleLogin(AsyncWebServerRequest *request, JsonVariant &json);
     void handleShadeCommand(AsyncWebServerRequest *request, JsonVariant &json);
     void handleGroupCommand(AsyncWebServerRequest *request, JsonVariant &json);
     void handleTiltCommand(AsyncWebServerRequest *request, JsonVariant &json);
-    void handleRepeatCommand(AsyncWebServerRequest *request, JsonVariant &json);
-    void handleSetPositions(AsyncWebServerRequest *request, JsonVariant &json);
-    void handleSetSensor(AsyncWebServerRequest *request, JsonVariant &json);
-    void handleDownloadFirmware(AsyncWebServerRequest *request);
     void handleBackup(AsyncWebServerRequest *request);
-    void handleReboot(AsyncWebServerRequest *request);
     void handleNotFound(AsyncWebServerRequest *request);
 };
 #endif

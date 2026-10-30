@@ -2,11 +2,11 @@
 #include "ConfigSettings.h"
 #include "Somfy.h"
 #include "SomfySnapshot.h"
-#include "SocketEmitter.h"
 #include "MqttConnection.h"
+#include "MqttDisco.h"
+#include "MqttTopics.h"
 
 extern SomfyShadeController somfy;
-extern SocketEmitter sockEmit;
 extern ConfigSettings settings;
 extern MqttConnection mqtt;
 
@@ -50,140 +50,30 @@ void SomfyShade::publishState() {
   snapshotShade(*this, s);
   publishShadeTopics(shadeStateTopics(s), s, publishShadeTopic, this);
 }
+// The shade's config for Home Assistant's MQTT discovery.
 void SomfyShade::publishDisco() {
   if(!mqtt.connected() || !settings.MQTT.pubDisco) return;
+  shade_disco_t disco;
+  disco.shadeId = this->shadeId;
+  disco.name = this->name;
+  disco.shadeType = this->shadeType;
+  disco.tiltType = this->tiltType;
+  disco.flipPosition = this->flipPosition;
+  disco.rootTopic = settings.MQTT.rootTopic;
+  disco.discoTopic = settings.MQTT.discoTopic;
+  disco.serverId = settings.serverId;
+  disco.hostname = settings.hostname;
+  disco.fwVersion = settings.fwVersion.name;
   char topic[128] = "";
   JsonDocument doc;
   JsonObject obj = doc.to<JsonObject>();
-  snprintf(topic, sizeof(topic), "%s/shades/%d", settings.MQTT.rootTopic, this->shadeId);
-  obj["~"] = topic;
-  JsonObject dobj = obj.createNestedObject("device");
-  dobj["hw_version"] = settings.fwVersion.name;
-  dobj["name"] = settings.hostname;
-  dobj["mf"] = "rstrouse";
-  JsonArray arrids = dobj.createNestedArray("identifiers");
-  //snprintf(topic, sizeof(topic), "mqtt_espsomfyrts_%s_shade%d", settings.serverId, this->shadeId);
-  snprintf(topic, sizeof(topic), "mqtt_espsomfyrts_%s", settings.serverId);
-  arrids.add(topic);
-  //snprintf(topic, sizeof(topic), "ESPSomfy-RTS_%s", settings.serverId);
-  dobj["model"] = "ESPSomfy-RTS MQTT";
-  snprintf(topic, sizeof(topic), "%s/status", settings.MQTT.rootTopic);
-  obj["availability_topic"] = topic;
-  obj["payload_available"] = "online";
-  obj["payload_not_available"] = "offline";
-  obj["name"] = this->name;
-  snprintf(topic, sizeof(topic), "mqtt_%s_shade%d", settings.serverId, this->shadeId);
-  obj["unique_id"] = topic;
-  switch(this->shadeType) {
-    case shade_types::blind:
-      obj["device_class"] = "blind";
-      obj["payload_close"] = this->flipPosition ? "-1" : "1";
-      obj["payload_open"] = this->flipPosition ? "1" : "-1";
-      obj["position_open"] = this->flipPosition ? 100 : 0;
-      obj["position_closed"] = this->flipPosition ? 0 : 100;
-      obj["state_closing"] = this->flipPosition ? "-1" : "1";
-      obj["state_opening"] = this->flipPosition ? "1" : "-1";
-      break;
-    case shade_types::lgate:
-    case shade_types::cgate:
-    case shade_types::rgate:
-    case shade_types::lgate1:
-    case shade_types::cgate1:
-    case shade_types::rgate1:
-    case shade_types::ldrapery:
-    case shade_types::rdrapery:
-    case shade_types::cdrapery:
-      obj["device_class"] = "curtain";
-      obj["payload_close"] = this->flipPosition ? "-1" : "1";
-      obj["payload_open"] = this->flipPosition ? "1" : "-1";
-      obj["position_open"] = this->flipPosition ? 100 : 0;
-      obj["position_closed"] = this->flipPosition ? 0 : 100;
-      obj["state_closing"] = this->flipPosition ? "-1" : "1";
-      obj["state_opening"] = this->flipPosition ? "1" : "-1";
-      break;
-    case shade_types::garage1:
-    case shade_types::garage3:
-      obj["device_class"] = "garage";
-      obj["payload_close"] = this->flipPosition ? "-1" : "1";
-      obj["payload_open"] = this->flipPosition ? "1" : "-1";
-      obj["position_open"] = this->flipPosition ? 100 : 0;
-      obj["position_closed"] = this->flipPosition ? 0 : 100;
-      obj["state_closing"] = this->flipPosition ? "-1" : "1";
-      obj["state_opening"] = this->flipPosition ? "1" : "-1";
-      break;
-    case shade_types::awning:
-      obj["device_class"] = "awning";
-      obj["payload_close"] = this->flipPosition ? "1" : "-1";
-      obj["payload_open"] = this->flipPosition ? "-1" : "1";
-      obj["position_open"] = this->flipPosition ? 0 : 100;
-      obj["position_closed"] = this->flipPosition ? 100 : 0;
-      obj["state_closing"] = this->flipPosition ? "1" : "-1";
-      obj["state_opening"] = this->flipPosition ? "-1" : "1";
-      break;
-    case shade_types::shutter:
-      obj["device_class"] = "shutter";
-      obj["payload_close"] = this->flipPosition ? "-1" : "1";
-      obj["payload_open"] = this->flipPosition ? "1" : "-1";
-      obj["position_open"] = this->flipPosition ? 100 : 0;
-      obj["position_closed"] = this->flipPosition ? 0 : 100;
-      obj["state_closing"] = this->flipPosition ? "-1" : "1";
-      obj["state_opening"] = this->flipPosition ? "1" : "-1";
-      break;
-    case shade_types::drycontact2:
-    case shade_types::drycontact:
-      break;
-    default:
-      obj["device_class"] = "shade";
-      obj["payload_close"] = this->flipPosition ? "-1" : "1";
-      obj["payload_open"] = this->flipPosition ? "1" : "-1";
-      obj["position_open"] = this->flipPosition ? 100 : 0;
-      obj["position_closed"] = this->flipPosition ? 0 : 100;
-      obj["state_closing"] = this->flipPosition ? "-1" : "1";
-      obj["state_opening"] = this->flipPosition ? "1" : "-1";
-      break;
-  }
-  if(this->shadeType != shade_types::drycontact && this->shadeType != shade_types::drycontact2) {
-    if(this->tiltType != tilt_types::tiltonly) {
-      obj["command_topic"] = "~/direction/set";
-      obj["position_topic"] = "~/position";
-      obj["set_position_topic"] = "~/target/set";
-      obj["state_topic"] = "~/direction";
-      obj["payload_stop"] = "0";
-      obj["state_stopped"] = "0";
-    }
-    else {
-      obj["payload_close"] = nullptr;
-      obj["payload_open"] = nullptr;
-      obj["payload_stop"] = nullptr;
-    }
-    
-    if(this->tiltType != tilt_types::none) {
-      obj["tilt_command_topic"] = "~/tiltTarget/set";
-      obj["tilt_status_topic"] = "~/tiltPosition";
-    }
-    snprintf(topic, sizeof(topic), "%s/cover/%d/config", settings.MQTT.discoTopic, this->shadeId);
-  }
-  else {
-    obj["payload_on"] = 100;
-    obj["payload_off"] = 0;
-    obj["state_off"] = 0;
-    obj["state_on"] = 100;
-    obj["state_topic"] = "~/position";
-    obj["command_topic"] = "~/target/set";
-    snprintf(topic, sizeof(topic), "%s/switch/%d/config", settings.MQTT.discoTopic, this->shadeId);
-  }
-  
-  obj["enabled_by_default"] = true;
-  mqtt.publishDisco(topic, obj, true);  
+  shadeDisco(disco, obj, topic, sizeof(topic));
+  mqtt.publishDisco(topic, obj, true);
 }
 void SomfyShade::unpublishDisco() {
   if(!mqtt.connected() || !settings.MQTT.pubDisco) return;
   char topic[128] = "";
-  if(this->shadeType != shade_types::drycontact && this->shadeType != shade_types::drycontact2) {
-    snprintf(topic, sizeof(topic), "%s/cover/%d/config", settings.MQTT.discoTopic, this->shadeId);
-  }
-  else
-    snprintf(topic, sizeof(topic), "%s/switch/%d/config", settings.MQTT.discoTopic, this->shadeId);
+  shadeDiscoTopic(settings.MQTT.discoTopic, this->shadeId, isDiscoSwitch(this->shadeType), topic, sizeof(topic));
   mqtt.unpublish(topic);
 }
 void SomfyShade::publish() {
@@ -198,7 +88,6 @@ void SomfyShade::publish() {
     this->publish("flipPosition", this->flipPosition, true);
     this->publishState();
     this->publishDisco();
-    sockEmit.loop(); // Keep our socket alive.
   }
 }
 void SomfyGroup::publishState() {
@@ -230,45 +119,19 @@ void SomfyGroup::unpublish() { SomfyGroup::unpublish(this->groupId); }
 void SomfyShade::unpublish() { SomfyShade::unpublish(this->shadeId); }
 void SomfyShade::unpublish(uint8_t id) {
   if(mqtt.connected()) {
-    SomfyShade::unpublish(id, "shadeId");
-    SomfyShade::unpublish(id, "name");
-    SomfyShade::unpublish(id, "remoteAddress");
-    SomfyShade::unpublish(id, "shadeType");
-    SomfyShade::unpublish(id, "tiltType");
-    SomfyShade::unpublish(id, "flags");
-    SomfyShade::unpublish(id, "flipCommands");
-    SomfyShade::unpublish(id, "flipPosition");
-    SomfyShade::unpublish(id, "position");
-    SomfyShade::unpublish(id, "direction");
-    SomfyShade::unpublish(id, "target");
-    SomfyShade::unpublish(id, "lastRollingCode");
-    SomfyShade::unpublish(id, "mypos");
-    SomfyShade::unpublish(id, "myTiltPos");
-    SomfyShade::unpublish(id, "tiltDirection");
-    SomfyShade::unpublish(id, "tiltPosition");
-    SomfyShade::unpublish(id, "tiltTarget");
-    SomfyShade::unpublish(id, "windy");
-    SomfyShade::unpublish(id, "sunny");
+    for(const char *topic : SHADE_TOPICS) SomfyShade::unpublish(id, topic);
     if(settings.MQTT.pubDisco) {
       char topic[128] = "";
-      snprintf(topic, sizeof(topic), "%s/cover/%d/config", settings.MQTT.discoTopic, id);
+      shadeDiscoTopic(settings.MQTT.discoTopic, id, false, topic, sizeof(topic));
       mqtt.unpublish(topic);
-      snprintf(topic, sizeof(topic), "%s/switch/%d/config", settings.MQTT.discoTopic, id);
+      shadeDiscoTopic(settings.MQTT.discoTopic, id, true, topic, sizeof(topic));
       mqtt.unpublish(topic);
     }
   }
 }
 void SomfyGroup::unpublish(uint8_t id) {
   if(mqtt.connected()) {
-    SomfyGroup::unpublish(id, "groupId");
-    SomfyGroup::unpublish(id, "name");
-    SomfyGroup::unpublish(id, "remoteAddress");
-    SomfyGroup::unpublish(id, "groupType");
-    SomfyGroup::unpublish(id, "direction");
-    SomfyGroup::unpublish(id, "lastRollingCode");
-    SomfyGroup::unpublish(id, "flags");
-    SomfyGroup::unpublish(id, "SunSensor");
-    SomfyGroup::unpublish(id, "flipCommands");
+    for(const char *topic : GROUP_TOPICS) SomfyGroup::unpublish(id, topic);
   }
 }
 void SomfyGroup::unpublish(uint8_t id, const char *topic) {

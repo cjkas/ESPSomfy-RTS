@@ -2,7 +2,6 @@
 #define SOMFY_H
 #include <Preferences.h>
 #include "ConfigSettings.h"
-#include "WResp.h"
 
 #include "SomfyFrame.h"
 #include "TxBuffer.h"
@@ -32,8 +31,6 @@ class SomfyRoom {
     void clear();
     bool save();
     bool fromJSON(JsonObject &obj);
-    void emitState(const char *evt = "roomState");
-    void emitState(uint8_t num, const char *evt = "roomState");
     void publish();
     void unpublish();
 };
@@ -105,6 +102,7 @@ class SomfyShade : public SomfyRemote, public ShadeSettings, private MotorLink, 
     uint8_t getShadeId() { return shadeId; }
     // Where the shade is and where it is going.
     const ShadeBehaviour::State &state() const { return this->behaviour.state(); }
+    bool isIdle() const { return this->behaviour.isIdle(); }
     uint8_t getFlags() override;
     // Sets the setting and state bits from a saved or sent flags byte.
     void setFlags(uint8_t flags);
@@ -135,13 +133,11 @@ class SomfyShade : public SomfyRemote, public ShadeSettings, private MotorLink, 
     // Marks the shade as changed; the change fan-out sends shadeState once per
     // loop() pass.
     void emitState();
-    // Sends evt about the shade to every client now.
-    void emitState(const char *evt);
-    void emitState(uint8_t num, const char *evt = "shadeState");
     // What changed since the fan-out last sent the shade (SHADE_CHANGED_* bits).
     uint16_t changed = 0;
-    void emitCommand(somfy_commands cmd, const char *source, uint32_t sourceAddress, const char *evt = "shadeCommand");
-    void emitCommand(uint8_t num, somfy_commands cmd, const char *source, uint32_t sourceAddress, const char *evt = "shadeCommand");
+    // A setting changed: protocol 2 clients get the whole shade.
+    void configChanged() { this->changed |= SHADE_CHANGED_CONFIG; }
+    void emitCommand(somfy_commands cmd, const char *source, uint32_t sourceAddress);
     // False when the radio refused a command it sent.
     bool setMyPosition(int8_t pos, int8_t tilt = -1);
     bool moveToMyPosition();
@@ -210,11 +206,10 @@ class SomfyGroup : public SomfyRemote {
     // Marks the group as changed; the change fan-out sends groupState once per
     // loop() pass.
     void emitState();
-    // Sends evt about the group to every client now.
-    void emitState(const char *evt);
-    void emitState(uint8_t num, const char *evt = "groupState");
     // What changed since the fan-out last sent the group (GROUP_CHANGED_* bits).
     uint8_t changed = 0;
+    // A setting or its shades changed: protocol 2 clients get the whole group.
+    void configChanged() { this->changed |= GROUP_CHANGED_CONFIG; }
     bool sendCommand(somfy_commands cmd);
     bool sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize = 0);
     int8_t p_direction(int8_t dir);
@@ -234,6 +229,9 @@ class SomfyShadeController {
     uint8_t getNextRoomId();
     uint8_t getNextShadeId();
     uint8_t getNextGroupId();
+    // The remote address a new shade or group with that id is offered: one no
+    // shade or group uses.
+    uint32_t getNextRemoteAddress(uint8_t id);
     int8_t getMaxRoomOrder();
     int8_t getMaxShadeOrder();
     int8_t getMaxGroupOrder();
@@ -270,7 +268,6 @@ class SomfyShadeController {
     void processFrame(somfy_frame_t &frame, bool internal = false, const SomfyRemote *skip = nullptr);
     void markTxPending(uint32_t remoteAddress, uint32_t ticket, const SomfyRemote *skip = nullptr);
     void processTxEvent(const somfy_tx_event_t &evt);
-    void emitState(uint8_t num = 255);
     // The change fan-out: sends every shade and group that changed since the
     // last pass, its changed MQTT topics and one state event.  loop() only.
     void sendChanges();
@@ -279,7 +276,6 @@ class SomfyShadeController {
     void commit();
     void writeBackup();
     String backupData;
-    bool loadShadesFile(const char *filename);
 };
 
 #endif

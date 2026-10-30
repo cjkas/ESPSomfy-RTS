@@ -228,6 +228,42 @@ static void test_setBuffer_after_discard_writes_again() {
   TEST_ASSERT_EQUAL_STRING("{}", storage);
 }
 
+/*********************************************************************
+ * Mark and roll back
+ ********************************************************************/
+static void test_rollback_drops_what_was_written_since_the_mark() {
+  fmt.beginObject();
+  fmt.addElem("a", (uint8_t)1);
+  const json_mark_t m = fmt.mark();
+  fmt.addElem("b", (uint8_t)2);
+  fmt.beginArray("c");
+  fmt.rollback(m);
+  fmt.addElem("d", (uint8_t)3);
+  fmt.endObject();
+  TEST_ASSERT_EQUAL_STRING("{\"a\":1,\"d\":3}", storage);
+}
+static void test_rollback_clears_an_overflow() {
+  fmt.beginObject();
+  const json_mark_t m = fmt.mark();
+  char big[BUFF_SIZE + 1];
+  memset(big, 'z', BUFF_SIZE);
+  big[BUFF_SIZE] = '\0';
+  fmt.addElem("big", big);
+  TEST_ASSERT_TRUE(fmt.overflowed());
+  fmt.rollback(m);
+  TEST_ASSERT_FALSE(fmt.overflowed());
+  fmt.addElem("ok", true);
+  fmt.endObject();
+  TEST_ASSERT_EQUAL_STRING("{\"ok\":true}", storage);
+}
+static void test_rollback_at_the_start_leaves_an_empty_buffer() {
+  const json_mark_t m = fmt.mark();
+  fmt.beginObject();
+  fmt.rollback(m);
+  TEST_ASSERT_EQUAL_UINT32(0, fmt.length());
+  TEST_ASSERT_EQUAL_STRING("", storage);
+}
+
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
@@ -251,5 +287,8 @@ int main(int argc, char **argv) {
   RUN_TEST(test_setBuffer_resets_length);
   RUN_TEST(test_discard_writes_nothing);
   RUN_TEST(test_setBuffer_after_discard_writes_again);
+  RUN_TEST(test_rollback_drops_what_was_written_since_the_mark);
+  RUN_TEST(test_rollback_clears_an_overflow);
+  RUN_TEST(test_rollback_at_the_start_leaves_an_empty_buffer);
   return UNITY_END();
 }

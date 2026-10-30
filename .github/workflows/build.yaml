@@ -22,15 +22,34 @@ jobs:
           python-version: "3.12"
 
       # pioarduino's fork of PlatformIO Core, which the pioarduino platform needs.
+      # Pinned: 6.2.0.post1 reports itself as 6.2.0-post.1, which the
+      # platform's ">=6.2.0" reads as a pre-release and refuses.
       - name: Install PlatformIO
-        run: pip install pioarduino
+        run: pip install pioarduino==6.2.0
 
       - name: Run native unit tests
         run: pio test -e native
 
+  webui:
+    name: Web UI tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # The protocol 2 client (data-src/js) against the recorded fixtures.
+      - name: Run web UI tests
+        run: node --test "test/js/*.test.js"
+
   build:
     # Don't build or publish firmware that fails its tests.
-    needs: test
+    needs: [test, webui]
     permissions: write-all
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest
@@ -39,12 +58,12 @@ jobs:
       fail-fast: false
       matrix:
         # fwname: firmware-only binary for OTA updates
+        # elfname: the symbols of that binary, to decode a crash's backtrace
         # obname: onboard image (bootloader + partitions + firmware + littlefs merged)
         #         for flashing a new chip via USB/serial
-        # addr_bootloader: chip-dependent (ESP32: 0x1000, S3/C6: 0x0)
-        # No C3: on ESP-IDF 5.5 its image no longer fits the 1.5 MB OTA slot
-        # (docs/adr/0003-pioarduino-idf55.md).  C3 boards stay on 3.0.x.
-        # addr_fs: must match spiffs/littlefs offset in esp32_3MB.csv
+        # addr_bootloader: chip-dependent (ESP32: 0x1000, S3/C3/C6: 0x0, C5/P4: 0x2000)
+        # addr_fs: must match the spiffs offset in the env's partition table
+        #          (0x310000 in both esp32_3MB.csv and esp32_huge_app.csv)
         include:
           - env: esp32dev
             name: ESP32
@@ -52,6 +71,7 @@ jobs:
             addr_bootloader: "0x1000"
             addr_fs: "0x310000"
             fwname: SomfyController.ino.esp32.bin
+            elfname: SomfyController.ino.esp32.elf
             fsname: SomfyController.littlefs.esp32.bin
             obname: SomfyController.onboard.esp32.bin
           - env: esp32s3
@@ -60,16 +80,54 @@ jobs:
             addr_bootloader: "0x0"
             addr_fs: "0x670000"
             fwname: SomfyController.ino.esp32s3.bin
+            elfname: SomfyController.ino.esp32s3.elf
             fsname: SomfyController.littlefs.esp32s3.bin
             obname: SomfyController.onboard.esp32s3.bin
+          - env: esp32c3
+            name: ESP32-C3
+            chip: ESP32-C3
+            addr_bootloader: "0x0"
+            addr_fs: "0x310000"
+            fwname: SomfyController.ino.esp32c3.bin
+            elfname: SomfyController.ino.esp32c3.elf
+            fsname: SomfyController.littlefs.esp32c3.bin
+            obname: SomfyController.onboard.esp32c3.bin
+          - env: esp32c5
+            name: ESP32-C5
+            chip: ESP32-C5
+            addr_bootloader: "0x2000"
+            addr_fs: "0x310000"
+            fwname: SomfyController.ino.esp32c5.bin
+            elfname: SomfyController.ino.esp32c5.elf
+            fsname: SomfyController.littlefs.esp32c5.bin
+            obname: SomfyController.onboard.esp32c5.bin
           - env: esp32c6
             name: ESP32-C6
             chip: ESP32-C6
             addr_bootloader: "0x0"
             addr_fs: "0x310000"
             fwname: SomfyController.ino.esp32c6.bin
+            elfname: SomfyController.ino.esp32c6.elf
             fsname: SomfyController.littlefs.esp32c6.bin
             obname: SomfyController.onboard.esp32c6.bin
+          - env: esp32p4
+            name: ESP32-P4
+            chip: ESP32-P4
+            addr_bootloader: "0x2000"
+            addr_fs: "0x310000"
+            fwname: SomfyController.ino.esp32p4.bin
+            elfname: SomfyController.ino.esp32p4.elf
+            fsname: SomfyController.littlefs.esp32p4.bin
+            obname: SomfyController.onboard.esp32p4.bin
+          - env: esp32p4es
+            name: ESP32-P4 (before v2.0)
+            chip: ESP32-P4
+            addr_bootloader: "0x2000"
+            addr_fs: "0x310000"
+            fwname: SomfyController.ino.esp32p4es.bin
+            elfname: SomfyController.ino.esp32p4es.elf
+            fsname: SomfyController.littlefs.esp32p4es.bin
+            obname: SomfyController.onboard.esp32p4es.bin
 
     steps:
       - name: Get Release
@@ -107,7 +165,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install PlatformIO and esptool
-        run: pip install pioarduino esptool
+        run: pip install pioarduino==6.2.0 esptool
 
       - name: Build LittleFS image
         run: pio run -e ${{ matrix.env }} -t buildfs
@@ -138,6 +196,16 @@ jobs:
 
       - name: Compress onboard image
         run: zip ${{ matrix.obname }}.zip ${{ matrix.obname }}
+
+      # A panic prints "ELF file SHA256: <first hex digits>".  The .sha256 file
+      # beside the ELF holds the whole hash, so a crash log shows which build
+      # it came from.
+      - name: Compress ELF
+        run: |
+          cp .pio/build/${{ matrix.env }}/firmware.elf ${{ matrix.elfname }}
+          sha256sum ${{ matrix.elfname }} > ${{ matrix.elfname }}.sha256
+          cat ${{ matrix.elfname }}.sha256
+          zip -9 ${{ matrix.elfname }}.zip ${{ matrix.elfname }} ${{ matrix.elfname }}.sha256
 
       - name: Upload artifacts
         if: github.event_name != 'release'
@@ -181,5 +249,16 @@ jobs:
           upload_url: ${{ steps.get_release.outputs.upload_url }}
           asset_name: ${{ matrix.obname }}.zip
           asset_path: ${{ matrix.obname }}.zip
+          overwrite: true
+          asset_content_type: application/zip
+
+      - name: Upload ELF
+        if: github.event_name == 'release'
+        uses: shogo82148/actions-upload-release-asset@v1.7.5
+        with:
+          github_token: ${{ github.token }}
+          upload_url: ${{ steps.get_release.outputs.upload_url }}
+          asset_name: ${{ matrix.elfname }}.zip
+          asset_path: ${{ matrix.elfname }}.zip
           overwrite: true
           asset_content_type: application/zip

@@ -31,6 +31,12 @@ static void test_free_remote_address_skips_every_taken_one() {
   TEST_ASSERT_EQUAL_UINT32(104, freeRemoteAddress(101, used, 4));
   TEST_ASSERT_EQUAL_UINT32(100, freeRemoteAddress(100, used, 4));
 }
+static void test_a_new_one_is_offered_the_starting_address_plus_its_id() {
+  TEST_ASSERT_EQUAL_UINT32(1005, offeredRemoteAddress(1000, 5, nullptr, 0));
+  // Taken by another shade or group, so the next free one.
+  const uint32_t used[] = { 1006, 1005 };
+  TEST_ASSERT_EQUAL_UINT32(1007, offeredRemoteAddress(1000, 5, used, 2));
+}
 
 /*********************************************************************
  * Lists
@@ -134,6 +140,97 @@ static void test_255_means_no_pin() {
   TEST_ASSERT_EQUAL_INT8(0, conflict(shade_types::roller, radio_proto::GP_Remote, 255, 26, 255));
 }
 
+/*********************************************************************
+ * What protocol 2 clients are sent after an edit
+ ********************************************************************/
+/*********************************************************************
+ * Results
+ ********************************************************************/
+static void test_a_missing_id_is_not_found() {
+  const edit_result_t r = edit_result_t::missing("Shade Id not found.");
+  TEST_ASSERT_FALSE(r.ok);
+  TEST_ASSERT_TRUE(r.notFound);
+  TEST_ASSERT_EQUAL_STRING("Shade Id not found.", r.desc);
+}
+static void test_any_other_refusal_is_not_not_found() {
+  const edit_result_t r = edit_result_t::error("No shade id was supplied.", 3);
+  TEST_ASSERT_FALSE(r.ok);
+  TEST_ASSERT_FALSE(r.notFound);
+  TEST_ASSERT_EQUAL_INT8(3, r.code);
+  TEST_ASSERT_FALSE(edit_result_t().notFound);
+}
+
+static edit_result_t resultFor(uint8_t id, uint8_t shadeId = 0) {
+  edit_result_t r;
+  r.id = id;
+  r.shadeId = shadeId;
+  return r;
+}
+static void test_a_shade_edit_sends_the_whole_shade() {
+  const model_edit_type_t types[] = {
+    model_edit_type_t::add_shade, model_edit_type_t::save_shade, model_edit_type_t::set_paired,
+    model_edit_type_t::link_remote, model_edit_type_t::unlink_remote
+  };
+  for(model_edit_type_t t : types) {
+    const edit_changes_t c = editChanges(t, resultFor(7));
+    TEST_ASSERT_EQUAL_UINT8(7, c.shadeId);
+    TEST_ASSERT_EQUAL_UINT8(0, c.groupId);
+    TEST_ASSERT_EQUAL_UINT8(0, c.roomId);
+  }
+}
+static void test_a_group_edit_sends_the_whole_group() {
+  TEST_ASSERT_EQUAL_UINT8(3, editChanges(model_edit_type_t::add_group, resultFor(3)).groupId);
+  TEST_ASSERT_EQUAL_UINT8(3, editChanges(model_edit_type_t::save_group, resultFor(3)).groupId);
+}
+static void test_linking_a_shade_to_a_group_sends_both() {
+  // The shade's inGroup changes with the group's shades.
+  for(model_edit_type_t t : {model_edit_type_t::link_to_group, model_edit_type_t::unlink_from_group}) {
+    const edit_changes_t c = editChanges(t, resultFor(3, 9));
+    TEST_ASSERT_EQUAL_UINT8(3, c.groupId);
+    TEST_ASSERT_EQUAL_UINT8(9, c.shadeId);
+  }
+}
+static void test_a_room_edit_sends_the_room() {
+  TEST_ASSERT_EQUAL_UINT8(2, editChanges(model_edit_type_t::add_room, resultFor(2)).roomId);
+  TEST_ASSERT_EQUAL_UINT8(2, editChanges(model_edit_type_t::save_room, resultFor(2)).roomId);
+}
+static void test_a_sort_edit_sends_its_list() {
+  TEST_ASSERT_EQUAL(sort_list_t::rooms, editChanges(model_edit_type_t::room_order, resultFor(0)).order);
+  TEST_ASSERT_EQUAL(sort_list_t::shades, editChanges(model_edit_type_t::shade_order, resultFor(0)).order);
+  TEST_ASSERT_EQUAL(sort_list_t::groups, editChanges(model_edit_type_t::group_order, resultFor(0)).order);
+  TEST_ASSERT_EQUAL(sort_list_t::none, editChanges(model_edit_type_t::save_shade, resultFor(1)).order);
+}
+static void test_a_repeater_edit_sends_the_repeaters() {
+  TEST_ASSERT_TRUE(editChanges(model_edit_type_t::link_repeater, resultFor(0)).repeaters);
+  TEST_ASSERT_TRUE(editChanges(model_edit_type_t::unlink_repeater, resultFor(0)).repeaters);
+  TEST_ASSERT_FALSE(editChanges(model_edit_type_t::save_room, resultFor(1)).repeaters);
+}
+static void test_deletes_send_their_removal() {
+  // After the reply, as every edit's events are, so a client waiting for the
+  // reply doesn't read past it.
+  const edit_changes_t room = editChanges(model_edit_type_t::delete_room, resultFor(4));
+  const edit_changes_t shade = editChanges(model_edit_type_t::delete_shade, resultFor(5));
+  const edit_changes_t group = editChanges(model_edit_type_t::delete_group, resultFor(6));
+  TEST_ASSERT_EQUAL_UINT8(4, room.removedRoomId);
+  TEST_ASSERT_EQUAL_UINT8(5, shade.removedShadeId);
+  TEST_ASSERT_EQUAL_UINT8(6, group.removedGroupId);
+  for(const edit_changes_t &c : {room, shade, group}) {
+    // Nothing is left of it to send whole.
+    TEST_ASSERT_EQUAL_UINT8(0, c.shadeId);
+    TEST_ASSERT_EQUAL_UINT8(0, c.groupId);
+    TEST_ASSERT_EQUAL_UINT8(0, c.roomId);
+    TEST_ASSERT_EQUAL(sort_list_t::none, c.order);
+    TEST_ASSERT_FALSE(c.repeaters);
+  }
+  TEST_ASSERT_EQUAL_UINT8(0, room.removedShadeId + room.removedGroupId);
+  TEST_ASSERT_EQUAL_UINT8(0, shade.removedRoomId + shade.removedGroupId);
+  TEST_ASSERT_EQUAL_UINT8(0, group.removedRoomId + group.removedShadeId);
+}
+static void test_other_edits_remove_nothing() {
+  const edit_changes_t c = editChanges(model_edit_type_t::save_room, resultFor(4));
+  TEST_ASSERT_EQUAL_UINT8(0, c.removedRoomId + c.removedShadeId + c.removedGroupId);
+}
+
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
@@ -143,6 +240,9 @@ int main(int argc, char **argv) {
   RUN_TEST(test_first_free_id_is_0_when_every_one_is_taken);
   RUN_TEST(test_next_sort_order_goes_after_the_last);
   RUN_TEST(test_free_remote_address_skips_every_taken_one);
+  RUN_TEST(test_a_new_one_is_offered_the_starting_address_plus_its_id);
+  RUN_TEST(test_a_missing_id_is_not_found);
+  RUN_TEST(test_any_other_refusal_is_not_not_found);
   RUN_TEST(test_add_goes_into_the_first_empty_slot);
   RUN_TEST(test_adding_one_already_there_changes_nothing);
   RUN_TEST(test_adding_to_a_full_list_fails);
@@ -157,5 +257,13 @@ int main(int argc, char **argv) {
   RUN_TEST(test_a_pin_another_shade_uses);
   RUN_TEST(test_only_the_pins_a_shade_drives_are_checked);
   RUN_TEST(test_255_means_no_pin);
+  RUN_TEST(test_a_shade_edit_sends_the_whole_shade);
+  RUN_TEST(test_a_group_edit_sends_the_whole_group);
+  RUN_TEST(test_linking_a_shade_to_a_group_sends_both);
+  RUN_TEST(test_a_room_edit_sends_the_room);
+  RUN_TEST(test_a_sort_edit_sends_its_list);
+  RUN_TEST(test_a_repeater_edit_sends_the_repeaters);
+  RUN_TEST(test_deletes_send_their_removal);
+  RUN_TEST(test_other_edits_remove_nothing);
   return UNITY_END();
 }

@@ -104,10 +104,19 @@ uint8_t PA_TABLE_915[10] {0x03,0x0E,0x1E,0x27,0x38,0x8E,0x84,0xCC,0xC3,0xC0,};  
 void ELECHOUSE_CC1101::SpiStart(void)
 {
   // initialize the SPI pins
+  #ifdef ESP32
+  // ESPSomfy-RTS: SPI.begin() sets the bus pins up itself.  Init() calls this
+  // again while the bus is running, and on Arduino 3.x a pinMode() on a pin
+  // the bus owns stops the bus while SPI.begin() still thinks it is up.  The
+  // next transfer is lost on the ESP32 and hangs forever on the S3, whose
+  // stopped bus has no clock.  SS is driven by hand, so it still needs one.
+  pinMode(SS_PIN, OUTPUT);
+  #else
   pinMode(SCK_PIN, OUTPUT);
   pinMode(MOSI_PIN, OUTPUT);
   pinMode(MISO_PIN, INPUT);
   pinMode(SS_PIN, OUTPUT);
+  #endif
 
   // enable SPI
   #ifdef ESP32

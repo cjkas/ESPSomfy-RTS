@@ -5,15 +5,15 @@
 #include "LoopQueue.h"
 #include "ConfigFile.h"
 #include "Somfy.h"
-#include "SomfySnapshot.h"
 #include "SomfyEditor.h"
 #include "Utils.h"
+#include "outputs/ProtoSocket.h"
+#include "DeviceOps.h"
 
 static const char *TAG = "LoopQueue";
 
 extern SomfyShadeController somfy;
 extern ShadeRequests shadeRequests;
-extern SnapshotSlots snapshotSlots;
 extern rebootDelay_t rebootDelay;
 
 static restore_options_t restoreOptions(uint8_t parts) {
@@ -30,11 +30,12 @@ static restore_options_t restoreOptions(uint8_t parts) {
 void LoopQueue::begin() {
   if(!this->queue) this->queue = xQueueCreate(LOOP_QUEUE_SIZE, sizeof(loop_item_t));
 }
-bool LoopQueue::submit(const loop_item_t &item) {
+bool LoopQueue::submit(const loop_item_t &item, bool first) {
   if(!this->queue) return false;
   // async_tcp also services the sockets, so it must never wait on loop() or
   // the radio.
-  if(xQueueSend(static_cast<QueueHandle_t>(this->queue), &item, 0) != pdTRUE) {
+  QueueHandle_t q = static_cast<QueueHandle_t>(this->queue);
+  if((first ? xQueueSendToFront(q, &item, 0) : xQueueSend(q, &item, 0)) != pdTRUE) {
     ESP_LOGE(TAG, "Loop queue full, dropping item");
     return false;
   }
@@ -50,10 +51,13 @@ void LoopQueue::drain() {
     // loop() is the only consumer so this is the item we peeked.
     xQueueReceive(q, &item, 0);
     switch(item.type) {
-      case loop_item_type_t::shade_request:
-        if(!shadeRequests.run(item.request))
+      case loop_item_type_t::shade_request: {
+        const shade_request_result_t result = shadeRequests.run(item.request);
+        if(result == shade_request_result_t::radio_refused)
           ESP_LOGW(TAG, "Radio didn't take shade request %u", static_cast<uint8_t>(item.request.type));
+        protoSocket.replyRequest(item.replyTo, item.request, result);
         break;
+      }
       case loop_item_type_t::restore_shades: {
         restore_options_t opts = restoreOptions(item.restoreParts);
         const bool restored = ShadeConfigFile::restore(&somfy, "/shades.tmp", opts);
@@ -70,15 +74,14 @@ void LoopQueue::drain() {
         rebootDelay.rebootTime = millis() + 1000;
         break;
       }
-      case loop_item_type_t::load_shades:
-        somfy.loadShadesFile("/shades.tmp");
-        LittleFS.remove("/shades.tmp");
-        break;
-      case loop_item_type_t::snapshot_fill:
-        snapshotSlots.fill(item.slot, fillSnapshot);
-        break;
       case loop_item_type_t::model_edit:
         runModelEdit(item.edit);
+        break;
+      case loop_item_type_t::proto_read:
+        protoSocket.replyRead(item.replyTo, item.op, item.groupId);
+        break;
+      case loop_item_type_t::proto_device:
+        runDeviceOp(item);
         break;
     }
   }

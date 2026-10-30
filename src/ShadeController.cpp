@@ -4,14 +4,13 @@
 #include "ConfigSettings.h"
 #include "Somfy.h"
 #include "ConfigFile.h"
-#include "GitOTA.h"
 #include "ModelEditor.h"
+#include "ShadeChanges.h"
 
 static const char *TAG = "Somfy";
 
 extern SomfyShadeController somfy;
 extern ConfigSettings settings;
-extern GitUpdater git;
 
 void SomfyShadeController::end() { this->transceiver.disableReceive(); }
 SomfyShadeController::SomfyShadeController() {
@@ -77,7 +76,6 @@ bool SomfyShadeController::begin() {
   return true;
 }
 void SomfyShadeController::commit() {
-  if(git.lockFS) return;
   resetTaskWdt(); // Make sure we don't reset inadvertently.
   ShadeConfigFile file;
   file.begin();
@@ -87,7 +85,6 @@ void SomfyShadeController::commit() {
   this->lastCommit = millis();
 }
 void SomfyShadeController::writeBackup() {
-  if(git.lockFS) return;
   resetTaskWdt(); // Make sure we don't reset inadvertently.
   this->backupData = "";
   this->backupData.reserve(16384);
@@ -177,6 +174,15 @@ uint8_t SomfyShadeController::getNextGroupId() {
   for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++) ids[i] = this->groups[i].getGroupId();
   const uint8_t id = firstFreeId(ids, SOMFY_MAX_GROUPS, SOMFY_MAX_GROUPS);
   return id == 0 ? 255 : id;
+}
+uint32_t SomfyShadeController::getNextRemoteAddress(uint8_t id) {
+  uint32_t used[SOMFY_MAX_SHADES + SOMFY_MAX_GROUPS];
+  size_t count = 0;
+  for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++)
+    if(this->shades[i].getShadeId() != 255) used[count++] = this->shades[i].getRemoteAddress();
+  for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++)
+    if(this->groups[i].getGroupId() != 255) used[count++] = this->groups[i].getRemoteAddress();
+  return offeredRemoteAddress(this->startingAddress, id, used, count);
 }
 uint8_t SomfyShadeController::getNextRoomId() {
   uint8_t ids[SOMFY_MAX_ROOMS];
@@ -283,10 +289,13 @@ bool SomfyShadeController::deleteShade(uint8_t shadeId) {
   Preferences pref;
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
     if(this->shades[i].getShadeId() == shadeId) {
-      shades[i].emitState("shadeRemoved");
       shades[i].unpublish();
       this->shades[i].clear();
     }
+  }
+  // Its groups lose it, or a new shade given its id would join them.
+  for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++) {
+    if(this->groups[i].getGroupId() != 255 && this->groups[i].unlinkShade(shadeId)) this->groups[i].configChanged();
   }
   this->commit();
   return true;
@@ -299,15 +308,16 @@ bool SomfyShadeController::deleteRoom(uint8_t roomId) {
         if(shades[j].roomId == roomId) {
           shades[j].roomId = 0;
           shades[j].emitState();
+          shades[j].configChanged();
         }
       }
       for(uint8_t j = 0; j < SOMFY_MAX_GROUPS; j++) {
         if(groups[j].roomId == roomId) {
           groups[j].roomId = 0;
           groups[j].emitState();
+          groups[j].configChanged();
         }
       }
-      rooms[i].emitState("roomRemoved");
       this->rooms[i].clear();
     }
   }
@@ -317,7 +327,11 @@ bool SomfyShadeController::deleteRoom(uint8_t roomId) {
 bool SomfyShadeController::deleteGroup(uint8_t groupId) {
   for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++) {
     if(this->groups[i].getGroupId() == groupId) {
-      groups[i].emitState("groupRemoved");
+      // Its shades are no longer in a group, which their inGroup shows.
+      for(uint8_t j = 0; j < SOMFY_MAX_GROUPED_SHADES && groups[i].linkedShades[j] != 0; j++) {
+        SomfyShade *shade = this->getShadeById(groups[i].linkedShades[j]);
+        if(shade) shade->configChanged();
+      }
       groups[i].unpublish();
       this->groups[i].clear();
     }
@@ -325,7 +339,6 @@ bool SomfyShadeController::deleteGroup(uint8_t groupId) {
   this->commit();
   return true;
 }
-bool SomfyShadeController::loadShadesFile(const char *filename) { return ShadeConfigFile::load(this, filename); }
 void SomfyShadeController::loop() { 
   this->transceiver.loop(); 
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {

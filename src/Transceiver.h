@@ -30,7 +30,7 @@ struct transceiver_config_t {
     radio_proto proto = radio_proto::RTS;
     uint8_t SCKPin = 18;
     uint8_t TXPin = 13;
-    uint8_t RXPin = 12;
+    uint8_t RXPin = 35;
     uint8_t MOSIPin = 23;
     uint8_t MISOPin = 19;
     uint8_t CSNPin = 5;
@@ -90,7 +90,7 @@ class Transceiver {
     void beginFrequencyScan();
     void endFrequencyScan();
     void processFrequencyScan(bool received = false);
-    void emitFrequencyScan(uint8_t num = 255);
+    void emitFrequencyScan();
     bool usesPin(uint8_t pin);
 };
 // Bit length the radio was last set up for.  A frame sent without one

@@ -138,8 +138,7 @@ bool rssiNeedsEmit(int rssi, int lastRssi, int channel, int lastChannel, int min
 bool RssiBroadcast::due(int rssi, int channel, int minDelta) const {
   return rssiNeedsEmit(rssi, this->rssi, channel, this->channel, minDelta);
 }
-void RssiBroadcast::sent(bool broadcast, int rssi, int channel) {
-  if(!broadcast) return;
+void RssiBroadcast::sent(int rssi, int channel) {
   this->rssi = rssi;
   this->channel = channel;
 }
