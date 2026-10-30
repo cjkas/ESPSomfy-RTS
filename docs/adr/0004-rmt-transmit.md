@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: proposed
 ---
 
 # Frames go on air through the RMT peripheral
@@ -18,12 +18,13 @@ The radio task hands each frame to the RMT peripheral as a list of symbols and s
 
 ## Consequences
 
-- A whole frame fits in the channel's memory: 128 symbols on the ESP32 and 144 on the S3, taking the memory of the channels after it. The largest frame is an 80-bit first frame relayed for a repeater with 24 syncs (#94), 106 symbols with the end marker. The C6 has only 96, so such a frame goes out with fewer syncs there and a warning is logged.
+- A whole frame fits in the channel's memory: 128 symbols on the ESP32 and 144 on the S3 and P4, taking the memory of the channels after it. The largest frame is an 80-bit first frame relayed for a repeater with 24 syncs (#94), 106 symbols with the end marker. The C3, C5 and C6 have only 96, so such a frame goes out with fewer syncs there and a warning is logged. An ordinary 80-bit first frame (95 symbols) fits every chip.
+- On the chips with two TX channels the job's channel takes both, so the RMT can't be used for anything else.
 - One `rmt_transmit()` per frame. Between frames the task wakes up and builds the next one, which adds some tens of µs, more if a flash write is in progress. 80-bit frames have no gap after them (#84), so that time is the only gap between them.
 - A flush or a task waiting to reconfigure the radio still stops a job between frames, never in the middle of one.
-- The channel is created when a job starts and deleted when it ends, so a TX pin shared with RX is free for receiving between jobs and a changed TX pin needs nothing else.
+- The channel is created when a job starts and deleted when it ends, so a TX pin shared with RX is free for receiving between jobs and a changed TX pin needs nothing else. A TX pin of its own is driven low between jobs, as it was before.
 - A frame that hasn't gone out after 500 ms stops the channel and ends the job as cut short.
-- About 40–90 ms of the 365 ms wasn't air time, probably the NVS write of the rolling code. It is measured separately.
+- About 40–90 ms of the 365 ms wasn't air time, probably the NVS write of the rolling code. It is measured separately (#124).
 
 ## References
 

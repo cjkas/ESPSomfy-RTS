@@ -1,12 +1,11 @@
 #include <unity.h>
-#include <vector>
 #include "SomfyWaveform.h"
 
 void setUp() {}
 void tearDown() {}
 
 static const uint8_t FRAME[10] = {0xA7, 0x5C, 0x13, 0xF0, 0x0F, 0x81, 0x42, 0x99, 0x3C, 0xE1};
-// Room for the largest frame on every chip (the C6 has 96).
+// The smallest RMT channel memory of any chip (C3, C5 and C6).
 #define CAPACITY 96
 
 struct Built {
@@ -94,7 +93,7 @@ static void test_symbol_count_matches() {
   TEST_ASSERT_EQUAL_UINT16(waveformSymbols(12, 80), build(FRAME, 12, 80).wave.symbols);
   TEST_ASSERT_EQUAL_UINT16(waveformSymbols(6, 80), build(FRAME, 6, 80).wave.symbols);
 }
-static void test_largest_frame_fits_every_chip() {
+static void test_first_frame_fits_every_chip() {
   // With the end marker.
   TEST_ASSERT_LESS_OR_EQUAL_UINT16(CAPACITY, waveformSymbols(12, 80) + 1);
 }
@@ -129,41 +128,7 @@ static void test_frame_that_cant_fit_is_not_built() {
 static void test_more_than_80_bits_is_not_built() {
   TEST_ASSERT_EQUAL_UINT16(0, build(FRAME, 7, 81).wave.symbols);
 }
-// The times between edges a receiver sees for the symbols.
-static std::vector<uint32_t> edges(const Built &b) {
-  std::vector<uint32_t> d;
-  int level = 0;
-  uint32_t run = 100000;  // Quiet before the transmission.
-  auto add = [&](int lvl, uint32_t us) {
-    if(lvl == level) { run += us; return; }
-    d.push_back(run);
-    level = lvl;
-    run = us;
-  };
-  for(uint16_t i = 0; i < b.wave.symbols; i++) {
-    add(b.symbols[i].level0, b.symbols[i].duration0);
-    add(b.symbols[i].level1, b.symbols[i].duration1);
-  }
-  add(0, 30000);  // The pin stays low after the frame.
-  add(1, 0);
-  return d;
-}
-static void assertDecodes(uint8_t sync, uint8_t bitLength) {
-  somfy_rx_t rx;
-  rx.clear();
-  bool got = false;
-  for(uint32_t d : edges(build(FRAME, sync, bitLength)))
-    if(decodePulse(rx, d) == PulseResult::frame) { got = true; break; }
-  TEST_ASSERT_TRUE(got);
-  TEST_ASSERT_EQUAL_UINT8(bitLength, rx.bit_length);
-  TEST_ASSERT_EQUAL_HEX8_ARRAY(FRAME, rx.payload, bitLength / 8);
-}
-static void test_our_receiver_decodes_every_frame() {
-  assertDecodes(2, 56);
-  assertDecodes(7, 56);
-  assertDecodes(12, 80);
-  assertDecodes(6, 80);
-}
+// test_pulse decodes buildWaveform()'s output with our receiver.
 
 int main(int argc, char **argv) {
   (void)argc;
@@ -176,12 +141,11 @@ int main(int argc, char **argv) {
   RUN_TEST(test_frame_durations);
   RUN_TEST(test_bits_go_msb_first);
   RUN_TEST(test_symbol_count_matches);
-  RUN_TEST(test_largest_frame_fits_every_chip);
+  RUN_TEST(test_first_frame_fits_every_chip);
   RUN_TEST(test_syncs_that_dont_fit_are_left_out);
   RUN_TEST(test_syncs_that_fit_are_all_sent);
   RUN_TEST(test_capped_frame_gets_no_wakeup);
   RUN_TEST(test_frame_that_cant_fit_is_not_built);
   RUN_TEST(test_more_than_80_bits_is_not_built);
-  RUN_TEST(test_our_receiver_decodes_every_frame);
   return UNITY_END();
 }

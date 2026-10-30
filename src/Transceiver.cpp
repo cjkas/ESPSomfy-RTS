@@ -41,8 +41,8 @@ uint8_t rxmode = 0;  // Indicates whether the radio is in receive mode.  Just to
 // A whole frame goes in the RMT channel's memory, taking the blocks of the
 // channels after it.  A larger frame is refilled from the RMT interrupt, which
 // isn't cache safe in the prebuilt IDF so it waits out flash writes and garbage
-// goes on air meanwhile.  The C6 has two TX blocks, so the largest frames go
-// out with fewer syncs there.
+// goes on air meanwhile.  The C3, C5 and C6 have two TX blocks (96 symbols),
+// so the largest frames go out with fewer syncs there.
 #define TX_RMT_BLOCKS_NEEDED ((TX_FRAME_MAX_SYMBOLS + SOC_RMT_MEM_WORDS_PER_CHANNEL - 1) / SOC_RMT_MEM_WORDS_PER_CHANNEL)
 #define TX_RMT_BLOCKS (TX_RMT_BLOCKS_NEEDED < SOC_RMT_TX_CANDIDATES_PER_GROUP ? TX_RMT_BLOCKS_NEEDED : SOC_RMT_TX_CANDIDATES_PER_GROUP)
 #define TX_RMT_SYMBOLS (TX_RMT_BLOCKS * SOC_RMT_MEM_WORDS_PER_CHANNEL)
@@ -881,6 +881,12 @@ void Transceiver::endTransmit() {
       rmt_disable(txChannel);
       rmt_del_channel(txChannel);
       txChannel = nullptr;
+      // Deleting the channel stops driving the pin.  Keep a TX pin of its own
+      // low between jobs as before RMT; a shared one goes back to receiving.
+      if(this->config.TXPin != this->config.RXPin) {
+        pinMode(this->config.TXPin, OUTPUT);
+        digitalWrite(this->config.TXPin, 0);
+      }
     }
     if(this->config.enabled) this->enableReceive();
 }
