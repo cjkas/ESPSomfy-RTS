@@ -1,6 +1,6 @@
 #include <unity.h>
 #include <vector>
-#include "PulseDecoder.h"
+#include "SomfyWaveform.h"
 
 void setUp() {}
 void tearDown() {}
@@ -8,7 +8,7 @@ void tearDown() {}
 static const uint8_t FRAME[10] = {0xA7, 0x5C, 0x13, 0xF0, 0x0F, 0x81, 0x42, 0x99, 0x3C, 0xE1};
 
 // The times between edges a receiver sees for a transmitted waveform.  Levels
-// are added the way Transceiver::sendFrame() drives the TX pin; a run of the
+// are added the way the transmitter drives the TX pin; a run of the
 // same level is one pulse.
 struct Wave {
   std::vector<uint32_t> durations;
@@ -21,26 +21,17 @@ struct Wave {
     this->run = us;
   }
 };
-// Mirrors Transceiver::sendFrame(): a wakeup pulse on the first frame (sync 2
-// or 12), sync hardware sync pulses, the software sync and the Manchester bits.
+// The frame as buildWaveform() sends it, so every test here is also a round
+// trip through the transmitter.
 static Wave transmit(const uint8_t *frame, uint8_t sync, uint8_t bitLength) {
+  somfy_symbol_t symbols[128];
+  const somfy_waveform_t wave = buildWaveform(frame, sync, bitLength, symbols, 128);
   Wave w;
-  if(sync == 2 || sync == 12) {
-    w.add(1, 10920);
-    w.add(0, 7357);
+  for(uint16_t i = 0; i < wave.symbols; i++) {
+    w.add(symbols[i].level0, symbols[i].duration0);
+    w.add(symbols[i].level1, symbols[i].duration1);
   }
-  for(uint8_t i = 0; i < sync; i++) {
-    w.add(1, 4 * SYMBOL);
-    w.add(0, 4 * SYMBOL);
-  }
-  w.add(1, 4850);
-  w.add(0, SYMBOL);
-  for(uint8_t i = 0; i < bitLength; i++) {
-    const bool one = (frame[i / 8] >> (7 - (i % 8))) & 1;
-    w.add(one ? 0 : 1, SYMBOL);
-    w.add(one ? 1 : 0, SYMBOL);
-  }
-  w.add(0, 27434);  // Inter-frame silence.
+  w.add(0, 30000);  // The pin stays low after the frame.
   w.add(1, 0);
   return w;
 }

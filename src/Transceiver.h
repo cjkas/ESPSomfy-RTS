@@ -73,7 +73,9 @@ class Transceiver {
     void enableReceive();
     void disableReceive();
     somfy_frame_t& lastFrame();
-    void sendFrame(byte *frame, uint8_t sync, uint8_t bitLength = 56);
+    // Sends one frame and waits for it to go out, between beginTransmit() and
+    // endTransmit().  False when it didn't go out whole.
+    bool sendFrame(byte *frame, uint8_t sync, uint8_t bitLength = 56);
     // Hands a job to the radio task, see RadioScheduler::submit().  Returns its
     // ticket, 0 when the radio can't take it.  Safe from any task.
     uint32_t submitTx(somfy_tx_job_t &job, bool priority = false, uint16_t delayMs = 0);
@@ -81,7 +83,8 @@ class Transceiver {
     void resumeTx(uint8_t reason);
     bool txSuspended();
     bool txHasRoom();
-    void beginTransmit();
+    // Takes an RMT channel for the TX pin.  False when the radio can't send.
+    bool beginTransmit();
     void endTransmit();
     void emitFrame(somfy_frame_t *frame, somfy_rx_t *rx = nullptr);
     void beginFrequencyScan();

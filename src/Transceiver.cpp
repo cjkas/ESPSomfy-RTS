@@ -6,11 +6,14 @@
 #include <atomic>
 #include <esp_chip_info.h>
 #include "driver/gpio.h"
+#include "driver/rmt_tx.h"
+#include "soc/soc_caps.h"
 #include "esp_log.h"
 #include "Utils.h"
 #include "BootPins.h"
 #include "ConfigSettings.h"
 #include "Somfy.h"
+#include "SomfyWaveform.h"
 #include "outputs/ProtoSocket.h"
 #include "ProtoSync.h"
 
@@ -31,6 +34,20 @@ uint8_t rxmode = 0;  // Indicates whether the radio is in receive mode.  Just to
 #define TX_TASK_PRIORITY 5
 #define TX_TASK_STACK 4096
 #define TX_RX_IDLE_WAIT 300  // Max ms a repeater frame waits for an incoming frame to finish.
+#define TX_FRAME_TIMEOUT_MS 500  // About twice the longest frame.
+// The largest frame: an 80-bit first frame relayed for a repeater with 24
+// syncs (#94), and the RMT driver's end marker.
+#define TX_FRAME_MAX_SYMBOLS (waveformSymbols(24, 80) + 1)
+// A whole frame goes in the RMT channel's memory, taking the blocks of the
+// channels after it.  A larger frame is refilled from the RMT interrupt, which
+// isn't cache safe in the prebuilt IDF so it waits out flash writes and garbage
+// goes on air meanwhile.  The C3, C5 and C6 have two TX blocks (96 symbols),
+// so the largest frames go out with fewer syncs there.
+#define TX_RMT_BLOCKS_NEEDED ((TX_FRAME_MAX_SYMBOLS + SOC_RMT_MEM_WORDS_PER_CHANNEL - 1) / SOC_RMT_MEM_WORDS_PER_CHANNEL)
+#define TX_RMT_BLOCKS (TX_RMT_BLOCKS_NEEDED < SOC_RMT_TX_CANDIDATES_PER_GROUP ? TX_RMT_BLOCKS_NEEDED : SOC_RMT_TX_CANDIDATES_PER_GROUP)
+#define TX_RMT_SYMBOLS (TX_RMT_BLOCKS * SOC_RMT_MEM_WORDS_PER_CHANNEL)
+static_assert(TX_RMT_SYMBOLS >= waveformSymbols(12, 80) + 1, "An 80-bit first frame must fit the RMT channel");
+static_assert(sizeof(somfy_symbol_t) == sizeof(rmt_symbol_word_t), "somfy_symbol_t must match rmt_symbol_word_t");
 // Serializes all access to the CC1101 (SPI) and the TX/RX pins between the
 // radio task, the main loop and the async web server task.
 static SemaphoreHandle_t radioMutex = nullptr;
@@ -38,6 +55,10 @@ static SemaphoreHandle_t radioMutex = nullptr;
 // and the async web server task all use it.
 static SemaphoreHandle_t txQueueMutex = nullptr;
 static TaskHandle_t txTaskHandle = nullptr;
+// Only the radio task uses these, from beginTransmit() to endTransmit().
+static rmt_channel_handle_t txChannel = nullptr;
+static rmt_encoder_handle_t txEncoder = nullptr;
+static somfy_symbol_t txSymbols[TX_RMT_SYMBOLS];
 // Number of tasks waiting for the radio to reconfigure it.  A job in flight
 // stops after its current frame so they never wait for a whole transmission.
 static std::atomic<uint32_t> txPreemptWaiters{0};
@@ -100,78 +121,27 @@ bool somfy_rx_queue_t::pop(somfy_rx_t *rx) {
   }
   return false;
 }
-void Transceiver::sendFrame(byte *frame, uint8_t sync, uint8_t bitLength) {
-  if(!this->config.enabled) return;
-  uint32_t pin = 1 << this->config.TXPin;
-  if (sync == 2 || sync == 12) {  // Only with the first frame.  Repeats do not get a wakeup pulse.
-    // All information online for the wakeup pulse appears to be incorrect.  While there is a wakeup
-    // pulse it only sends an initial pulse.  There is no further delay after this.
-    
-    // Wake-up pulse
-    //Serial.printf("Sending wakeup pulse: %d\n", sync);
-    REG_WRITE(GPIO_OUT_W1TS_REG, pin);
-    delayMicroseconds(10920);
-    //delayMicroseconds(9415);
-    
-    // There is no silence after the wakeup pulse.  I tested this with Telis and no silence
-    // was detected.  I suspect that for some battery powered shades the shade would go back
-    // to sleep from the time of the initial pulse while the silence was occurring.
-    REG_WRITE(GPIO_OUT_W1TC_REG, pin);
-    delayMicroseconds(7357);
-    //delayMicroseconds(9565);
-    //delay(80);
+bool Transceiver::sendFrame(byte *frame, uint8_t sync, uint8_t bitLength) {
+  if(!txChannel) return false;
+  const somfy_waveform_t wave = buildWaveform(frame, sync, bitLength, txSymbols, TX_RMT_SYMBOLS);
+  if(!wave.symbols) {
+    ESP_LOGE(TAG, "Can't send a %u-bit frame", bitLength);
+    return false;
   }
-  // Depending on the bitness of the protocol we will be sending a different hwsync.
-  // 56-bit 2 pulses for the first frame and 7 for the repeats
-  // 80-bit 24 pulses for the first frame and 14 pulses for the repeats
-  for (int i = 0; i < sync; i++) {
-    REG_WRITE(GPIO_OUT_W1TS_REG, pin);
-    delayMicroseconds(4 * SYMBOL);
-    REG_WRITE(GPIO_OUT_W1TC_REG, pin);
-    delayMicroseconds(4 * SYMBOL);
+  if(wave.sync < sync) ESP_LOGW(TAG, "Sending %u of %u hardware syncs, the rest don't fit", wave.sync, sync);
+  // The pin is left low after the frame.
+  const rmt_transmit_config_t cfg = {};
+  if(rmt_transmit(txChannel, txEncoder, txSymbols, wave.symbols * sizeof(somfy_symbol_t), &cfg) != ESP_OK) {
+    ESP_LOGE(TAG, "Unable to send a frame");
+    return false;
   }
-  // Software sync
-  REG_WRITE(GPIO_OUT_W1TS_REG, pin);
-  //delayMicroseconds(4450); -- Initial timing.
-  delayMicroseconds(4850);
-  // Start 0
-  REG_WRITE(GPIO_OUT_W1TC_REG, pin);
-  delayMicroseconds(SYMBOL);
-  // Payload starting with the most significant bit.  The frame is always supplied in 80 bits
-  // but if the protocol is calling for 56 bits it will only send 56 bits of the frame.
-  uint8_t last_bit = 0;
-  for (byte i = 0; i < bitLength; i++) {
-    if (((frame[i / 8] >> (7 - (i % 8))) & 1) == 1) {
-      REG_WRITE(GPIO_OUT_W1TC_REG, pin);
-      delayMicroseconds(SYMBOL);
-      REG_WRITE(GPIO_OUT_W1TS_REG, pin);
-      delayMicroseconds(SYMBOL);
-      last_bit = 1;
-    } else {
-      REG_WRITE(GPIO_OUT_W1TS_REG, pin);
-      delayMicroseconds(SYMBOL);
-      REG_WRITE(GPIO_OUT_W1TC_REG, pin);
-      delayMicroseconds(SYMBOL);
-      last_bit = 0;
-    }
+  // The RMT plays the frame out while this task sleeps, so loop() keeps running.
+  if(rmt_tx_wait_all_done(txChannel, TX_FRAME_TIMEOUT_MS) != ESP_OK) {
+    // endTransmit() stops it.
+    ESP_LOGE(TAG, "Frame not sent after %dms", TX_FRAME_TIMEOUT_MS);
+    return false;
   }
-  // End with a 0 no matter what.  This accommodates the 56-bit protocol by telling the
-  // motor that there are no more follow on bits.
-  if(last_bit == 0) {
-    REG_WRITE(GPIO_OUT_W1TS_REG, pin);
-    //delayMicroseconds(SYMBOL);
-  }
-    
-  // Inter-frame silence for 56-bit protocols are around 34ms.  However, an 80 bit protocol should
-  // reduce this by the transmission of SYMBOL * 24 or 15,360us
-  REG_WRITE(GPIO_OUT_W1TC_REG, pin);
-  // Below are the original calculations for inter-frame silence.  However, when actually inspecting this from
-  // the remote it appears to be closer to 27500us.  The delayMicoseconds call cannot be called with
-  // values larger than 16383.
-  if(bitLength != 80) {
-    delayMicroseconds(13717);
-    delayMicroseconds(13717);
-  }
+  return true;
 }
 void RECEIVE_ATTR Transceiver::handleReceive() {
     if (noiseDetected) return;
@@ -799,11 +769,11 @@ void Transceiver::resumeTx(uint8_t reason) {
 // cpt_synchro_hw is updated by the RX interrupt and read here from the radio task.
 static bool rxInProgress() { return *(volatile uint8_t *)&somfy_rx.cpt_synchro_hw != 0; }
 bool Transceiver::transmitJob(somfy_tx_job_t &job) {
+  // A disabled radio has nothing to send.
+  if(!this->config.enabled) return true;
   somfy_tx_t &tx = job.tx;
-  bool complete = true;
-  this->beginTransmit();
-  this->sendFrame(tx.payload, tx.hwsync, tx.bit_length);
-  for(uint8_t i = 0; i < job.repeats; i++) {
+  bool complete = this->beginTransmit() && this->sendFrame(tx.payload, tx.hwsync, tx.bit_length);
+  for(uint8_t i = 0; complete && i < job.repeats; i++) {
     bool keep;
     {
       TxQueueLock lock;
@@ -818,7 +788,7 @@ bool Transceiver::transmitJob(somfy_tx_job_t &job) {
     // For each 80-bit frame we need to adjust the byte encoding for the
     // silence.
     if(tx.bit_length == 80) job.frame.encode80BitFrame(tx.payload, (uint8_t)(job.firstRepeat + i));
-    this->sendFrame(tx.payload, tx.bit_length == 56 ? 7 : 6, tx.bit_length);
+    complete = this->sendFrame(tx.payload, tx.bit_length == 56 ? 7 : 6, tx.bit_length);
   }
   this->endTransmit();
   return complete;
@@ -871,18 +841,52 @@ void Transceiver::startTxTask() {
   if(!txTaskHandle) ESP_LOGE(TAG, "Unable to start radio TX task");
 }
 somfy_frame_t& Transceiver::lastFrame() { return this->frame; }
-void Transceiver::beginTransmit() {
-    if(this->config.enabled) {
-      this->disableReceive();
-      pinMode(this->config.TXPin, OUTPUT);
-      digitalWrite(this->config.TXPin, 0);
-      ELECHOUSE_cc1101.SetTx();
+bool Transceiver::beginTransmit() {
+    if(!this->config.enabled) return false;
+    this->disableReceive();
+    if(!txEncoder) {
+      const rmt_copy_encoder_config_t encCfg = {};
+      if(rmt_new_copy_encoder(&encCfg, &txEncoder) != ESP_OK) {
+        ESP_LOGE(TAG, "Unable to create the RMT encoder");
+        txEncoder = nullptr;
+        return false;
+      }
     }
+    // A channel per job, so a TX pin shared with RX is free for receiving
+    // between jobs and a new TX pin needs nothing else.
+    rmt_tx_channel_config_t cfg = {};
+    cfg.gpio_num = (gpio_num_t)this->config.TXPin;
+    cfg.clk_src = RMT_CLK_SRC_DEFAULT;
+    cfg.resolution_hz = 1000000;  // 1us ticks.
+    cfg.mem_block_symbols = TX_RMT_SYMBOLS;
+    cfg.trans_queue_depth = 1;  // One frame at a time.
+    if(rmt_new_tx_channel(&cfg, &txChannel) != ESP_OK) {
+      ESP_LOGE(TAG, "Unable to get an RMT channel for TX pin %u", this->config.TXPin);
+      txChannel = nullptr;
+      return false;
+    }
+    if(rmt_enable(txChannel) != ESP_OK) {
+      ESP_LOGE(TAG, "Unable to enable the RMT channel");
+      rmt_del_channel(txChannel);
+      txChannel = nullptr;
+      return false;
+    }
+    ELECHOUSE_cc1101.SetTx();
+    return true;
 }
 void Transceiver::endTransmit() {
-    if(this->config.enabled) {
-      ELECHOUSE_cc1101.setSidle();
-      //delay(100);
-      this->enableReceive();
+    if(this->config.enabled) ELECHOUSE_cc1101.setSidle();
+    if(txChannel) {
+      // Stops a frame that timed out, then lets go of the pin.
+      rmt_disable(txChannel);
+      rmt_del_channel(txChannel);
+      txChannel = nullptr;
+      // Deleting the channel stops driving the pin.  Keep a TX pin of its own
+      // low between jobs as before RMT; a shared one goes back to receiving.
+      if(this->config.TXPin != this->config.RXPin) {
+        pinMode(this->config.TXPin, OUTPUT);
+        digitalWrite(this->config.TXPin, 0);
+      }
     }
+    if(this->config.enabled) this->enableReceive();
 }
