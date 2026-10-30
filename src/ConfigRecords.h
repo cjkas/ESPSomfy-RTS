@@ -183,7 +183,7 @@ struct trans_record_t {
   uint8_t MOSIPin = 23;
   uint8_t MISOPin = 19;
   uint8_t TXPin = 13;
-  uint8_t RXPin = 12;
+  uint8_t RXPin = 35;
   float frequency = 433.42;
   float rxBandwidth = 99.97;
   float deviation = 47.60;

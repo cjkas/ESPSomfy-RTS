@@ -8,6 +8,7 @@
 #include "driver/gpio.h"
 #include "esp_log.h"
 #include "Utils.h"
+#include "BootPins.h"
 #include "ConfigSettings.h"
 #include "Somfy.h"
 #include "outputs/ProtoSocket.h"
@@ -523,8 +524,11 @@ void transceiver_config_t::load() {
         break;
 #endif
       default:
+        // RX was on 12, a strapping pin (issue #34).  A board that saved its
+        // radio settings keeps its pins.  35 is input only, which RX is; 36
+        // and 39 take false interrupts.
         this->TXPin = 13;
-        this->RXPin = 12;
+        this->RXPin = 35;
         this->MOSIPin = 23;
         this->MISOPin = 19;
         this->SCKPin = 18;
@@ -571,6 +575,10 @@ void transceiver_config_t::load() {
     pref.end();
     //this->printBuffer = somfy.transceiver.printBuffer;
 }
+static void warnBootPin(const char *name, uint8_t pin) {
+  const char *effect = bootPinEffect(pin);
+  if(effect) ESP_LOGW(TAG, "Radio %s is on GPIO%u, a strapping pin the radio can drive at reset.  %s", name, pin, effect);
+}
 void transceiver_config_t::apply() {
     Preferences pref;
     // A transmission in flight stops after its current frame so the radio can
@@ -595,6 +603,13 @@ void transceiver_config_t::apply() {
       pref.end();
       if(!radioInit) return;
       ESP_LOGD(TAG, "Applying radio settings - Setting Data Pins RX:%u TX:%u", this->RXPin, this->TXPin);
+      // The pins the CC1101 drives: at power-up GDO0 puts out a clock, GDO2
+      // CHIP_RDYn, and SO follows CHIP_RDYn while CSN is low.  Once it is
+      // set up, GDO2 puts out what it hears.  The web UI checks the same
+      // (data-src/js/pins.js).
+      warnBootPin("TX", this->TXPin);
+      if(this->RXPin != this->TXPin) warnBootPin("RX", this->RXPin);
+      warnBootPin("MISO", this->MISOPin);
       //if(this->TXPin != this->RXPin)
       //  pinMode(this->TXPin, OUTPUT);
       //pinMode(this->RXPin, INPUT);
