@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: accepted, amended by ADR-0008
 ---
 
 # The web UI and Home Assistant talk to the device over one websocket protocol
@@ -7,6 +7,8 @@ status: accepted
 The device was aborting while a browser loaded the web UI. Every open HTTP response holds its own TCP send window, the WiFi driver's copies of frames still on air, and a send buffer, which comes to about 14 KB each. A page load opens about ten of them. Six files with three answered at a time took 41 KB, a websocket connect about 10 KB more, and a `/controller` read about 22 KB with its ModelSnapshot. The idle heap is 80–89 KB. Over a weak WiFi link (-73 dBm, about 6 KB/s) these overlap for seconds until an allocation inside the web server fails and aborts.
 
 We decided that the web UI and the Home Assistant integration do everything except the file transfers over one websocket (protocol 2). One connection means one send window per client, however much the client asks for. HTTP keeps only what a socket can't do; [ADR 0006](0006-two-security-modes-eleven-http-routes.md) lists what stays. The wire format is in [PROTOCOL.md](../PROTOCOL.md).
+
+> **Amended by [ADR 0008](0008-noise-encrypts-the-socket.md) (5.0.0).** The file transfers move onto the socket too, as file ops sent in binary chunks, so HTTP keeps no authenticated route but the script commands. The socket is encrypted with Noise: the upgrade carries the handshake's first message (`?n=`), and after it every frame is a binary websocket frame holding one encrypted message. The JSON envelope below is what that message carries; a later binary encoding would replace it inside the encryption.
 
 ## Considered Options
 

@@ -1,7 +1,7 @@
 # Plan: authentication on every entry point, one HTTP server
 
-**Status:** steps 1 to 3, PR B, PR C and 4a merged; 4b, the auth rules, is the last step.
-**Written:** 2026-10-18, on top of PR #64 (stored secrets are write-only). **Revised:** 2026-10-22 for socket protocol 2: two security modes, eleven HTTP routes, the socket on port 80 ([ADR 0005](adr/0005-one-websocket-protocol.md), [ADR 0006](adr/0006-two-security-modes-eleven-http-routes.md)). Terms are defined in [GLOSSARY.md](../GLOSSARY.md).
+**Status:** every step up to 4b shipped in 4.0.0. Transport security ([ADR 0008](adr/0008-noise-encrypts-the-socket.md), 5.0.0) is next; its order is [below](#transport-security-adr-0008).
+**Written:** 2026-10-18, on top of PR #64 (stored secrets are write-only). **Revised:** 2026-10-22 for socket protocol 2: two security modes, eleven HTTP routes, the socket on port 80 ([ADR 0005](adr/0005-one-websocket-protocol.md), [ADR 0006](adr/0006-two-security-modes-eleven-http-routes.md)). **Revised:** 2026-10-29 for transport security: a passive sniffer is in scope, and the socket is encrypted with Noise ([ADR 0008](adr/0008-noise-encrypts-the-socket.md)). Terms are defined in [GLOSSARY.md](../GLOSSARY.md).
 
 ## Why
 
@@ -16,7 +16,9 @@
 ## Threat model
 
 - **In scope:** another client on the same LAN that can send HTTP and websocket requests. That includes a browser on the LAN running a malicious page.
-- **Out of scope:** someone sniffing traffic (everything is plain HTTP, and TLS on the ESP32 is out of reach), and a device exposed to the internet.
+- **In scope from 5.0.0:** a passive sniffer, who can read LAN traffic but not change it ([ADR 0008](adr/0008-noise-encrypts-the-socket.md)).
+- **Out of scope:** an active attacker on the path, who can change traffic (the web UI's files are plain HTTP, and TLS on the ESP32 is out of reach), and a device exposed to the internet.
+- **Accepted:** a PIN, or any weak password, can be guessed offline from one captured handshake. It protects against LAN clients, not against sniffers.
 
 ## Decisions
 
@@ -102,8 +104,26 @@ The rules go into small pure helpers with native tests, following [src/Secrets.h
 
 The e2e suite (`test/e2e`) checks, when given credentials, that a socket without a token is refused, that the HTTP routes answer 401, that a token keyed with `serverId` is refused, and that a token works. It never changes the device's security settings itself.
 
+## Transport security (ADR 0008)
+
+In 4.0.0 everything above travels in clear: `/login` sends the PIN or password, the token never expires and goes with every request, and the sync carries the rolling codes. [ADR 0008](adr/0008-noise-encrypts-the-socket.md) encrypts the socket with Noise (`Noise_NNpsk0_25519_AESGCM_SHA256`), keyed by a login key derived from the PIN or password with PBKDF2, and moves every authenticated HTTP route onto it. In 5.0.0 this replaces the token, the token key, `/login` and the file routes above. The login throttle stays and counts failed handshakes.
+
+The budget, on esp32dev: at most 200 B of heap per client, 2 KB during a handshake, 10 KB of flash in all and 100 ms per handshake, with no new C library and no framework rebuild. Step 0 measures it; a part that misses it is cut back.
+
+`main` keeps working throughout: Noise lands next to the token, and the removals come last.
+
+| # | Repo | Scope |
+|---|---|---|
+| 0 | firmware | spike: flash, heap and handshake time on the device; PBKDF2 time in pure JS on a phone, which sets the iteration count |
+| 1 | firmware | ADR 0008, this revision, GLOSSARY terms, the ADR 0005 and 0006 amendments |
+| 2 | firmware | `NoiseSession`, the login key and salt, the salt and iterations in `/loginContext`, the `?n=` handshake next to `?apikey=` |
+| 3 | firmware | web UI on Noise: `noise.js`, the vendored noble build, the login key in `sessionStorage`, the PIN warning |
+| 4 | firmware | backup, restore and both updates as file ops on the socket; the web UI uses them |
+| 5 | HA | integration 4.0: Noise when `/loginContext` says `"enc":"noise1"`, today's protocol otherwise |
+| 6 | firmware | removals: `/login`, the token and token key, the four file routes; the script key; README security section; release 5.0.0 |
+
 ## Not in this plan
 
-- TLS.
-- Session tokens with expiry.
-- Contents of the binary backup file (it holds no passwords, but it does hold rolling codes; `/backup` needs the token under Secured).
+- TLS ([ADR 0008](adr/0008-noise-encrypts-the-socket.md) records why; a reverse proxy is the way to real HTTPS).
+- Protection against an active attacker on the path.
+- Contents of the binary backup file (it holds no passwords, but it does hold rolling codes; `/backup` needs the token under Secured, and from 5.0.0 travels encrypted).
