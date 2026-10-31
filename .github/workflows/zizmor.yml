@@ -1,0 +1,29 @@
+name: zizmor
+
+# Lints the workflows for security problems: unpinned actions, broad token
+# permissions, template injection. Findings go to Security > Code scanning.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - ".github/**"
+
+permissions:
+  contents: read
+
+jobs:
+  zizmor:
+    name: Workflow security
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Run zizmor
+        uses: zizmorcore/zizmor-action@53290badfa369cb0bf7ad16342cb62c2fa47ac7b # v0.8.0
