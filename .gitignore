@@ -12,6 +12,7 @@ esp32s3.svd
 
 # Build, Logs and Output Folders
 build/
+coverage/
 data/
 logs/
 managed_components/
