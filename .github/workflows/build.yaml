@@ -24,11 +24,27 @@ jobs:
       # pioarduino's fork of PlatformIO Core, which the pioarduino platform needs.
       # Pinned: 6.2.0.post1 reports itself as 6.2.0-post.1, which the
       # platform's ">=6.2.0" reads as a pre-release and refuses.
-      - name: Install PlatformIO
-        run: pip install pioarduino==6.2.0
+      - name: Install PlatformIO and gcovr
+        run: pip install pioarduino==6.2.0 gcovr==8.8
 
+      # The coverage env is the native env with gcov counters: the same
+      # tests, measured.
       - name: Run native unit tests
-        run: pio test -e native
+        run: pio test -e coverage
+
+      # gcovr.cfg picks the files; the table goes to the run's summary page.
+      - name: Coverage report
+        run: |
+          mkdir -p coverage
+          gcovr --html-details coverage/index.html \
+            --markdown "$GITHUB_STEP_SUMMARY" --markdown-title "Native tests coverage"
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-cpp
+          path: coverage/
+          retention-days: 14
 
   webui:
     name: Web UI tests
@@ -44,8 +60,82 @@ jobs:
           node-version: "22"
 
       # The protocol 2 client (data-src/js) against the recorded fixtures.
+      # Coverage: a table in the log, and lcov for the HTML report.
       - name: Run web UI tests
-        run: node --test "test/js/*.test.js"
+        run: |
+          mkdir -p coverage
+          node --test --experimental-test-coverage \
+            --test-coverage-include="data-src/js/**" \
+            --test-reporter=spec --test-reporter-destination=stdout \
+            --test-reporter=lcov --test-reporter-destination=coverage/lcov.info \
+            "test/js/*.test.js"
+
+      - name: Coverage report
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lcov
+          genhtml coverage/lcov.info --output-directory coverage/html \
+            --title "ESPSomfy-RTS web UI tests"
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-js
+          path: coverage/html/
+          retention-days: 14
+
+  # The coverage of main on the repo's GitHub Pages site
+  # (Settings > Pages > Source: GitHub Actions).
+  coverage-pages:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [test, webui]
+    name: Publish coverage
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+
+    steps:
+      - name: Download native tests coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-cpp
+          path: site/cpp
+
+      - name: Download web UI tests coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-js
+          path: site/js
+
+      - name: Index page
+        run: |
+          cat > site/index.html <<EOF
+          <!doctype html>
+          <meta charset="utf-8">
+          <title>ESPSomfy-RTS coverage</title>
+          <h1>ESPSomfy-RTS test coverage</h1>
+          <p>main at <a href="${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}">${GITHUB_SHA::7}</a>, $(date -u '+%Y-%m-%d %H:%M UTC')</p>
+          <ul>
+            <li><a href="cpp/">Native tests</a> (pio test -e native): only the sources the native env builds</li>
+            <li><a href="js/">Web UI tests</a> (data-src/js)</li>
+          </ul>
+          EOF
+
+      - name: Upload site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
 
   build:
     # Don't build or publish firmware that fails its tests.
