@@ -1,4 +1,4 @@
-[![Build](https://github.com/cjkas/ESPSomfy-RTS/actions/workflows/build.yaml/badge.svg?branch=main)](https://github.com/cjkas/ESPSomfy-RTS/actions/workflows/build.yaml) [![CodeQL](https://github.com/cjkas/ESPSomfy-RTS/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/cjkas/ESPSomfy-RTS/actions/workflows/codeql.yml) [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/cjkas/ESPSomfy-RTS/badge)](https://scorecard.dev/viewer/?uri=github.com/cjkas/ESPSomfy-RTS)
+[![Build](https://github.com/cjkas/ESPSomfy-RTS/actions/workflows/build.yaml/badge.svg?branch=main)](https://github.com/cjkas/ESPSomfy-RTS/actions/workflows/build.yaml) [![CodeQL](https://github.com/cjkas/ESPSomfy-RTS/actions/workflows/codeql.yaml/badge.svg?branch=main)](https://github.com/cjkas/ESPSomfy-RTS/actions/workflows/codeql.yaml)
 
 ## This is a fork which was created  because the original repo seems to be bandoned and I was annoyed by constant restarts of my ESPSomfy. I've fixed some of the major issues caused by watchdog restarts. There are also compiled binaries in my fork if someone is experiencing same issues
 

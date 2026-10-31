@@ -38,6 +38,9 @@ jobs:
       - name: Run native unit tests
         run: pio test -e coverage
 
+      - name: Test the release scripts
+        run: bash test/scripts/test_set_version.sh
+
       # gcovr.cfg picks the files; the table goes to the run's summary page.
       - name: Coverage report
         run: |
@@ -66,7 +69,7 @@ jobs:
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: "22"
-          # No cache: a release build must not pick up what a PR left in one.
+          # Never cache: this workflow also builds releases.
           package-manager-cache: false
 
       # The protocol 2 client (data-src/js) against the recorded fixtures.
@@ -337,8 +340,28 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: release-*
-          path: dist
-          merge-multiple: true
+          path: artifacts
+
+      # One folder per build. Each must hold its 4 files, and no build may
+      # replace another's file, so nothing unexpected gets signed.
+      - name: Collect release files
+        run: |
+          mkdir dist
+          for d in artifacts/release-*/; do
+            count=$(find "$d" -type f | wc -l)
+            if [ "$count" -ne 4 ]; then
+              echo "::error::$d has $count files, not 4"
+              exit 1
+            fi
+            for f in "$d"*; do
+              name=$(basename "$f")
+              if [ -e "dist/$name" ]; then
+                echo "::error::$name comes from two builds"
+                exit 1
+              fi
+              cp "$f" dist/
+            done
+          done
 
       - name: Checksums
         working-directory: dist
@@ -361,9 +384,12 @@ jobs:
           TAG: ${{ github.event.release.tag_name }}
         run: gh release upload "$TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
 
+      # The release's branch as it is now, not the tag: main may have moved
+      # on while the boards built.
       - name: Check out code
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          ref: ${{ github.event.release.target_commitish }}
           persist-credentials: true # pushes the version bump
 
       - name: Commit version update
@@ -374,6 +400,5 @@ jobs:
           bash .github/set_version.sh "$TAG"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add src/ConfigSettings.h data-src/appversion data-src/index.html data-src/index.js
-          git commit -m "chore: bump version to $TAG"
+          git commit -am "chore: bump version to $TAG"
           git push origin "HEAD:$TARGET"

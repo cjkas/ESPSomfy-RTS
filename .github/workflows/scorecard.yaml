@@ -2,7 +2,9 @@ name: Scorecard
 
 # OpenSSF Scorecard: rates the repo's supply chain practices (pinned
 # dependencies, token permissions, branch protection, code review, ...).
-# Results go to Security > Code scanning and to the README badge.
+# Results go to Security > Code scanning. They aren't published to
+# scorecard.dev (no badge): scorecard-action doesn't support publishing
+# from a fork.
 on:
   push:
     branches: [main]
@@ -18,7 +20,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       security-events: write  # the results to code scanning
-      id-token: write         # publishing the results for the badge
 
     steps:
       - name: Check out code
@@ -31,7 +32,7 @@ jobs:
         with:
           results_file: results.sarif
           results_format: sarif
-          publish_results: true
+          publish_results: false
 
       - name: Upload to code scanning
         uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1

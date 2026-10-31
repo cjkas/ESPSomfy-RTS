@@ -10,7 +10,7 @@ The Home Assistant integration has [its own repo](https://github.com/cjkas/ESPSo
 
 ## What the device protects against
 
-The device is meant for a local network. In the Secured mode every route and the socket need a login. The threat model, what is in scope and what isn't, is in [docs/SECURITY_PLAN.md](docs/SECURITY_PLAN.md) and [ADR 0006](docs/adr/0006-two-security-modes-eleven-http-routes.md). Don't expose the device to the internet.
+The device is meant for a local network. In the Secured mode the socket and every HTTP route need a login, except the few the login page itself needs (the web UI's files, `/loginContext`, `/login`, `/upnp.xml`). The threat model, what is in scope and what isn't, is in [docs/SECURITY_PLAN.md](docs/SECURITY_PLAN.md) and [ADR 0006](docs/adr/0006-two-security-modes-eleven-http-routes.md). Don't expose the device to the internet.
 
 ## Checking a download
 
@@ -26,10 +26,10 @@ Or compare the checksums with the release's `SHA256SUMS` file:
 sha256sum --check --ignore-missing SHA256SUMS
 ```
 
-Releases before 4.0.2 have neither.
+Releases up to 4.0.1 have neither.
 
 ## How the build is kept clean
 
-- Every action in the workflows is pinned to a commit, and libraries to exact versions. Dependabot proposes action updates after a week's cooldown.
-- The workflows can only read the repo by default. Only the release job can write, and it runs no build tools.
-- [CodeQL](.github/workflows/codeql.yml) scans the C++, the web UI, the Python scripts and the workflows on every PR. [zizmor](.github/workflows/zizmor.yml) lints the workflows, and [OpenSSF Scorecard](.github/workflows/scorecard.yml) rates the repo's practices. Findings are on the repo's Security tab.
+- Every action in the workflows is pinned to a commit, the firmware's libraries and the build's Python tools to exact versions. Dependabot proposes action updates after a week's cooldown.
+- The workflows can only read the repo's contents. Only the release job can change them (the release's files, the version bump), and it runs no build tools. The scanning jobs can also report to the Security tab, and the coverage job publishes to GitHub Pages.
+- [CodeQL](.github/workflows/codeql.yaml) scans the C++, the web UI, the Python scripts and the workflows on every PR. [zizmor](.github/workflows/zizmor.yaml) lints the workflows, and [OpenSSF Scorecard](.github/workflows/scorecard.yaml) rates the repo's practices. Findings are on the repo's Security tab.
