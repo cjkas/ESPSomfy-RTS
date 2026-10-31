@@ -48,6 +48,7 @@ static void test_the_device_is_the_esp() {
   TEST_ASSERT_EQUAL_STRING("ESPSomfyRTS", device["name"]);
   TEST_ASSERT_EQUAL_STRING("v4.0.0", device["hw_version"]);
   TEST_ASSERT_EQUAL_STRING("ESPSomfy-RTS MQTT", device["model"]);
+  TEST_ASSERT_EQUAL_STRING("cjkas", device["mf"]);
   TEST_ASSERT_EQUAL_STRING("somfy/status", d.doc["availability_topic"]);
   TEST_ASSERT_EQUAL_STRING("online", d.doc["payload_available"]);
   TEST_ASSERT_EQUAL_STRING("offline", d.doc["payload_not_available"]);

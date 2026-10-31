@@ -35,7 +35,7 @@ void shadeDisco(const shade_disco_t &shade, JsonObject obj, char *topic, size_t 
   JsonObject dobj = obj["device"].to<JsonObject>();
   dobj["hw_version"] = shade.fwVersion;
   dobj["name"] = shade.hostname;
-  dobj["mf"] = "rstrouse";
+  dobj["mf"] = "cjkas";
   JsonArray arrids = dobj["identifiers"].to<JsonArray>();
   snprintf(topic, len, "mqtt_espsomfyrts_%s", shade.serverId);
   arrids.add(topic);
