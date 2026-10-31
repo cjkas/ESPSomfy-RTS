@@ -135,6 +135,8 @@ class SomfyShade : public SomfyRemote, public ShadeSettings, private MotorLink, 
     void emitState();
     // What changed since the fan-out last sent the shade (SHADE_CHANGED_* bits).
     uint16_t changed = 0;
+    // When the fan-out last sent the shade (millis()).
+    uint32_t changesSentAt = 0;
     // A setting changed: protocol 2 clients get the whole shade.
     void configChanged() { this->changed |= SHADE_CHANGED_CONFIG; }
     void emitCommand(somfy_commands cmd, const char *source, uint32_t sourceAddress);

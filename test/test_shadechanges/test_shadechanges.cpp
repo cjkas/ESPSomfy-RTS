@@ -74,6 +74,23 @@ static void test_full_state_adds_tilt_and_sun_when_the_shade_has_them() {
   TEST_ASSERT_FALSE(state & SHADE_CHANGED_STATE);
   TEST_ASSERT_EQUAL_UINT16(SHADE_CHANGED_TOPICS, state);
 }
+static void test_position_steps_wait_for_the_interval() {
+  TEST_ASSERT_FALSE(shadeChangesDue(SHADE_CHANGED_POSITION, 1000 + SHADE_TRAVEL_SEND_MS - 1, 1000));
+  TEST_ASSERT_TRUE(shadeChangesDue(SHADE_CHANGED_POSITION, 1000 + SHADE_TRAVEL_SEND_MS, 1000));
+  TEST_ASSERT_FALSE(shadeChangesDue(SHADE_CHANGED_TRAVEL, 1001, 1000));
+}
+static void test_anything_else_goes_out_at_once() {
+  // The stop: its direction takes the final position with it.
+  TEST_ASSERT_TRUE(shadeChangesDue(SHADE_CHANGED_POSITION | SHADE_CHANGED_DIRECTION, 1001, 1000));
+  TEST_ASSERT_TRUE(shadeChangesDue(SHADE_CHANGED_TARGET, 1001, 1000));
+  TEST_ASSERT_TRUE(shadeChangesDue(SHADE_CHANGED_STATE, 1001, 1000));
+  TEST_ASSERT_TRUE(shadeChangesDue(SHADE_CHANGED_CONFIG, 1001, 1000));
+}
+static void test_the_interval_across_the_millis_wrap() {
+  const uint32_t sent = 0xFFFFFFFF - 100;
+  TEST_ASSERT_FALSE(shadeChangesDue(SHADE_CHANGED_POSITION, 50, sent));
+  TEST_ASSERT_TRUE(shadeChangesDue(SHADE_CHANGED_POSITION, SHADE_TRAVEL_SEND_MS, sent));
+}
 
 int main(int argc, char **argv) {
   (void)argc;
@@ -87,5 +104,8 @@ int main(int argc, char **argv) {
   RUN_TEST(test_sun_and_wind_are_0_or_1);
   RUN_TEST(test_full_state_of_a_plain_shade);
   RUN_TEST(test_full_state_adds_tilt_and_sun_when_the_shade_has_them);
+  RUN_TEST(test_position_steps_wait_for_the_interval);
+  RUN_TEST(test_anything_else_goes_out_at_once);
+  RUN_TEST(test_the_interval_across_the_millis_wrap);
   return UNITY_END();
 }
