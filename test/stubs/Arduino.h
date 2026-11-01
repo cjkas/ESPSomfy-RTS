@@ -14,8 +14,9 @@
 
 typedef uint8_t byte;
 
-// Fixed so anything formatted from it is deterministic.
-inline unsigned long millis() { return 0; }
+// 0 unless a test sets it, so anything formatted from it is deterministic.
+inline unsigned long stubMillis = 0;
+inline unsigned long millis() { return stubMillis; }
 // Tests that measure time set this.
 inline unsigned long stubMicros = 0;
 inline unsigned long micros() { return stubMicros; }
