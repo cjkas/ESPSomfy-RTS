@@ -11,9 +11,7 @@
 #define TX_JOB_QUEUE_SIZE 32
 // Slots only priority jobs (stops) may use so a stop always fits in the queue.
 #define TX_RESERVED_SLOTS 4
-// The radio task bit-bangs a whole job on loop()'s core at a higher priority
-// so loop() only runs between jobs.  A frame takes about 140ms so this keeps a
-// job around 7s, well inside the 15s task watchdog loop() is subscribed to.
+// A frame takes about 140ms, so a job holds the radio for 7s at most.
 #define TX_MAX_REPEATS 50
 
 struct somfy_tx_t {
