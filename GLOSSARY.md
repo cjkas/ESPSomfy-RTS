@@ -130,6 +130,10 @@ _Avoid_: topic (MQTT's word), room (a room is part of the shade model)
 **Schema**
 The device's description of the protocol it speaks: what each message type, field and error code is, and what a field is when left out.
 
+**File op**
+An op that moves a file over the socket in chunks: a backup, a restore or a firmware or web application update.
+_Avoid_: upload, download (the HTTP routes they replace)
+
 ## Security
 
 **Security mode**
@@ -140,12 +144,28 @@ _Avoid_: Secure Config Only (removed)
 What anyone may reach under Secured without a token: the web UI's files, `/loginContext`, `/login`, `/upnp.xml` and preflight requests. `/ws` counts as one at the HTTP level, because the socket checks the token itself in the handshake. Static serving answers the web UI's files alone, so `shades.cfg` isn't one.
 
 **Token**
-What logging in returns. It stands for the PIN or password, on one client address, and every request under Secured carries it.
+What logging in returns. It stands for the PIN or password, on one client address, and every request under Secured carries it. Replaced by the login key and the handshake in 5.0.0.
 _Avoid_: session, API key (the name of the field it travels in)
 
 **Token key**
-The secret a token is made with: random bytes the device makes on first boot and never sends anywhere. Changing it refuses every token.
+The secret a token is made with: random bytes the device makes on first boot and never sends anywhere. Changing it refuses every token. Removed with the token in 5.0.0.
 _Avoid_: API key, server key
+
+**Login key**
+The secret a client and the device share for the socket, derived from the PIN or password. It is never sent: a client proves it has it in the handshake. Under None it is all zeros, so the socket is still encrypted but open to anyone.
+_Avoid_: PSK, encryption key, token
+
+**Handshake**
+The exchange that opens the socket: the client proves it holds the login key, and both sides agree on fresh keys that encrypt that one connection. A failed handshake is a failed login.
+_Avoid_: login (`/login`, removed in 5.0.0)
+
+**Script key**
+The key a script sends with the three HTTP commands under Secured. It only moves shades, travels in clear, and is shown once when the web UI makes it.
+_Avoid_: API key, token
+
+**Sniffer**
+Someone who can read the LAN's traffic but not change it. One who can change it is an *active attacker*, whom only HTTPS would stop.
+_Avoid_: eavesdropper, man in the middle (that is the active attacker)
 
 **Login throttle**
 How the device slows down guessing: a client address with too many failed logins is refused for a while, and each refusal is a *lockout*, longer than the one before.
