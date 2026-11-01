@@ -162,12 +162,12 @@ bool asyncHasParam(AsyncWebServerRequest *request, const char *name) {
 // one item into the snapshot types and write its reference.
 static void serializeShadeRef(SomfyShade *shade, JsonFormatter &json) {
   shade_snapshot_t s;
-  snapshotShade(*shade, s);
+  snapshotShade(somfy, *shade, s);
   writeShadeRef(json, s);
 }
 static void serializeGroupRef(SomfyGroup *group, JsonFormatter &json) {
   group_snapshot_t s;
-  snapshotGroup(*group, s);
+  snapshotGroup(somfy, *group, s);
   writeGroupRef(json, s);
 }
 
