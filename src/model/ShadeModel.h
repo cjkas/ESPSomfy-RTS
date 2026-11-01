@@ -212,4 +212,37 @@ class SomfyGroup : public SomfyRemote {
     bool publish(const char *topic, uint16_t val, bool retain = false);
     bool publish(const char *topic, bool val, bool retain = false);
 };
+class ShadeModel {
+  public:
+    bool isDirty = false;
+    // The first remote address offered to a new shade or group.
+    uint32_t startingAddress = 0;
+    uint8_t getNextRoomId();
+    uint8_t getNextShadeId();
+    uint8_t getNextGroupId();
+    // The remote address a new shade or group with that id is offered: one no
+    // shade or group uses.
+    uint32_t getNextRemoteAddress(uint8_t id);
+    int8_t getMaxRoomOrder();
+    int8_t getMaxShadeOrder();
+    int8_t getMaxGroupOrder();
+    SomfyRoom *addRoom();
+    SomfyShade *addShade();
+    SomfyGroup *addGroup();
+    uint32_t repeaters[SOMFY_MAX_REPEATERS] = {0};
+    SomfyRoom rooms[SOMFY_MAX_ROOMS];
+    SomfyShade shades[SOMFY_MAX_SHADES];
+    SomfyGroup groups[SOMFY_MAX_GROUPS];
+    bool linkRepeater(uint32_t address);
+    bool unlinkRepeater(uint32_t address);
+    uint8_t repeaterCount();
+    uint8_t roomCount();
+    uint8_t shadeCount();
+    uint8_t groupCount();
+    SomfyShade * getShadeById(uint8_t shadeId);
+    SomfyRoom * getRoomById(uint8_t roomId);
+    SomfyGroup * getGroupById(uint8_t groupId);
+    SomfyShade * findShadeByRemoteAddress(uint32_t address);
+    SomfyGroup * findGroupByRemoteAddress(uint32_t address);
+};
 #endif
