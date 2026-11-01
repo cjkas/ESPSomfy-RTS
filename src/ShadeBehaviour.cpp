@@ -98,8 +98,6 @@ void ShadeBehaviour::tick(uint32_t now) {
   this->p_tiltDirection(this->s.currentTiltPos == this->s.tiltTarget ? 0 : this->s.currentTiltPos > this->s.tiltTarget ? -1 : 1);
   if(tilt_first) this->p_tiltDirection(this->s.direction);
   else if(this->s.direction != 0) this->p_tiltDirection(0);
-  uint8_t currPos = floor(this->s.currentPos);
-  uint8_t currTiltPos = floor(this->s.currentTiltPos);
   if(this->s.direction != 0) this->s.lastMovement = this->s.direction;
   switch(this->tx.hold.check(this->s.direction != 0 || this->s.tiltDirection != 0, (uint32_t)curTime, TX_PENDING_TIMEOUT)) {
     case TxHoldCheck::holding:
@@ -255,10 +253,8 @@ void ShadeBehaviour::tick(uint32_t now) {
     this->settingMyPos = false;
     this->emitState();
   }
-  else if(currDir != this->s.direction || currPos != floor(this->s.currentPos) || currTiltDir != this->s.tiltDirection || currTiltPos != floor(this->s.currentTiltPos)) {
-    // We need to emit on the socket that our state has changed.
-    this->emitState();
-  }
+  // Travel and direction changes are marked by their setters.  Nothing more is
+  // marked here: the fan-out holds back position steps only when they come alone.
 }
 
 

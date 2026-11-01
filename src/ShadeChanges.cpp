@@ -26,3 +26,8 @@ uint16_t shadeStateTopics(const shade_snapshot_t &shade) {
   if(shade.sunSensor) topics |= SHADE_CHANGED_SUN_FLAG | SHADE_CHANGED_SUNNY;
   return topics;
 }
+bool shadeChangesDue(uint16_t changed, uint32_t now, uint32_t lastSent) {
+  if(changed & ~SHADE_CHANGED_TRAVEL) return true;
+  // Wrap-safe like millis().
+  return (uint32_t)(now - lastSent) >= SHADE_TRAVEL_SEND_MS;
+}
