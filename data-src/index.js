@@ -1223,7 +1223,7 @@ class Security {
 }
 var security = new Security();
 
-// let appVersion = 'v4.0.0.beta'; // Default placeholder
+// let appVersion = 'v4.0.2'; // Default placeholder
 async function getAppVersion() {
     try {
         const response = await fetch('/appversion?v='+Date.now());
@@ -1236,7 +1236,7 @@ async function getAppVersion() {
         // Trigger any UI updates here
     } catch (error) {
         console.error("Error loading App version:", error);
-        appVersion = 'v4.0.0.beta'; // Default placeholder
+        appVersion = 'v4.0.2'; // Default placeholder
     }
     return appVersion;
 }
