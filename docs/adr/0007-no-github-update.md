@@ -11,7 +11,7 @@ We removed it: the release check and its setting, the release list, download and
 ## Consequences
 
 - Users download releases from GitHub themselves. The web UI's firmware page shows the installed version and the upload form.
-- Home Assistant's update entity shows the installed version only; it can no longer install.
+- Home Assistant's update entity can no longer install. From integration 3.0.4 Home Assistant checks GitHub for the latest release itself, and the entity shows when a newer one is out (cjkas/ESPSomfy-RTS-HA#22).
 - A broken filesystem is recovered by uploading `littlefs.bin`, or over USB, rather than with `/recoverFilesystem`.
 - Issue #76 and PR #72 (GitOTA's per-chip littlefs file name) become obsolete.
 - The HTTPS client leaves the firmware, which frees flash in the 1.5 MB OTA slot.
