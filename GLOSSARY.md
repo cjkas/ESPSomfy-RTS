@@ -44,6 +44,16 @@ _Avoid_: blind (one type of shade), cover (Home Assistant's word)
 Everything the user has set up: rooms, shades, groups and repeaters, with their state.
 _Avoid_: installation, config
 
+**ShadeModel**
+The module that owns the shade model and is the only sender: every frame our remotes send goes out through it, and every frame heard comes in through it.
+_Avoid_: controller (the device code around it)
+
+**RadioPort**
+The seam through which the shade model's frames reach the air: radio jobs, or the outputs of a shade driven over GPIO.
+
+**ModelEvents**
+The seam through which the shade model tells the rest of the firmware about commands that reached a shade.
+
 **Favorite**
 The position a motor stores and goes to on My. A shade may have none.
 _Avoid_: My position
@@ -75,10 +85,10 @@ What a shade does with frames, commands, group commands and radio events, and wh
 _Avoid_: shade logic, motion (`ShadeMotion` is the position maths it uses)
 
 **MotorLink**
-The seam a shade's commands reach its motor through, radio or GPIO. The shade hears its own frame; every other shade hears it through the link.
+The seam a shade's commands reach its motor through. The shade model sends them, and every other shade hears the frame; the shade hears its own frame itself.
 
 **ShadeEvents**
-The seam through which a shade's behaviour reports what happened: changes for the change fan-out, commands for clients, a save wanted, and sensor flags for the groups.
+The seam through which a shade's behaviour reports what happened: changes for the change fan-out, commands for clients, a save wanted, and sensor flags for the shade model to work the groups' flags out again.
 
 ## Entry points and outputs
 
