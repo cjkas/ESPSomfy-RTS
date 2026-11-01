@@ -3,7 +3,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "SomfyFrame.h"
-#include "ShadeTypes.h"
+#include "model/ShadeTypes.h"
 
 // The rules ModelEditor applies when the shade model is edited: which id, sort
 // order and remote address a new room, shade or group gets, how ids go into

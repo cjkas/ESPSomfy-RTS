@@ -1,6 +1,6 @@
 #ifndef SOMFY_SHADE_OPS_H
 #define SOMFY_SHADE_OPS_H
-#include "ShadeRequests.h"
+#include "model/ShadeRequests.h"
 
 // ShadeOps on the device: forwards to the shades and groups of the shade
 // model.  Runs on loop() only.

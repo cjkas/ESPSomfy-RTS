@@ -1,7 +1,7 @@
 #include <unity.h>
 #include <map>
 #include <string>
-#include "ShadeRequests.h"
+#include "model/ShadeRequests.h"
 
 // Records every call as a line so a test reads as "this request, these calls".
 class FakeShadeOps : public ShadeOps {

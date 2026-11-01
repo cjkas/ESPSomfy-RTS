@@ -5,7 +5,7 @@
 #include "Somfy.h"
 #include "ConfigFile.h"
 #include "ModelEditor.h"
-#include "ShadeChanges.h"
+#include "model/ShadeChanges.h"
 
 static const char *TAG = "Somfy";
 

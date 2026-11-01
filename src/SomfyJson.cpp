@@ -4,7 +4,7 @@
 #include <atomic>
 #include "ModelEditor.h"
 #include "SomfyEditor.h"
-#include "ShadeChanges.h"
+#include "model/ShadeChanges.h"
 #include "outputs/ProtoSocket.h"
 #include "LoopQueue.h"
 

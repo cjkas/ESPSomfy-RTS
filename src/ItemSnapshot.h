@@ -2,7 +2,7 @@
 #define ITEM_SNAPSHOT_H
 #include <stddef.h>
 #include <stdint.h>
-#include "ShadeTypes.h"
+#include "model/ShadeTypes.h"
 #include "JsonFormatter.h"
 
 // A copy of one room, shade or group, taken on loop() or for a command reply,

@@ -6,12 +6,12 @@
 #include "SomfyFrame.h"
 #include "TxBuffer.h"
 #include "RadioScheduler.h"
-#include "ShadeTypes.h"
-#include "ShadeSettings.h"
-#include "ShadeBehaviour.h"
-#include "ShadeMotion.h"
-#include "ShadeSensors.h"
-#include "ShadeChanges.h"
+#include "model/ShadeTypes.h"
+#include "model/ShadeSettings.h"
+#include "model/ShadeBehaviour.h"
+#include "model/ShadeMotion.h"
+#include "model/ShadeSensors.h"
+#include "model/ShadeChanges.h"
 #include "Transceiver.h"
 
 enum class gpio_flags_t : byte {

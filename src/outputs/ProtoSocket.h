@@ -3,7 +3,7 @@
 #include <ESPAsyncWebServer.h>
 #include "ProtoSchema.h"
 #include "ModelEditor.h"
-#include "ShadeRequests.h"
+#include "model/ShadeRequests.h"
 #include "ProtoFrame.h"
 
 class SomfyShade;

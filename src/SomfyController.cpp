@@ -10,7 +10,7 @@
 #include "Somfy.h"
 #include "MqttConnection.h"
 #include "LoopQueue.h"
-#include "ShadeRequests.h"
+#include "model/ShadeRequests.h"
 #include "SomfyShadeOps.h"
 #include "esp_core_dump.h"
 #include "esp_system.h"

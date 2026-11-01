@@ -1,6 +1,6 @@
 #include <unity.h>
 #include <string>
-#include "ShadeChanges.h"
+#include "model/ShadeChanges.h"
 
 static std::string published;
 static void record(const char *topic, int32_t value, bool retain, void *ctx) {

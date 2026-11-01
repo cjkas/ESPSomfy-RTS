@@ -3,7 +3,7 @@
 #include <vector>
 #include "MqttDisco.h"
 #include "MqttTopics.h"
-#include "ShadeChanges.h"
+#include "model/ShadeChanges.h"
 
 void setUp() {}
 void tearDown() {}

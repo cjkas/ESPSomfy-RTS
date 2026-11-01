@@ -1,5 +1,5 @@
 #include <unity.h>
-#include "ShadeMotion.h"
+#include "model/ShadeMotion.h"
 
 #define ASSERT_POS(expected, actual) TEST_ASSERT_FLOAT_WITHIN(0.01f, (expected), (actual))
 

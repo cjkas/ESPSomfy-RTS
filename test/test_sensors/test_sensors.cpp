@@ -1,5 +1,5 @@
 #include <unity.h>
-#include "ShadeSensors.h"
+#include "model/ShadeSensors.h"
 
 #define ASSERT_MOVE(expected, actual) TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(expected), static_cast<uint8_t>(actual))
 

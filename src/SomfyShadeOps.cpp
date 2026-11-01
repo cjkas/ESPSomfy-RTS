@@ -1,6 +1,6 @@
 #include "SomfyShadeOps.h"
 #include "Somfy.h"
-#include "ShadeChanges.h"
+#include "model/ShadeChanges.h"
 
 extern SomfyShadeController somfy;
 

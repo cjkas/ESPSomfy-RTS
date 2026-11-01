@@ -3,7 +3,7 @@
 #include <stdint.h>
 #include <ArduinoJson.h>
 #include "ProtoSchema.h"
-#include "ShadeRequests.h"
+#include "model/ShadeRequests.h"
 #include "SomfyFrame.h"
 
 // Socket protocol 2's command ops (docs/PROTOCOL.md): what each one asks for,

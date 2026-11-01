@@ -1,7 +1,7 @@
 #ifndef LOOP_QUEUE_H
 #define LOOP_QUEUE_H
 #include <stdint.h>
-#include "ShadeRequests.h"
+#include "model/ShadeRequests.h"
 #include "ProtoFrame.h"
 
 // The one queue through which other tasks hand work to loop(), which alone

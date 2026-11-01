@@ -2,7 +2,7 @@
 #define MQTT_COMMANDS_H
 #include <stddef.h>
 #include <stdint.h>
-#include "ShadeRequests.h"
+#include "model/ShadeRequests.h"
 
 // The MQTT command topics, <root>/shades/<id>/<command>/set and
 // <root>/groups/<id>/<command>/set.  Kept free of the MQTT client so it can be

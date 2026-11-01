@@ -1,6 +1,6 @@
 #include <unity.h>
 #include <vector>
-#include "ShadeBehaviour.h"
+#include "model/ShadeBehaviour.h"
 
 // Scenario tests pinning what ShadeBehaviour does today, moved unchanged from
 // SomfyShade.  Where the copies of a rule disagree the test says "today:" so
