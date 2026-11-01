@@ -54,11 +54,12 @@ struct Rig {
     for(SomfyShade *shade : members) group->linkShade(shade->getShadeId());
     return *group;
   }
-  // loop() passes for ms, 10 ms apart.
+  // loop() passes for ms, 10 ms apart, with no frame received.
   void run(uint32_t ms) {
     for(uint32_t t = 0; t < ms; t += 10) {
       this->now += 10;
       stubMillis = this->now;
+      this->m.onIdle(this->now);
       this->m.tick(this->now);
     }
   }
@@ -310,6 +311,86 @@ static void test_radio_defaults_fill_in_a_cleared_shade() {
   TEST_ASSERT_TRUE(a.proto == radio_proto::RTW);
 }
 
+static void test_group_repeat_sends_its_last_frame_again() {
+  Rig r;
+  SomfyShade &a = r.shade(SHADE_A);
+  SomfyGroup &g = r.group(GROUP, {&a});
+  r.m.sendGroupCommand(g, somfy_commands::Down, 1, 0, r.now);
+  TEST_ASSERT_TRUE(r.m.repeatFrame(g, 4));
+  TEST_ASSERT_EQUAL(2, r.radio.jobs.size());
+  TEST_ASSERT_EQUAL_HEX32(GROUP, r.radio.last().frame.remoteAddress);
+  TEST_ASSERT_EQUAL_UINT16(1, r.radio.last().frame.rollingCode);
+  TEST_ASSERT_EQUAL(1, storedCode(GROUP));
+}
+static void test_gp_relay_shade_sends_nothing_and_moves_at_once() {
+  Rig r;
+  SomfyShade &a = r.shade(SHADE_A);
+  a.proto = radio_proto::GP_Relay;
+  TEST_ASSERT_TRUE(a.sendCommand(somfy_commands::Down));
+  TEST_ASSERT_EQUAL(0, r.radio.jobs.size());
+  TEST_ASSERT_EQUAL(0, r.radio.pulses.size());
+  TEST_ASSERT_EQUAL(1, storedCode(SHADE_A));
+  r.run(5000);
+  ASSERT_POS(50, a.state().currentPos);
+  TEST_ASSERT_TRUE(r.m.repeatFrame(a, 4));
+  TEST_ASSERT_EQUAL(0, r.radio.jobs.size());
+}
+static void test_remote_my_goes_to_the_favorite_once_the_air_is_quiet() {
+  Rig r;
+  SomfyShade &a = r.shade(SHADE_A);
+  a.linkRemote(REMOTE);
+  a.restore(0, 0, 50, -1);
+  r.hear(REMOTE, somfy_commands::My, 1);
+  // A held My would set the favorite, so a short press waits half a second
+  // of receive passes with no frame.
+  ASSERT_POS(0, a.state().target);
+  r.run(600);
+  ASSERT_POS(50, a.state().target);
+}
+
+/*********************************************************************
+ * Lookups, ids and repeaters
+ ********************************************************************/
+static void test_lookups_by_id_and_address() {
+  Rig r;
+  SomfyShade &a = r.shade(SHADE_A);
+  a.linkRemote(REMOTE);
+  SomfyGroup &g = r.group(GROUP, {&a});
+  SomfyRoom *room = r.m.addRoom();
+  TEST_ASSERT_NOT_NULL(room);
+  TEST_ASSERT_EQUAL_UINT8(1, room->roomId);
+  TEST_ASSERT_EQUAL_PTR(room, r.m.getRoomById(1));
+  TEST_ASSERT_NULL(r.m.getRoomById(2));
+  TEST_ASSERT_EQUAL_PTR(&a, r.m.getShadeById(a.getShadeId()));
+  TEST_ASSERT_EQUAL_PTR(&g, r.m.getGroupById(g.getGroupId()));
+  TEST_ASSERT_NULL(r.m.getGroupById(9));
+  TEST_ASSERT_EQUAL_PTR(&a, r.m.findShadeByRemoteAddress(SHADE_A));
+  TEST_ASSERT_EQUAL_PTR(&a, r.m.findShadeByRemoteAddress(REMOTE));
+  TEST_ASSERT_EQUAL_PTR(&g, r.m.findGroupByRemoteAddress(GROUP));
+  TEST_ASSERT_NULL(r.m.findGroupByRemoteAddress(0x999999));
+  TEST_ASSERT_EQUAL_UINT8(1, r.m.roomCount());
+  TEST_ASSERT_EQUAL_UINT8(1, r.m.shadeCount());
+  TEST_ASSERT_EQUAL_UINT8(1, r.m.groupCount());
+}
+static void test_a_new_shade_is_offered_an_unused_address() {
+  Rig r;
+  r.m.startingAddress = 0x100000;
+  SomfyShade &a = r.shade(r.m.getNextRemoteAddress(1));
+  TEST_ASSERT_NOT_EQUAL(a.getRemoteAddress(), r.m.getNextRemoteAddress(2));
+  TEST_ASSERT_EQUAL_UINT8(2, r.m.getNextShadeId());
+}
+static void test_repeaters_link_and_unlink() {
+  Rig r;
+  TEST_ASSERT_FALSE(r.m.isRepeater(REMOTE));
+  TEST_ASSERT_TRUE(r.m.linkRepeater(REMOTE));
+  TEST_ASSERT_TRUE(r.m.isRepeater(REMOTE));
+  TEST_ASSERT_TRUE(r.m.isDirty);
+  TEST_ASSERT_EQUAL_UINT8(1, r.m.repeaterCount());
+  r.m.unlinkRepeater(REMOTE);
+  TEST_ASSERT_FALSE(r.m.isRepeater(REMOTE));
+  TEST_ASSERT_EQUAL_UINT8(0, r.m.repeaterCount());
+}
+
 int main(int argc, char **argv) {
   UNITY_BEGIN();
   RUN_TEST(test_group_down_moves_its_shades_once_on_air);
@@ -324,5 +405,11 @@ int main(int argc, char **argv) {
   RUN_TEST(test_repeat_sends_the_last_frame_again);
   RUN_TEST(test_gp_remote_shade_pulses_its_outputs);
   RUN_TEST(test_radio_defaults_fill_in_a_cleared_shade);
+  RUN_TEST(test_group_repeat_sends_its_last_frame_again);
+  RUN_TEST(test_gp_relay_shade_sends_nothing_and_moves_at_once);
+  RUN_TEST(test_remote_my_goes_to_the_favorite_once_the_air_is_quiet);
+  RUN_TEST(test_lookups_by_id_and_address);
+  RUN_TEST(test_a_new_shade_is_offered_an_unused_address);
+  RUN_TEST(test_repeaters_link_and_unlink);
   return UNITY_END();
 }
