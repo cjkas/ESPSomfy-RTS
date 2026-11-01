@@ -61,7 +61,6 @@ static int interruptPin = 0;
 static volatile bool noiseDetected = false;
 static volatile unsigned long noiseStart = 0;
 static volatile uint32_t noiseCount = 0;
-uint8_t radioBitLength = 56;
 void somfy_frame_t::decodeFrame(somfy_rx_t *rx) {
   this->hwsync = rx->cpt_synchro_hw;
   this->pulseCount = rx->pulseCount;
@@ -592,7 +591,7 @@ void transceiver_config_t::apply() {
       somfy.transceiver.resumeTx(TX_SUSPEND_SCAN);
       scanEmitPending = true;
     }
-    radioBitLength = this->type;    
+    somfy.setRadioDefaults(this->type, this->proto);
     if(this->enabled) {
       bool radioInit = true;
       pref.begin("CC1101");
@@ -698,7 +697,7 @@ void Transceiver::loop() {
     else if(evt.type == tx_event_t::aborted)
       ESP_LOGW(TAG, "Radio TX cut short %s for %d", translateSomfyCommand(evt.cmd).c_str(), evt.remoteAddress);
     // Line the simulated shades up with what actually went on air.
-    somfy.processTxEvent(evt);
+    somfy.onTxEvent(evt);
   }
   if(scanEmitPending.exchange(false)) this->emitFrequencyScan();
   if (noiseDetected && rxmode != 3 && this->config.noiseDetection) {
@@ -720,19 +719,16 @@ void Transceiver::loop() {
       this->processFrequencyScan(false);
   }
   else if (this->receive(&rx)) {
-    for(uint8_t i = 0; i < SOMFY_MAX_REPEATERS; i++) {
-      if(somfy.repeaters[i] == frame.remoteAddress) {
-        tx_queue.push(rx.cpt_synchro_hw, rx.payload, rx.bit_length);
-        // We do not want to process this frame until a full frame beat has passed.
-        tx_queue.delay_time = millis() + TX_QUEUE_DELAY;
-        ESP_LOGD(TAG, "Queued repeater frame...");
-        break;
-      }
+    if(somfy.isRepeater(frame.remoteAddress)) {
+      tx_queue.push(rx.cpt_synchro_hw, rx.payload, rx.bit_length);
+      // We do not want to process this frame until a full frame beat has passed.
+      tx_queue.delay_time = millis() + TX_QUEUE_DELAY;
+      ESP_LOGD(TAG, "Queued repeater frame...");
     }
-    somfy.processFrame(this->frame, false);
+    somfy.onFrame(this->frame, millis());
   }
   else {
-    somfy.processWaitingFrame();
+    somfy.onIdle(millis());
     // Check to see if there is anything in the buffer
     // Repeater frames are handed to the radio task like any other transmission.
     // One stays here until the radio has room for it rather than being lost

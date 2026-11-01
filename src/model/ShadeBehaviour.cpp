@@ -57,7 +57,7 @@ void ShadeBehaviour::clearTilt() {
 }
 somfy_commands ShadeBehaviour::transformCommand(somfy_commands cmd) const { return this->remote.flipCommands ? flipCommand(cmd) : cmd; }
 send_result_t ShadeBehaviour::transmit(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs, bool priority, uint32_t now) {
-  const send_result_t result = this->link.send(cmd, repeat, stepSize, delayMs, priority);
+  const send_result_t result = this->link.send(cmd, repeat, stepSize, delayMs, priority, now);
   if(!result.sent) return result;
   // The link has put the frame in lastFrame and every other shade has heard
   // it.  The shade hears it too, as if a remote had sent it.

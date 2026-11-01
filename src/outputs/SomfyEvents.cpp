@@ -4,7 +4,6 @@
 
 extern MqttConnection mqtt;
 
-void SomfyShade::emitState() { this->changed |= SHADE_CHANGED_STATE; }
 void SomfyShade::emitCommand(somfy_commands cmd, const char *source, uint32_t sourceAddress) {
   protoSocket.shadeCommanded(*this, translateSomfyCommand(cmd).c_str(), source, sourceAddress);
   if(mqtt.connected()) {
@@ -13,7 +12,6 @@ void SomfyShade::emitCommand(somfy_commands cmd, const char *source, uint32_t so
     this->publish("cmd", translateSomfyCommand(cmd).c_str());
   }
 }
-void SomfyGroup::emitState() { this->changed |= GROUP_CHANGED_STATE; }
 // The change fan-out.  Everything that changed about a shade or group in this
 // loop() pass goes out once: its MQTT topics, then one state event.
 void SomfyShadeController::sendChanges() {

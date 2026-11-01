@@ -63,8 +63,7 @@ void SomfyShade::setGPIOs() {
     }
   }
 }
-void SomfyRemote::triggerGPIOs(somfy_frame_t &frame) { }
-void SomfyShade::triggerGPIOs(somfy_frame_t &frame) {
+void SomfyShade::triggerGPIOs(const somfy_frame_t &frame) {
   if(this->proto == radio_proto::GP_Remote) {
     uint8_t p_on = (this->gpioFlags & (uint8_t)gpio_flags_t::LowLevelTrigger) == 0x00 ? HIGH : LOW;
     uint8_t p_off = (this->gpioFlags & (uint8_t)gpio_flags_t::LowLevelTrigger) == 0x00 ? LOW : HIGH;

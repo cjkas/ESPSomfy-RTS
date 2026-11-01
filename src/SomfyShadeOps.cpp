@@ -32,10 +32,10 @@ bool SomfyShadeOps::sendCommand(uint8_t shadeId, somfy_commands cmd, uint8_t rep
 }
 bool SomfyShadeOps::sendTiltCommand(uint8_t shadeId, somfy_commands cmd) { return somfy.getShadeById(shadeId)->sendTiltCommand(cmd); }
 bool SomfyShadeOps::isLastCommand(uint8_t shadeId, somfy_commands cmd) { return somfy.getShadeById(shadeId)->isLastCommand(cmd); }
-bool SomfyShadeOps::repeatFrame(uint8_t shadeId, uint8_t repeat) { return somfy.getShadeById(shadeId)->repeatFrame(repeat); }
+bool SomfyShadeOps::repeatFrame(uint8_t shadeId, uint8_t repeat) { return somfy.repeatFrame(*somfy.getShadeById(shadeId), repeat); }
 bool SomfyShadeOps::sendSensorCommand(uint8_t shadeId, int8_t windy, int8_t sunny, uint8_t repeat) {
   SomfyShade *shade = somfy.getShadeById(shadeId);
-  const bool sent = shade->sendSensorCommand(windy, sunny, repeat);
+  const bool sent = somfy.sendSensorCommand(*shade, windy, sunny, repeat, millis());
   shade->emitState();
   return sent;
 }
@@ -48,18 +48,19 @@ void SomfyShadeOps::setPositions(uint8_t shadeId, float pos, float tilt) {
 void SomfyShadeOps::setUnpaired(uint8_t shadeId) {
   SomfyShade *shade = somfy.getShadeById(shadeId);
   shade->paired = false;
-  shade->save();
+  somfy.commit();
+  shade->publish();
   shade->configChanged();
 }
 void SomfyShadeOps::setRollingCode(uint8_t shadeId, uint16_t code) { somfy.getShadeById(shadeId)->setRollingCode(code); }
 bool SomfyShadeOps::sendGroupCommand(uint8_t groupId, somfy_commands cmd, uint8_t repeat, uint8_t stepSize) {
-  return somfy.getGroupById(groupId)->sendCommand(cmd, repeat, stepSize);
+  return somfy.sendGroupCommand(*somfy.getGroupById(groupId), cmd, repeat, stepSize, millis());
 }
 bool SomfyShadeOps::isLastGroupCommand(uint8_t groupId, somfy_commands cmd) { return somfy.getGroupById(groupId)->isLastCommand(cmd); }
-bool SomfyShadeOps::repeatGroupFrame(uint8_t groupId, uint8_t repeat) { return somfy.getGroupById(groupId)->repeatFrame(repeat); }
+bool SomfyShadeOps::repeatGroupFrame(uint8_t groupId, uint8_t repeat) { return somfy.repeatFrame(*somfy.getGroupById(groupId), repeat); }
 bool SomfyShadeOps::sendGroupSensorCommand(uint8_t groupId, int8_t windy, int8_t sunny, uint8_t repeat) {
   SomfyGroup *group = somfy.getGroupById(groupId);
-  const bool sent = group->sendSensorCommand(windy, sunny, repeat);
+  const bool sent = somfy.sendSensorCommand(*group, windy, sunny, repeat, millis());
   group->emitState();
   return sent;
 }

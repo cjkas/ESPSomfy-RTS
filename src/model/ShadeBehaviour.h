@@ -21,11 +21,11 @@ struct send_result_t {
 
 // How a shade's commands reach its motor, over the radio or GPIO.  When it
 // sends, the frame as sent is in the shade's lastFrame and every other shade
-// has heard it; the shade hears its own frame itself.
+// has heard it at now; the shade hears its own frame itself.
 class MotorLink {
   public:
     // sent is false when the radio could not take the command.
-    virtual send_result_t send(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs, bool priority) = 0;
+    virtual send_result_t send(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs, bool priority, uint32_t now) = 0;
 };
 
 // What a shade's behaviour tells the rest of the firmware, as it happens.
