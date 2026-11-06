@@ -11,9 +11,15 @@ sources=("$repo/tests/board-profile/board-profile-test.cpp" "$repo/src/BoardProf
 "$scratch/lilygo-test"
 "$compiler" "${common[@]}" "${sources[@]}" -o "$scratch/generic-test"
 "$scratch/generic-test"
-"$compiler" "${common[@]}" -DESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS -DCONFIG_IDF_TARGET_ESP32S3 \
-  "$repo/tests/board-profile/shade-gpio-test.cpp" "$repo/src/BoardProfile.cpp" -o "$scratch/shade-gpio-test"
-"$scratch/shade-gpio-test"
+for profile in generic lilygo; do
+  flags=()
+  if [[ "$profile" == lilygo ]]; then
+    flags=(-DESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS -DCONFIG_IDF_TARGET_ESP32S3)
+  fi
+  "$compiler" "${common[@]}" "${flags[@]}" \
+    "$repo/tests/board-profile/shade-gpio-test.cpp" "$repo/src/BoardProfile.cpp" -o "$scratch/shade-gpio-$profile"
+  "$scratch/shade-gpio-$profile"
+done
 if "$compiler" "${common[@]}" -DESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS \
   "${sources[@]}" -o "$scratch/wrong-target" > "$scratch/wrong-target.log" 2>&1; then
   echo 'LILYGO profile incorrectly accepted a non-S3 target' >&2

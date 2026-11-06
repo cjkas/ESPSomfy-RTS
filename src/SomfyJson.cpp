@@ -157,13 +157,11 @@ int8_t SomfyShade::fromJSON(JsonObject &obj) {
     if(this->proto == radio_proto::GP_Remote || this->proto == radio_proto::GP_Relay) {
       if(!obj["gpioUp"].isNull()) this->gpioUp = obj["gpioUp"];
       if(!obj["gpioDown"].isNull()) this->gpioDown = obj["gpioDown"];
-      if(!BoardProfile::usesPin(this->gpioUp)) pinMode(this->gpioUp, OUTPUT);
-      if(!BoardProfile::usesPin(this->gpioDown)) pinMode(this->gpioDown, OUTPUT);
     }
     if(this->proto == radio_proto::GP_Remote) {
       if(!obj["gpioMy"].isNull()) this->gpioMy = obj["gpioMy"];
-      if(!BoardProfile::usesPin(this->gpioMy)) pinMode(this->gpioMy, OUTPUT);
     }
+    this->initGPIOs();
   }
   return err;
 }

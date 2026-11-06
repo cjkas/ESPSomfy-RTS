@@ -12,6 +12,17 @@ static bool usesBoardGPIOs(const SomfyShade &shade) {
     (shade.proto == radio_proto::GP_Remote && BoardProfile::usesPin(shade.gpioMy));
 }
 
+// Shared by saved/backup configuration loading and JSON updates. Refuse the
+// entire assignment if any output belongs to integrated board hardware.
+void SomfyShade::initGPIOs() {
+  if(usesBoardGPIOs(*this)) return;
+  if(this->proto == radio_proto::GP_Relay || this->proto == radio_proto::GP_Remote) {
+    pinMode(this->gpioUp, OUTPUT);
+    pinMode(this->gpioDown, OUTPUT);
+  }
+  if(this->proto == radio_proto::GP_Remote) pinMode(this->gpioMy, OUTPUT);
+}
+
 void SomfyShade::setGPIOs() {
   if(usesBoardGPIOs(*this)) return;
   if(this->proto == radio_proto::GP_Relay) {

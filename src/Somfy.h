@@ -152,6 +152,7 @@ class SomfyShade : public SomfyRemote, public ShadeSettings, private MotorLink, 
     void commit();
     void clear();
     int8_t transformPosition(float fpos);
+    void initGPIOs();
     void setGPIOs();
     void triggerGPIOs(somfy_frame_t &frame);
     bool usesPin(uint8_t pin);
