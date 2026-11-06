@@ -100,12 +100,14 @@ The firmware builds on [pioarduino](https://github.com/pioarduino/platform-espre
 The headless Plus profile uses the board's integrated CC1101 on the 433 MHz RF path,
 16 MB flash and 8 MB OPI PSRAM. It fixes the radio pins and reserves the shared
 peripheral, USB and flash/PSRAM pins; the display and encoder are not used.
-Hardware testing was performed on the **T-Embed CC1101 Plus**. The standard
-**T-Embed CC1101** is expected to work with the same profile: [LILYGO describes the
-Plus](https://lilygo.cc/products/t-embed-cc1101-plus) as that board with an added
-nRF24L01, and its [documented radio/power pins](https://github.com/Xinyuan-LilyGO/T-Embed-CC1101/blob/master/examples/utilities.h)
-match this profile. The non-Plus CC1101 model has not been tested here. This does
-not cover the plain T-Embed without a CC1101.
+
+The standard T-Embed CC1101 is expected to work with the same firmware profile. Its
+documented radio wiring and memory configuration match, and we haven’t identified a
+reason it would need different firmware. We’ve tested only the Plus ourselves. If you
+have the standard CC1101 model, please try it and report whether it works, including
+your board revision and any problems.
+
+This refers to the T-Embed CC1101, not the plain T-Embed without the radio.
 
 ```bash
 pio run -e lilygo-t-embed-cc1101-plus
