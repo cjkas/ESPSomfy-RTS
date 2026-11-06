@@ -38,6 +38,9 @@ jobs:
       - name: Run native unit tests
         run: pio test -e coverage
 
+      - name: Test integrated board GPIO and radio readiness
+        run: bash tools/test-board-profile.sh
+
       - name: Test the release scripts
         run: bash test/scripts/test_set_version.sh
 

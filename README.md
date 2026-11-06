@@ -95,6 +95,23 @@ In either mode the socket refuses an upgrade whose `Origin` header doesn't name 
 ## Building
 The firmware builds on [pioarduino](https://github.com/pioarduino/platform-espressif32) (Arduino 3.x on ESP-IDF 5.5), not the stock PlatformIO platform. In VS Code use the **pioarduino IDE** extension instead of PlatformIO IDE. On the command line, `pip install pioarduino` gives you `pio`. Run the unit tests with `pio test -e native`. [ADR 0003](docs/adr/0003-pioarduino-idf55.md) explains why.
 
+### Build for LILYGO T-Embed CC1101 Plus
+
+The headless Plus profile uses the board's integrated CC1101 on the 433 MHz RF path,
+16 MB flash and 8 MB OPI PSRAM. It fixes the radio pins and reserves the shared
+peripheral, USB and flash/PSRAM pins; the display and encoder are not used.
+This profile is for the **T-Embed CC1101 Plus**, not the non-Plus board.
+
+```bash
+pio run -e lilygo-t-embed-cc1101-plus
+pio run -e lilygo-t-embed-cc1101-plus -t buildfs
+```
+
+The images are in `.pio/build/lilygo-t-embed-cc1101-plus/`. This environment reuses
+`esp32_3MB.csv`. A device with another partition layout needs USB provisioning with
+a fresh recovery backup and current rolling codes; firmware-only OTA cannot migrate
+the layout. Do not substitute a generic S3 image for this profile.
+
 Bugs and ideas go to the [issues](https://github.com/cjkas/ESPSomfy-RTS/issues); security problems go through [SECURITY.md](SECURITY.md).
 
 ## Credits
