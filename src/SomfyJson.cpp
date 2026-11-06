@@ -52,8 +52,7 @@ int8_t SomfyShade::validateJSON(JsonObject &obj) {
   const uint8_t downPin = !obj["gpioDown"].isNull() ? obj["gpioDown"].as<uint8_t>() : this->gpioDown;
   const uint8_t myPin = !obj["gpioMy"].isNull() ? obj["gpioMy"].as<uint8_t>() : this->gpioMy;
   pin_users_t radio, ethernet, others;
-  if(somfy.transceiver.config.enabled)
-    radio.uses = [](uint8_t pin, void *) { return somfy.transceiver.usesPin(pin); };
+  radio.uses = [](uint8_t pin, void *) { return somfy.transceiver.usesPin(pin); };
 #if HAS_ETHERNET
   if(settings.connType == conn_types_t::ethernet || settings.connType == conn_types_t::ethernetpref)
     ethernet.uses = [](uint8_t pin, void *) { return settings.Ethernet.usesPin(pin); };
@@ -158,12 +157,12 @@ int8_t SomfyShade::fromJSON(JsonObject &obj) {
     if(this->proto == radio_proto::GP_Remote || this->proto == radio_proto::GP_Relay) {
       if(!obj["gpioUp"].isNull()) this->gpioUp = obj["gpioUp"];
       if(!obj["gpioDown"].isNull()) this->gpioDown = obj["gpioDown"];
-      pinMode(this->gpioUp, OUTPUT);
-      pinMode(this->gpioDown, OUTPUT);
+      if(!BoardProfile::usesPin(this->gpioUp)) pinMode(this->gpioUp, OUTPUT);
+      if(!BoardProfile::usesPin(this->gpioDown)) pinMode(this->gpioDown, OUTPUT);
     }
     if(this->proto == radio_proto::GP_Remote) {
       if(!obj["gpioMy"].isNull()) this->gpioMy = obj["gpioMy"];
-      pinMode(this->gpioMy, OUTPUT);
+      if(!BoardProfile::usesPin(this->gpioMy)) pinMode(this->gpioMy, OUTPUT);
     }
   }
   return err;
