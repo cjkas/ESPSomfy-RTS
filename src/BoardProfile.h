@@ -11,7 +11,7 @@ constexpr bool integratedRadio = true;
 constexpr bool integratedRadio = false;
 #endif
 
-// LILYGO T-Embed CC1101 Plus integrated hardware; not the non-Plus board.
+// LILYGO T-Embed CC1101 wiring, hardware-tested on the Plus model.
 constexpr uint8_t power = 15;
 constexpr uint8_t sck = 11;
 constexpr uint8_t mosi = 9;
