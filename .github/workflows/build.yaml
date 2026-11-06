@@ -168,7 +168,7 @@ jobs:
         #         for flashing a new chip via USB/serial
         # addr_bootloader: chip-dependent (ESP32: 0x1000, S3/C3/C6: 0x0, C5/P4: 0x2000)
         # addr_fs: must match the spiffs offset in the env's partition table
-        #          (0x310000 in both esp32_3MB.csv and esp32_huge_app.csv)
+        #          (0x310000 in esp32_3MB.csv/esp32_huge_app.csv, 0x670000 in default_8MB.csv)
         include:
           - env: esp32dev
             name: ESP32
@@ -188,6 +188,15 @@ jobs:
             elfname: SomfyController.ino.esp32s3.elf
             fsname: SomfyController.littlefs.esp32s3.bin
             obname: SomfyController.onboard.esp32s3.bin
+          - env: lilygo-t-embed-cc1101-plus
+            name: LILYGO T-Embed CC1101 Plus
+            chip: ESP32-S3
+            addr_bootloader: "0x0"
+            addr_fs: "0x670000"
+            fwname: SomfyController.ino.lilygo-t-embed-cc1101-plus.bin
+            elfname: SomfyController.ino.lilygo-t-embed-cc1101-plus.elf
+            fsname: SomfyController.littlefs.lilygo-t-embed-cc1101-plus.bin
+            obname: SomfyController.onboard.lilygo-t-embed-cc1101-plus.bin
           - env: esp32c3
             name: ESP32-C3
             chip: ESP32-C3
