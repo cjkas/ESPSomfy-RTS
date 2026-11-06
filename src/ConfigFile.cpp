@@ -6,7 +6,6 @@
 #include "Utils.h"
 #include "ConfigSettings.h"
 #include "RollingCode.h"
-#include "BoardProfile.h"
 
 static const char *TAG = "ConfigFile";
 
@@ -288,12 +287,7 @@ void ShadeConfigFile::readShade(SomfyShade *shade) {
   shade->gpioMy = rec.gpioMy;
   shade->gpioFlags = rec.gpioFlags;
   shade->roomId = rec.roomId;
-  if(shade->proto == radio_proto::GP_Relay || shade->proto == radio_proto::GP_Remote) {
-    if(!BoardProfile::usesPin(shade->gpioUp)) pinMode(shade->gpioUp, OUTPUT);
-    if(!BoardProfile::usesPin(shade->gpioDown)) pinMode(shade->gpioDown, OUTPUT);
-  }
-  if(shade->proto == radio_proto::GP_Remote && !BoardProfile::usesPin(shade->gpioMy))
-    pinMode(shade->gpioMy, OUTPUT);
+  shade->initGPIOs();
 }
 void ShadeConfigFile::readGroup(SomfyGroup *group) {
   group_record_t rec = groupRecord(group);

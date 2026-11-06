@@ -21,6 +21,7 @@ struct SomfyShade : SomfyRemote, ShadeSettings {
   struct State { int8_t direction = -1, tiltDirection = 0; float currentPos = 0; } position;
   const State &state() const { return position; }
   bool isToggle() { return isToggleShade(shadeType); }
+  void initGPIOs();
   void setGPIOs();
   void triggerGPIOs(somfy_frame_t &frame);
   bool usesPin(uint8_t pin);
@@ -30,9 +31,11 @@ struct SomfyShade : SomfyRemote, ShadeSettings {
 TestSerial Serial;
 TestESP ESP;
 static unsigned int writes = 0;
+static unsigned int modes = 0;
+static int pinModes[49] = {};
 static int levels[49] = {};
 int gpio_set_level(gpio_num_t pin, uint32_t value) { levels[pin] = value; return 0; }
-void pinMode(uint8_t, uint8_t) {}
+void pinMode(uint8_t pin, uint8_t mode) { modes++; pinModes[pin] = mode; }
 void digitalWrite(uint8_t pin, uint8_t value) { writes++; levels[pin] = value; }
 int digitalRead(uint8_t pin) { return levels[pin]; }
 unsigned long millis() { return 100; }
@@ -45,6 +48,15 @@ void TestSPI::end() {}
 
 int main() {
   SomfyShade shade;
+  shade.initGPIOs();
+  assert(modes == 2 && pinModes[16] == OUTPUT && pinModes[17] == OUTPUT);
+  shade.proto = radio_proto::GP_Remote;
+  shade.initGPIOs();
+  assert(modes == 5 && pinModes[18] == OUTPUT);
+  shade.proto = radio_proto::RTS;
+  shade.initGPIOs();
+  assert(modes == 5);
+  shade.proto = radio_proto::GP_Relay;
   shade.setGPIOs();
   assert(writes == 2 && levels[16] == HIGH && levels[17] == LOW);
   somfy_frame_t frame;
@@ -63,10 +75,15 @@ int main() {
       shade.gpioDown = slot == 1 ? pin : 17;
       shade.gpioMy = slot == 2 ? pin : 18;
       shade.proto = radio_proto::GP_Remote;
+      const unsigned int beforeModes = modes;
+      shade.initGPIOs();
+      assert(modes == beforeModes);
       shade.triggerGPIOs(frame);
       shade.setGPIOs();
       if(slot != 2) {
         shade.proto = radio_proto::GP_Relay;
+        shade.initGPIOs();
+        assert(modes == beforeModes);
         shade.setGPIOs();
       }
       assert(writes == before);
