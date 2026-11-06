@@ -108,8 +108,9 @@ pio run -e lilygo-t-embed-cc1101-plus -t buildfs
 ```
 
 The images are in `.pio/build/lilygo-t-embed-cc1101-plus/`. This environment reuses
-`esp32_3MB.csv`. A device with another partition layout needs USB provisioning with
-a fresh recovery backup and current rolling codes; firmware-only OTA cannot migrate
+`default_8MB.csv`, matching the generic S3 release: two 3.1875 MiB firmware slots
+and a 1.5 MiB filesystem. The upper 8 MiB stays unallocated. A device with another
+partition layout needs USB provisioning with a fresh recovery backup and current rolling codes; firmware-only OTA cannot migrate
 the layout. Do not substitute a generic S3 image for this profile.
 
 Bugs and ideas go to the [issues](https://github.com/cjkas/ESPSomfy-RTS/issues); security problems go through [SECURITY.md](SECURITY.md).
