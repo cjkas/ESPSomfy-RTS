@@ -92,5 +92,4 @@ class Transceiver {
 };
 // Bit length the radio was last set up for.  A frame sent without one
 // gets it.
-extern uint8_t radioBitLength;
 #endif

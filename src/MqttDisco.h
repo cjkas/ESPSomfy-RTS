@@ -1,7 +1,7 @@
 #ifndef MQTT_DISCO_H
 #define MQTT_DISCO_H
 #include <ArduinoJson.h>
-#include "ShadeTypes.h"
+#include "model/ShadeTypes.h"
 
 // What Home Assistant's MQTT discovery needs to know about a shade.  Kept
 // free of the shade model and MQTT so the config it gets can be unit tested

@@ -4,7 +4,7 @@
 #include <atomic>
 #include "ModelEditor.h"
 #include "SomfyEditor.h"
-#include "ShadeChanges.h"
+#include "model/ShadeChanges.h"
 #include "outputs/ProtoSocket.h"
 #include "LoopQueue.h"
 
@@ -298,7 +298,7 @@ edit_result_t applyModelEdit(model_edit_t &edit) {
       SomfyRoom *room = somfy.addRoom();
       if(!room) return edit_result_t::error(EDIT_ROOMS_FULL);
       room->fromJSON(obj);
-      room->save();
+      somfy.commit();
       room->publish();
       return done(room->roomId);
     }
@@ -311,14 +311,15 @@ edit_result_t applyModelEdit(model_edit_t &edit) {
         shade->clear();
         return edit_result_t::error("Data Error.", err);
       }
-      shade->save();
+      somfy.commit();
+      shade->publish();
       return done(shade->getShadeId());
     }
     case model_edit_type_t::add_group: {
       SomfyGroup *group = somfy.addGroup();
       if(!group) return edit_result_t::error(EDIT_GROUPS_FULL);
       group->fromJSON(obj);
-      group->save();
+      somfy.commit();
       group->publish();
       return done(group->getGroupId());
     }
@@ -327,7 +328,7 @@ edit_result_t applyModelEdit(model_edit_t &edit) {
       SomfyRoom *room = somfy.getRoomById(obj["roomId"]);
       if(!room) return edit_result_t::missing("Room Id not found.");
       room->fromJSON(obj);
-      room->save();
+      somfy.commit();
       room->publish();
       return done(room->roomId);
     }
@@ -337,7 +338,8 @@ edit_result_t applyModelEdit(model_edit_t &edit) {
       if(!shade) return edit_result_t::missing("Shade Id not found.");
       const int8_t err = shade->fromJSON(obj);
       if(err != 0) return edit_result_t::error("Data Error.", err);
-      shade->save();
+      somfy.commit();
+      shade->publish();
       shade->emitState();
       return done(shade->getShadeId());
     }
@@ -346,7 +348,7 @@ edit_result_t applyModelEdit(model_edit_t &edit) {
       SomfyGroup *group = somfy.getGroupById(obj["groupId"]);
       if(!group) return edit_result_t::missing("Group Id not found.");
       group->fromJSON(obj);
-      group->save();
+      somfy.commit();
       group->emitState();
       return done(group->getGroupId());
     }
@@ -380,9 +382,11 @@ edit_result_t applyModelEdit(model_edit_t &edit) {
       if(!shade) return edit_result_t::missing("Shade Id not found.");
       if(obj["remoteAddress"].isNull()) return edit_result_t::error("Remote address not provided.");
       const uint32_t address = obj["remoteAddress"];
-      if(edit.type == model_edit_type_t::unlink_remote) shade->unlinkRemote(address);
-      else if(!shade->linkRemote(address, obj["rollingCode"] | (uint16_t)0))
-        return edit_result_t::error("This shade already has the most linked remotes it can.");
+      if(edit.type == model_edit_type_t::unlink_remote) {
+        if(shade->unlinkRemote(address)) somfy.commit();
+      }
+      else if(shade->linkRemote(address, obj["rollingCode"] | (uint16_t)0)) somfy.commit();
+      else return edit_result_t::error("This shade already has the most linked remotes it can.");
       return done(shade->getShadeId());
     }
     case model_edit_type_t::link_to_group:
@@ -416,7 +420,8 @@ edit_result_t applyModelEdit(model_edit_t &edit) {
       SomfyShade *shade = somfy.getShadeById(obj["shadeId"]);
       if(!shade) return edit_result_t::missing("Shade not found to pair");
       shade->paired = obj["paired"] | false;
-      shade->save();
+      somfy.commit();
+      shade->publish();
       shade->emitState();
       return done(shade->getShadeId());
     }

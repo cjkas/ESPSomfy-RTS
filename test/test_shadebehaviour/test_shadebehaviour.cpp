@@ -1,6 +1,6 @@
 #include <unity.h>
 #include <vector>
-#include "ShadeBehaviour.h"
+#include "model/ShadeBehaviour.h"
 
 // Scenario tests pinning what ShadeBehaviour does today, moved unchanged from
 // SomfyShade.  Where the copies of a rule disagree the test says "today:" so
@@ -33,7 +33,7 @@ struct FakeLink : MotorLink {
   bool refuseNext = false;
   bool gpio = false;
   FakeLink(somfy_frame_t &lastFrame, const RemoteSettings &remote) : lastFrame(lastFrame), remote(remote) {}
-  send_result_t send(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs, bool priority) override {
+  send_result_t send(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs, bool priority, uint32_t) override {
     send_result_t result;
     if(this->refuseNext) {
       this->refuseNext = false;

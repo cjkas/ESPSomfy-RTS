@@ -1,8 +1,6 @@
 #include <string.h>
 #include "SomfySnapshot.h"
 
-extern SomfyShadeController somfy;
-
 static void copyName(char *out, const char *name) {
   strncpy(out, name, 20);
   out[20] = '\0';
@@ -13,7 +11,7 @@ void snapshotRoom(SomfyRoom &room, room_snapshot_t &out) {
   copyName(out.name, room.name);
   out.sortOrder = room.sortOrder;
 }
-void snapshotShade(SomfyShade &shade, shade_snapshot_t &out) {
+void snapshotShade(const ShadeModel &model, SomfyShade &shade, shade_snapshot_t &out) {
   out.shadeId = shade.getShadeId();
   out.roomId = shade.roomId;
   copyName(out.name, shade.name);
@@ -39,7 +37,7 @@ void snapshotShade(SomfyShade &shade, shade_snapshot_t &out) {
   out.flags = shade.getFlags();
   out.flipCommands = shade.flipCommands;
   out.flipPosition = shade.flipPosition;
-  out.inGroup = shade.isInGroup();
+  out.inGroup = model.isInGroup(shade);
   out.sunSensor = shade.sunSensor;
   out.light = shade.light;
   out.simMy = shade.simMy;
@@ -58,7 +56,7 @@ void snapshotShade(SomfyShade &shade, shade_snapshot_t &out) {
     l.lastRollingCode = remote.lastRollingCode;
   }
 }
-void snapshotGroup(SomfyGroup &group, group_snapshot_t &out) {
+void snapshotGroup(const ShadeModel &model, SomfyGroup &group, group_snapshot_t &out) {
   out.groupId = group.getGroupId();
   out.roomId = group.roomId;
   copyName(out.name, group.name);
@@ -70,12 +68,7 @@ void snapshotGroup(SomfyGroup &group, group_snapshot_t &out) {
   out.flipCommands = group.flipCommands;
   out.repeats = group.repeats;
   out.sortOrder = group.sortOrder;
-  // The same sum as SomfyGroup::updateFlags, without its event.
-  out.flags = 0;
-  for(uint8_t i = 0; i < SOMFY_MAX_GROUPED_SHADES && group.linkedShades[i] != 0; i++) {
-    SomfyShade *shade = somfy.getShadeById(group.linkedShades[i]);
-    if(shade) out.flags |= shade->getFlags();
-  }
+  out.flags = model.groupFlags(group);
   out.linkedShadeCount = 0;
   for(uint8_t i = 0; i < SOMFY_MAX_GROUPED_SHADES; i++) {
     const uint8_t shadeId = group.linkedShades[i];

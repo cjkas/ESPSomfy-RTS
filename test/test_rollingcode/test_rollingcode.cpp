@@ -1,5 +1,5 @@
 #include <unity.h>
-#include "RollingCode.h"
+#include "model/RollingCode.h"
 
 // Stands in for NVS and counts how often it is read.
 struct FakeStore {

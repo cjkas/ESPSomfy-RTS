@@ -2,7 +2,7 @@
 #define CONFIG_RECORDS_H
 #include <Arduino.h>
 #include "ConfigHeader.h"
-#include "ShadeTypes.h"
+#include "model/ShadeTypes.h"
 #include "SomfyFrame.h"
 
 // The records of shades.cfg and of a backup, and how they are written and

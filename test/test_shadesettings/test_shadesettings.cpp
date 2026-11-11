@@ -1,5 +1,5 @@
 #include <unity.h>
-#include "ShadeSettings.h"
+#include "model/ShadeSettings.h"
 
 static const uint8_t SUN_FLAG = static_cast<uint8_t>(somfy_flags_t::SunFlag);
 static const uint8_t SUN_SENSOR = static_cast<uint8_t>(somfy_flags_t::SunSensor);

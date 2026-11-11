@@ -41,13 +41,13 @@ static void publishShadeTopic(const char *topic, int32_t value, bool retain, voi
 void SomfyShade::publishTopics(uint16_t changed) {
   if(!mqtt.connected()) return;
   shade_snapshot_t s;
-  snapshotShade(*this, s);
+  snapshotShade(somfy, *this, s);
   publishShadeTopics(changed, s, publishShadeTopic, this);
 }
 void SomfyShade::publishState() {
   if(!mqtt.connected()) return;
   shade_snapshot_t s;
-  snapshotShade(*this, s);
+  snapshotShade(somfy, *this, s);
   publishShadeTopics(shadeStateTopics(s), s, publishShadeTopic, this);
 }
 // The shade's config for Home Assistant's MQTT discovery.

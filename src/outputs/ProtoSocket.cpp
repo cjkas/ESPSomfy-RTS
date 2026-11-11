@@ -121,12 +121,12 @@ class LiveSource : public SyncSource {
     }
     bool shade(uint8_t slot, shade_snapshot_t &out) override {
       if(somfy.shades[slot].getShadeId() == 255) return false;
-      snapshotShade(somfy.shades[slot], out);
+      snapshotShade(somfy, somfy.shades[slot], out);
       return true;
     }
     bool group(uint8_t slot, group_snapshot_t &out) override {
       if(somfy.groups[slot].getGroupId() == 255) return false;
-      snapshotGroup(somfy.groups[slot], out);
+      snapshotGroup(somfy, somfy.groups[slot], out);
       return true;
     }
     bool repeater(uint8_t slot, uint32_t &address) override {
@@ -620,6 +620,8 @@ static void sendEvent() {
   if(finishEvent()) ws.textAll(frameBuffer, eventJson.length());
 }
 // An item whole, or only its state: a snapshot of it, written by write.
+static void snapshotLiveShade(SomfyShade &shade, shade_snapshot_t &out) { snapshotShade(somfy, shade, out); }
+static void snapshotLiveGroup(SomfyGroup &group, group_snapshot_t &out) { snapshotGroup(somfy, group, out); }
 template<typename Model, typename Snapshot>
 static void sendItem(proto_type_t type, Model &item, void (*snapshot)(Model &, Snapshot &), void (*write)(ProtoWriter &, const Snapshot &)) {
   Snapshot s;
@@ -630,10 +632,10 @@ static void sendItem(proto_type_t type, Model &item, void (*snapshot)(Model &, S
 }
 
 void ProtoSocket::shadeState(SomfyShade &shade) {
-  if(this->sending()) sendItem(proto_type_t::shadeState, shade, snapshotShade, protoShadeState);
+  if(this->sending()) sendItem(proto_type_t::shadeState, shade, snapshotLiveShade, protoShadeState);
 }
 void ProtoSocket::shade(SomfyShade &shade) {
-  if(this->sending()) sendItem(proto_type_t::shade, shade, snapshotShade, protoShade);
+  if(this->sending()) sendItem(proto_type_t::shade, shade, snapshotLiveShade, protoShade);
 }
 void ProtoSocket::shadeRemoved(uint8_t shadeId) {
   if(!this->sending()) return;
@@ -641,12 +643,12 @@ void ProtoSocket::shadeRemoved(uint8_t shadeId) {
   sendEvent();
 }
 void ProtoSocket::group(SomfyGroup &group) {
-  if(this->sending()) sendItem(proto_type_t::group, group, snapshotGroup, protoGroup);
+  if(this->sending()) sendItem(proto_type_t::group, group, snapshotLiveGroup, protoGroup);
 }
 void ProtoSocket::groupState(SomfyGroup &group) {
   if(!this->sending()) return;
   group_snapshot_t g;
-  snapshotGroup(group, g);
+  snapshotGroup(somfy, group, g);
   ProtoWriter w(beginEvent(proto_type_t::groupState));
   protoGroupState(w, g.groupId, g.flags, group.direction);
   sendEvent();

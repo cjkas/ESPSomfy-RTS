@@ -5,7 +5,7 @@
 #include "ConfigFile.h"
 #include "Utils.h"
 #include "ConfigSettings.h"
-#include "RollingCode.h"
+#include "model/RollingCode.h"
 
 static const char *TAG = "ConfigFile";
 
