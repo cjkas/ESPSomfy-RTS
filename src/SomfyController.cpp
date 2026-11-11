@@ -20,6 +20,7 @@
 #include "esp_rom_sys.h"
 #include <inttypes.h>
 #include "Timing.h"
+#include "BoardProfile.h"
 
 static const char *TAG = "Main";
 #define LOOP_SLOW_MS 100
@@ -79,6 +80,7 @@ static void onAllocFailed(size_t size, uint32_t caps, const char *function) {
 
 void setup() {
   Serial.begin(SERIAL_BAUD);
+  BoardProfile::begin();
   heap_caps_register_failed_alloc_callback(onAllocFailed);
   ESP_LOGI(TAG, "Startup/Boot....");
   esp_core_dump_summary_t summary;

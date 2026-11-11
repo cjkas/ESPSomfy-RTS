@@ -1,9 +1,30 @@
 #include "esp_log.h"
 #include "Somfy.h"
+#include "BoardProfile.h"
 
 static const char *TAG = "Somfy";
 
+// A backup may contain GPIO assignments from another board. Keep its shade
+// identity, but never drive a pad used by this board's integrated hardware.
+static bool usesBoardGPIOs(const SomfyShade &shade) {
+  if(shade.proto != radio_proto::GP_Relay && shade.proto != radio_proto::GP_Remote) return false;
+  return BoardProfile::usesPin(shade.gpioUp) || BoardProfile::usesPin(shade.gpioDown) ||
+    (shade.proto == radio_proto::GP_Remote && BoardProfile::usesPin(shade.gpioMy));
+}
+
+// Shared by saved/backup configuration loading and JSON updates. Refuse the
+// entire assignment if any output belongs to integrated board hardware.
+void SomfyShade::initGPIOs() {
+  if(usesBoardGPIOs(*this)) return;
+  if(this->proto == radio_proto::GP_Relay || this->proto == radio_proto::GP_Remote) {
+    pinMode(this->gpioUp, OUTPUT);
+    pinMode(this->gpioDown, OUTPUT);
+  }
+  if(this->proto == radio_proto::GP_Remote) pinMode(this->gpioMy, OUTPUT);
+}
+
 void SomfyShade::setGPIOs() {
+  if(usesBoardGPIOs(*this)) return;
   if(this->proto == radio_proto::GP_Relay) {
     // Determine whether the direction needs to be set.
     uint8_t p_on = (this->gpioFlags & (uint8_t)gpio_flags_t::LowLevelTrigger) == 0x00 ? HIGH : LOW;
@@ -65,6 +86,7 @@ void SomfyShade::setGPIOs() {
 }
 void SomfyRemote::triggerGPIOs(somfy_frame_t &frame) { }
 void SomfyShade::triggerGPIOs(somfy_frame_t &frame) {
+  if(usesBoardGPIOs(*this)) return;
   if(this->proto == radio_proto::GP_Remote) {
     uint8_t p_on = (this->gpioFlags & (uint8_t)gpio_flags_t::LowLevelTrigger) == 0x00 ? HIGH : LOW;
     uint8_t p_off = (this->gpioFlags & (uint8_t)gpio_flags_t::LowLevelTrigger) == 0x00 ? LOW : HIGH;
