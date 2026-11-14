@@ -15,13 +15,21 @@ void SomfyShade::emitCommand(somfy_commands cmd, const char *source, uint32_t so
 }
 void SomfyGroup::emitState() { this->changed |= GROUP_CHANGED_STATE; }
 // The change fan-out.  Everything that changed about a shade or group in this
-// loop() pass goes out once: its MQTT topics, then one state event.
+// loop() pass goes out once: its MQTT topics, then one state event.  A
+// travelling shade's position steps are held back to SHADE_TRAVEL_SEND_MS.
 void SomfyShadeController::sendChanges() {
+  const uint32_t now = millis();
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
     SomfyShade &shade = this->shades[i];
     const uint16_t changed = shade.changed;
+    if(!changed) continue;
+    if(shade.getShadeId() == 255) {
+      shade.changed = 0;
+      continue;
+    }
+    if(!shadeChangesDue(changed, now, shade.changesSentAt)) continue;
     shade.changed = 0;
-    if(!changed || shade.getShadeId() == 255) continue;
+    shade.changesSentAt = now;
     if(changed & SHADE_CHANGED_TOPICS) shade.publishTopics(changed);
     if(changed & SHADE_CHANGED_CONFIG) protoSocket.shade(shade);
     else protoSocket.shadeState(shade);

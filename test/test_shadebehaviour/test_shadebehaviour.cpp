@@ -625,6 +625,18 @@ static void test_travel_across_the_millis_wrap() {
   r.run(5000);
   ASSERT_POS(50, r.st().currentPos);
 }
+static void test_travel_marks_only_the_position() {
+  // The fan-out holds back position steps only when nothing else comes with them.
+  Rig r;
+  r.press(somfy_commands::Down);
+  r.run(1000);
+  r.events.changed = 0;
+  r.run(1000);
+  TEST_ASSERT_EQUAL_HEX16(SHADE_CHANGED_POSITION, r.events.changed);
+  // Reaching the end marks the direction too.
+  r.run(9000);
+  TEST_ASSERT_TRUE(r.events.changed & SHADE_CHANGED_DIRECTION);
+}
 static void test_restore_set_position_and_clear_tilt() {
   Rig r;
   r.b.restore(42.6f, 10.2f, 30, 5);
@@ -680,6 +692,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_sim_my_favorite_moves_to_it);
   RUN_TEST(test_garage_my_toggles_open_and_shut);
   RUN_TEST(test_travel_across_the_millis_wrap);
+  RUN_TEST(test_travel_marks_only_the_position);
   RUN_TEST(test_restore_set_position_and_clear_tilt);
   return UNITY_END();
 }

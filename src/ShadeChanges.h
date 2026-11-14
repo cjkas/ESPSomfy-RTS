@@ -29,6 +29,10 @@ enum : uint16_t {
 };
 // The bits that have an MQTT topic.
 #define SHADE_CHANGED_TOPICS 0x0FFF
+// The bits a travelling shade sets on every whole percent.
+#define SHADE_CHANGED_TRAVEL (SHADE_CHANGED_POSITION | SHADE_CHANGED_TILT_POSITION)
+// A travelling shade's position goes out at most this often.
+#define SHADE_TRAVEL_SEND_MS 250
 // The same for a group: its direction topic, and groupState for the socket.
 enum : uint8_t {
   GROUP_CHANGED_DIRECTION = 0x01,
@@ -46,4 +50,9 @@ void publishShadeTopics(uint16_t changed, const shade_snapshot_t &shade, topic_s
 // The topics a shade publishes in full when MQTT connects: the tilt ones only
 // with a tilt, the sun ones only with a sun sensor.
 uint16_t shadeStateTopics(const shade_snapshot_t &shade);
+// Whether the fan-out sends a shade's changes now, lastSent being when it last
+// did.  Position steps alone wait until SHADE_TRAVEL_SEND_MS after that and
+// stay set meanwhile; anything else, the stop among them, goes out at once and
+// takes the waiting position with it.
+bool shadeChangesDue(uint16_t changed, uint32_t now, uint32_t lastSent);
 #endif
