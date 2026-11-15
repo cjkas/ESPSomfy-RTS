@@ -1,11 +1,11 @@
 #include "BoardProfile.h"
 #include <SPI.h>
-#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS)
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
 #include <driver/gpio.h>
 #endif
 
 namespace BoardProfile {
-#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS)
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
 static bool initialized = false;
 
 static void output(uint8_t pin, uint8_t level) {

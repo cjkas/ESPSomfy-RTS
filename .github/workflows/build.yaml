@@ -188,15 +188,15 @@ jobs:
             elfname: SomfyController.ino.esp32s3.elf
             fsname: SomfyController.littlefs.esp32s3.bin
             obname: SomfyController.onboard.esp32s3.bin
-          - env: lilygo-t-embed-cc1101-plus
-            name: LILYGO T-Embed CC1101 Plus
+          - env: lilygo-t-embed-cc1101
+            name: LILYGO T-Embed CC1101 / Plus
             chip: ESP32-S3
             addr_bootloader: "0x0"
             addr_fs: "0x670000"
-            fwname: SomfyController.ino.lilygo-t-embed-cc1101-plus.bin
-            elfname: SomfyController.ino.lilygo-t-embed-cc1101-plus.elf
-            fsname: SomfyController.littlefs.lilygo-t-embed-cc1101-plus.bin
-            obname: SomfyController.onboard.lilygo-t-embed-cc1101-plus.bin
+            fwname: SomfyController.ino.lilygo-t-embed-cc1101.bin
+            elfname: SomfyController.ino.lilygo-t-embed-cc1101.elf
+            fsname: SomfyController.littlefs.lilygo-t-embed-cc1101.bin
+            obname: SomfyController.onboard.lilygo-t-embed-cc1101.bin
           - env: esp32c3
             name: ESP32-C3
             chip: ESP32-C3

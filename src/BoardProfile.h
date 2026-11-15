@@ -2,16 +2,16 @@
 #include <Arduino.h>
 
 namespace BoardProfile {
-#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS)
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
 #if !defined(CONFIG_IDF_TARGET_ESP32S3)
-#error "The LILYGO T-Embed CC1101 Plus profile requires an ESP32-S3 target"
+#error "The LILYGO T-Embed CC1101 / Plus profile requires an ESP32-S3 target"
 #endif
 constexpr bool integratedRadio = true;
 #else
 constexpr bool integratedRadio = false;
 #endif
 
-// LILYGO T-Embed CC1101 wiring, hardware-tested on the Plus model.
+// LILYGO T-Embed CC1101 wiring, hardware-tested on the Plus model; the standard model is expected to match.
 constexpr uint8_t power = 15;
 constexpr uint8_t sck = 11;
 constexpr uint8_t mosi = 9;
