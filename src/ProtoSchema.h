@@ -251,6 +251,7 @@
   FIELD(txPower, "tp", 'i', 0) \
   FIELD(noiseDetection, "nd", 'b', 0) \
   FIELD(radioInit, "ri", 'b', 0) \
+  FIELD(fixedPins, "fx", 'b', 0) \
   /* wifiNetworks: each network has ssid, channel and strength as above */ \
   FIELD(networks, "nw", 'l', 0) \
   FIELD(macAddress, "ma", 's', 0)

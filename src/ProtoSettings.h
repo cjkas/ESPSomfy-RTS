@@ -32,6 +32,11 @@ enum class settings_part_t : uint8_t {
   radio      // transceiver_config_t
 };
 const char *settingsSectionName(settings_section_t section);
+// What the radio section says about the board rather than the config:
+// fixedPins is set where the radio is wired to the board, so the six pins in
+// the section are the board's and a save can't change them.  Left out
+// otherwise, so a client that doesn't know it never sees it.
+void writeRadioBoardFields(ProtoWriter &w, bool pinsFixed);
 // The section that payload d names in section.  nullptr when it is good;
 // otherwise what is wrong with it, for a bad request reply.
 const char *parseSettingsSection(JsonObjectConst d, settings_section_t &section);

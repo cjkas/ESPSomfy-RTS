@@ -287,12 +287,7 @@ void ShadeConfigFile::readShade(SomfyShade *shade) {
   shade->gpioMy = rec.gpioMy;
   shade->gpioFlags = rec.gpioFlags;
   shade->roomId = rec.roomId;
-  if(shade->proto == radio_proto::GP_Relay || shade->proto == radio_proto::GP_Remote) {
-    pinMode(shade->gpioUp, OUTPUT);
-    pinMode(shade->gpioDown, OUTPUT);
-  }
-  if(shade->proto == radio_proto::GP_Remote)
-    pinMode(shade->gpioMy, OUTPUT);
+  shade->initGPIOs();
 }
 void ShadeConfigFile::readGroup(SomfyGroup *group) {
   group_record_t rec = groupRecord(group);

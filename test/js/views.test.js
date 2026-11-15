@@ -71,7 +71,38 @@ test('the radio section as the panel binds it, and back', () => {
     assert.equal(save.frequency, 433.42);
     // Only shown, never saved.
     assert.equal('radioInit' in save, false);
+    assert.equal('fixedPins' in save, false);
     assert.equal('type' in save, false);
+});
+
+function fakeDocument() {
+    const els = {};
+    for (const id of ProtoViews.RADIO_PIN_SELECTS) els[id] = { disabled: false };
+    els[ProtoViews.RADIO_PINS_NOTE] = { style: { display: 'none' } };
+    return { els, getElementById: (id) => els[id] || null };
+}
+
+test('the radio pins are fixed only where the device says so', () => {
+    assert.equal(ProtoViews.radio(schema, { bitLength: 80 }).fixedPins, false);
+    assert.equal(ProtoViews.radio(schema, { bitLength: 80, fixedPins: true }).fixedPins, true);
+
+    const fixed = fakeDocument();
+    ProtoViews.showRadioPins(fixed, ProtoViews.radio(schema, { fixedPins: true }).fixedPins);
+    assert.equal(ProtoViews.RADIO_PIN_SELECTS.length, 6);
+    for (const id of ProtoViews.RADIO_PIN_SELECTS) assert.equal(fixed.els[id].disabled, true, id);
+    assert.equal(fixed.els[ProtoViews.RADIO_PINS_NOTE].style.display, '');
+
+    // Without the flag they are editable, and a page that was fixed becomes editable again.
+    const free = fakeDocument();
+    ProtoViews.showRadioPins(free, true);
+    ProtoViews.showRadioPins(free, ProtoViews.radio(schema, {}).fixedPins);
+    for (const id of ProtoViews.RADIO_PIN_SELECTS) assert.equal(free.els[id].disabled, false, id);
+    assert.equal(free.els[ProtoViews.RADIO_PINS_NOTE].style.display, 'none');
+});
+
+test('every pin select and the note are in the page', () => {
+    const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../data-src/index.html'), 'utf8');
+    for (const id of ProtoViews.RADIO_PIN_SELECTS.concat(ProtoViews.RADIO_PINS_NOTE)) assert.ok(html.includes(`id="${id}"`), id);
 });
 
 test('an op refusal for the error box, with a shade validation code', () => {

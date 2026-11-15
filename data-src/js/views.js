@@ -51,9 +51,19 @@ class ProtoViews {
     static radioSave(config) {
         const fields = { section: 'radio', bitLength: config.type };
         for (const name of ProtoViews.SETTINGS.radio) {
-            if (name !== 'bitLength' && name !== 'radioInit') fields[name] = config[name];
+            if (name !== 'bitLength' && !ProtoViews.RADIO_SHOWN.includes(name)) fields[name] = config[name];
         }
         return fields;
+    }
+    // Where the radio is wired to the board (config.fixedPins) its six pins
+    // can't be changed: the pin selects are disabled and the note shown.
+    static showRadioPins(doc, fixed) {
+        for (const id of ProtoViews.RADIO_PIN_SELECTS) {
+            const el = doc.getElementById(id);
+            if (el) el.disabled = !!fixed;
+        }
+        const note = doc.getElementById(ProtoViews.RADIO_PINS_NOTE);
+        if (note) note.style.display = fixed ? '' : 'none';
     }
     // An op's refusal as the UI's error box shows it.  A shade whose settings
     // don't add up carries the reason's number, which the errors table
@@ -66,6 +76,10 @@ class ProtoViews {
 }
 ProtoViews.WIFI = ['ssid', 'hasPassphrase', 'roaming', 'hidden'];
 ProtoViews.ETHERNET = ['boardType', 'phyType', 'CLKMode', 'phyAddress', 'PWRPin', 'MDCPin', 'MDIOPin'];
+// The radio fields the device only sends.
+ProtoViews.RADIO_SHOWN = ['radioInit', 'fixedPins'];
+ProtoViews.RADIO_PIN_SELECTS = ['selTransSCKPin', 'selTransCSNPin', 'selTransMOSIPin', 'selTransMISOPin', 'selTransTXPin', 'selTransRXPin'];
+ProtoViews.RADIO_PINS_NOTE = 'divRadioPinsFixed';
 ProtoViews.IP = ['dhcp', 'ip', 'gateway', 'subnet', 'dns1', 'dns2'];
 // The fields of each settings section, as getSettings sends them
 // (src/DeviceOps.cpp).
@@ -75,6 +89,6 @@ ProtoViews.SETTINGS = {
     mqtt: ['enabled', 'pubDisco', 'protocol', 'hostname', 'port', 'username', 'hasPassword', 'rootTopic', 'discoTopic'],
     security: ['securityType', 'username', 'hasPassword', 'hasPin'],
     radio: ['bitLength', 'proto', 'enabled', 'TXPin', 'RXPin', 'SCKPin', 'MOSIPin', 'MISOPin', 'CSNPin', 'frequency', 'rxBandwidth',
-        'deviation', 'txPower', 'noiseDetection', 'radioInit']
+        'deviation', 'txPower', 'noiseDetection', 'radioInit', 'fixedPins']
 };
 if (typeof module !== 'undefined' && module.exports) module.exports = { ProtoViews };

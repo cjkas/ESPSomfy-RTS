@@ -139,7 +139,7 @@ The settings are in five sections. `getSettings` and `saveSettings` name one in 
 | `security` | `securityType`, `username`, `password`, `pin` | `/getSecurity`, `/saveSecurity` |
 | `radio` | `bitLength`, `proto`, `enabled`, `TXPin`, `RXPin`, `SCKPin`, `MOSIPin`, `MISOPin`, `CSNPin`, `frequency`, `rxBandwidth`, `deviation`, `txPower`, `noiseDetection` | `/getRadio`, `/saveRadio` |
 
-- **Reading.** `getSettings` replies with the section's fields. A secret is never sent: `hasPassphrase`, `hasPassword` and `hasPin` say whether one is set. `network` also has `hasEthernet`, and has the Ethernet fields only on a device with Ethernet. `radio` also has `radioInit`.
+- **Reading.** `getSettings` replies with the section's fields. A secret is never sent: `hasPassphrase`, `hasPassword` and `hasPin` say whether one is set. `network` also has `hasEthernet`, and has the Ethernet fields only on a device with Ethernet. `radio` also has `radioInit`, and `fixedPins` where the radio is wired to the board (the LILYGO T-Embed CC1101), left out on every other build. `fixedPins` means the six pins in the section are the board's and a client should show them as read-only: a save of other pins is applied with the board's pins and still replies as saved. Older clients and Home Assistant ignore the field.
 - `connMode` is the connection the settings ask for: 1 WiFi, 2 Ethernet, 3 Ethernet with WiFi as the fallback. The header's `connType` is the connection in use.
 - **Saving.** `saveSettings` takes the section and the fields to change. As with every op, a field left out stays as it is. A secret sent empty keeps the stored one, except alongside a new `ssid` or MQTT `username`, as on the routes.
 - Every field is checked before anything is saved:
@@ -148,7 +148,7 @@ The settings are in five sections. `getSettings` and `saveSettings` name one in 
   - a string's length, which is what the setting holds: `hostname` 31, `pin` 4, and so on;
   - an address: four numbers 0–255, or `""` for none.
 
-  A bad request also comes for a field the section doesn't save (a `has*` field, `radioInit`, a field of another section, Ethernet on a device without it), and for a save with no fields.
+  A bad request also comes for a field the section doesn't save (a `has*` field, `radioInit`, `fixedPins`, a field of another section, Ethernet on a device without it), and for a save with no fields.
 - One save runs at a time, whichever client sent it: while one is waiting, another gets busy.
 - The reply comes once the settings are saved and applied, as their route applies them. A saved time zone takes effect at once, where the route waited for a reboot.
   - `rebooting` 1 means the device restarts a second later for them. That happens for a new `connMode`, for a new SSID or passphrase while on WiFi with nobody on the soft AP, and for Ethernet settings while on Ethernet.

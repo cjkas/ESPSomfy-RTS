@@ -8,6 +8,7 @@
 #include "driver/gpio.h"
 #include "esp_log.h"
 #include "Utils.h"
+#include "RadioReadiness.h"
 #include "BootPins.h"
 #include "ConfigSettings.h"
 #include "Somfy.h"
@@ -101,7 +102,7 @@ bool somfy_rx_queue_t::pop(somfy_rx_t *rx) {
   return false;
 }
 void Transceiver::sendFrame(byte *frame, uint8_t sync, uint8_t bitLength) {
-  if(!this->config.enabled) return;
+  if(!this->available()) return;
   uint32_t pin = 1 << this->config.TXPin;
   if (sync == 2 || sync == 12) {  // Only with the first frame.  Repeats do not get a wakeup pulse.
     // All information online for the wakeup pulse appears to be incorrect.  While there is a wakeup
@@ -252,9 +253,9 @@ static std::atomic<bool> scanEmitPending{false};
 void Transceiver::beginFrequencyScan() {
   // The scan retunes the radio so nothing may transmit until it ends.  This
   // also aborts a transmission in flight so the lock below is never held long.
-  if(this->config.enabled) this->suspendTx(TX_SUSPEND_SCAN);
+  if(this->available()) this->suspendTx(TX_SUSPEND_SCAN);
   RadioLock lock(portMAX_DELAY, true);
-  if(this->config.enabled) {
+  if(this->available()) {
     this->disableReceive();
     rxmode = 3;
     scanStart = millis();
@@ -272,7 +273,7 @@ void Transceiver::beginFrequencyScan() {
 }
 void Transceiver::processFrequencyScan(bool received) {
   RadioLock lock;
-  if(this->config.enabled && rxmode == 3) {
+  if(this->available() && rxmode == 3) {
     if(received) {
       currRSSI = ELECHOUSE_cc1101.getRssi();
       if((long)(markFreq * 100) == (long)(currFreq * 100)) {
@@ -365,22 +366,49 @@ void Transceiver::emitFrame(somfy_frame_t *frame, somfy_rx_t *rx) {
 void Transceiver::clearReceived(void) {
     //packet_received = false;
     //memset(receive_buffer, 0x00, sizeof(receive_buffer));
-    if(this->config.enabled)
+    if(this->available())
       //attachInterrupt(interruptPin, handleReceive, FALLING);
       attachInterrupt(interruptPin, handleReceive, CHANGE);
 }
 void Transceiver::enableReceive(void) {
+    if(this->available()) this->startReceive();
+}
+bool Transceiver::startReceive() {
     uint32_t timing = millis();
-    if(rxmode > 0) return;
-    if(this->config.enabled) {
-      rxmode = 1;
-      pinMode(this->config.RXPin, INPUT);
-      interruptPin = digitalPinToInterrupt(this->config.RXPin);
-      ELECHOUSE_cc1101.SetRx();
-      //attachInterrupt(interruptPin, handleReceive, FALLING);
-      attachInterrupt(interruptPin, handleReceive, CHANGE);
-      ESP_LOGD(TAG, "Enabled receive on Pin #%d Timing: %ld", this->config.RXPin, millis() - timing);
+    if(rxmode > 0) return true;
+    rxmode = 1;
+    pinMode(this->config.RXPin, INPUT);
+    interruptPin = digitalPinToInterrupt(this->config.RXPin);
+    if(BoardProfile::integratedRadio) {
+      // One missed switch into RX is retried from idle before the radio is
+      // given up as unavailable.
+      for(uint8_t attempt = 0;; attempt++) {
+        ELECHOUSE_cc1101.SetRx();
+        const uint32_t tried = millis();
+        uint8_t state;
+        do {
+          delay(1);
+          state = ELECHOUSE_cc1101.SpiReadStatus(CC1101_MARCSTATE) & 0x1F;
+        } while(state != RADIO_MARCSTATE_RX && millis() - tried < 20);
+        const rx_outcome_t outcome = radioRxOutcome(state, attempt, RADIO_RX_ATTEMPTS);
+        if(outcome == rx_outcome_t::ready) break;
+        ELECHOUSE_cc1101.setSidle();
+        if(outcome == rx_outcome_t::retry) {
+          ESP_LOGW(TAG, "CC1101 MARCSTATE=0x%02X, not RX; trying again", state);
+          continue;
+        }
+        ESP_LOGW(TAG, "CC1101 MARCSTATE=0x%02X, failed to enter RX; radio unavailable", state);
+        this->config.radioInit = false;
+        this->_available = false;
+        rxmode = 0;
+        return false;
+      }
     }
+    else ELECHOUSE_cc1101.SetRx();
+    //attachInterrupt(interruptPin, handleReceive, FALLING);
+    attachInterrupt(interruptPin, handleReceive, CHANGE);
+    ESP_LOGD(TAG, "Enabled receive on Pin #%d Timing: %ld", this->config.RXPin, millis() - timing);
+    return true;
 }
 void Transceiver::disableReceive(void) { 
   rxmode = 0;
@@ -396,12 +424,15 @@ void Transceiver::setConfig(const transceiver_config_t &cfg) {
   // Saving first means a radio that locks up while applying comes back with
   // the new config after the reboot.
   RadioLock lock(portMAX_DELAY, true);
-  if(this->config.enabled && this->config.TXPin != cfg.TXPin) pinMode(this->config.TXPin, INPUT);
-  this->config = cfg;
+  transceiver_config_t next = cfg;
+  next.applyBoardPins();
+  if(this->config.enabled && this->config.TXPin != next.TXPin) pinMode(this->config.TXPin, INPUT);
+  this->config = next;
   this->config.save();
   this->config.apply();
 }
 bool Transceiver::usesPin(uint8_t pin) {
+  if(BoardProfile::usesPin(pin)) return true;
   if(this->config.enabled) {
     if(this->config.SCKPin == pin ||
       this->config.TXPin == pin ||
@@ -575,10 +606,39 @@ void transceiver_config_t::load() {
     pref.end();
     //this->printBuffer = somfy.transceiver.printBuffer;
 }
+void transceiver_config_t::applyBoardPins() {
+  if(!BoardProfile::integratedRadio) return;
+  this->SCKPin = BoardProfile::sck;
+  this->MOSIPin = BoardProfile::mosi;
+  this->MISOPin = BoardProfile::miso;
+  this->CSNPin = BoardProfile::cs;
+  this->TXPin = BoardProfile::tx;
+  this->RXPin = BoardProfile::rx;
+}
+
 static void warnBootPin(const char *name, uint8_t pin) {
   const char *effect = bootPinEffect(pin);
   if(effect) ESP_LOGW(TAG, "Radio %s is on GPIO%u, a strapping pin the radio can drive at reset.  %s", name, pin, effect);
 }
+static bool checkBoardRadio(float frequency) {
+  if(!BoardProfile::integratedRadio) return true;
+  radio_readings_t r;
+  r.partnum = ELECHOUSE_cc1101.SpiReadStatus(CC1101_PARTNUM);
+  r.version = ELECHOUSE_cc1101.SpiReadStatus(CC1101_VERSION);
+  r.iocfg0 = ELECHOUSE_cc1101.SpiReadReg(CC1101_IOCFG0);
+  r.iocfg2 = ELECHOUSE_cc1101.SpiReadReg(CC1101_IOCFG2);
+  r.pktctrl0 = ELECHOUSE_cc1101.SpiReadReg(CC1101_PKTCTRL0);
+  r.mdmcfg2 = ELECHOUSE_cc1101.SpiReadReg(CC1101_MDMCFG2);
+  r.freqWord = (static_cast<uint32_t>(ELECHOUSE_cc1101.SpiReadReg(CC1101_FREQ2)) << 16) |
+    (static_cast<uint32_t>(ELECHOUSE_cc1101.SpiReadReg(CC1101_FREQ1)) << 8) |
+    ELECHOUSE_cc1101.SpiReadReg(CC1101_FREQ0);
+  ESP_LOGD(TAG, "CC1101 PARTNUM=0x%02X VERSION=0x%02X IOCFG0=0x%02X IOCFG2=0x%02X PKTCTRL0=0x%02X MDMCFG2=0x%02X",
+    r.partnum, r.version, r.iocfg0, r.iocfg2, r.pktctrl0, r.mdmcfg2);
+  ESP_LOGD(TAG, "CC1101 frequency requested=%.3f readback=%.3f MHz; GDO0 TX=%u GDO2 RX=%u",
+    frequency, radioFrequencyMHz(r.freqWord), BoardProfile::tx, BoardProfile::rx);
+  return radioRegistersReady(r, frequency);
+}
+
 void transceiver_config_t::apply() {
     Preferences pref;
     // A transmission in flight stops after its current frame so the radio can
@@ -588,12 +648,18 @@ void transceiver_config_t::apply() {
     // Reconfiguring the radio ends a frequency scan so TX may resume.
     const bool wasScanning = rxmode == 3;
     somfy.transceiver.disableReceive();
+    // Generic radios retain their enabled-based availability. The integrated
+    // radio is published ready only after its register/RX checks succeed.
+    somfy.transceiver._available = false;
     if(wasScanning) {
       somfy.transceiver.resumeTx(TX_SUSPEND_SCAN);
       scanEmitPending = true;
     }
+    this->applyBoardPins();
     radioBitLength = this->type;    
     if(this->enabled) {
+      this->radioInit = false;
+      if(!BoardProfile::prepareRadio(this->frequency)) return;
       bool radioInit = true;
       pref.begin("CC1101");
       radioInit = pref.getBool("radioInit", true);
@@ -655,14 +721,17 @@ void transceiver_config_t::apply() {
                                                                 // 3 = Address check and 0 (0x00) and 255 (0xFF) broadcast.
     
       
-      if (!ELECHOUSE_cc1101.getCC1101()) {
+      const bool detected = ELECHOUSE_cc1101.getCC1101();
+      // Always collect the integrated board readback, even if detection fails.
+      const bool boardRadioValid = checkBoardRadio(this->frequency);
+      if (!detected || !boardRadioValid) {
           ESP_LOGE(TAG, "Error setting up the radio");
           this->radioInit = false;
       }
       else {
           ESP_LOGI(TAG, "Successfully set up the radio");
-          somfy.transceiver.enableReceive();
-          this->radioInit = true;
+          this->radioInit = somfy.transceiver.startReceive();
+          somfy.transceiver._available = this->radioInit;
       }
       pref.begin("CC1101");
       pref.putBool("radioInit", true);
@@ -752,7 +821,9 @@ void Transceiver::loop() {
         snprintf(frame_buf + fpos, sizeof(frame_buf) - fpos, "]");
         ESP_LOGD(TAG, "%s", frame_buf);
       }
-      if(this->submitTx(job) || this->txSuspended()) {
+      // Drop the frame rather than keep retrying it while the radio cannot
+      // send: a stale repeat must not go out when the radio comes back.
+      if(repeaterFrameDropped(this->txSuspended(), BoardProfile::integratedRadio, this->available()) || this->submitTx(job)) {
         somfy_tx_t sent;
         tx_queue.pop(&sent);
       }
@@ -765,6 +836,9 @@ uint32_t Transceiver::submitTx(somfy_tx_job_t &job, bool priority, uint16_t dela
     ESP_LOGE(TAG, "Radio task not started, dropping transmission");
     return 0;
   }
+  // Read published readiness without waiting behind a transmission. A queued
+  // job checks it again under the radio lock immediately before sending.
+  if(!radioMayTransmit(BoardProfile::integratedRadio, this->available())) return 0;
   uint32_t ticket;
   {
     TxQueueLock lock;
@@ -838,7 +912,7 @@ void Transceiver::runJob(somfy_tx_job_t &job) {
       start = this->sched.start(job.ticket, millis());
     }
     if(!start) return;
-    const bool complete = this->transmitJob(job);
+    const bool complete = radioMayTransmit(BoardProfile::integratedRadio, this->available()) && this->transmitJob(job);
     TxQueueLock qlock;
     this->sched.ended(job.ticket, complete, millis());
   }
@@ -872,7 +946,7 @@ void Transceiver::startTxTask() {
 }
 somfy_frame_t& Transceiver::lastFrame() { return this->frame; }
 void Transceiver::beginTransmit() {
-    if(this->config.enabled) {
+    if(this->available()) {
       this->disableReceive();
       pinMode(this->config.TXPin, OUTPUT);
       digitalWrite(this->config.TXPin, 0);
@@ -880,7 +954,7 @@ void Transceiver::beginTransmit() {
     }
 }
 void Transceiver::endTransmit() {
-    if(this->config.enabled) {
+    if(this->available()) {
       ELECHOUSE_cc1101.setSidle();
       //delay(100);
       this->enableReceive();

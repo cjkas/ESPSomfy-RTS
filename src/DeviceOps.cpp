@@ -2,6 +2,7 @@
 #include <WiFi.h>
 #include <atomic>
 #include <new>
+#include "RadioReadiness.h"
 #include "esp_log.h"
 #include "DeviceOps.h"
 #include "ConfigSettings.h"
@@ -109,6 +110,7 @@ static void writeSettings(ProtoWriter &w, settings_section_t section) {
       w.add(proto_field_t::txPower, cfg.txPower);
       w.add(proto_field_t::noiseDetection, cfg.noiseDetection);
       w.add(proto_field_t::radioInit, cfg.radioInit);
+      writeRadioBoardFields(w, BoardProfile::integratedRadio);
       break;
     }
   }
@@ -234,8 +236,8 @@ void runDeviceOp(const loop_item_t &item) {
       protoSocket.endReply(item.replyTo);
       break;
     case proto_type_t::beginFrequencyScan:
-      if(!somfy.transceiver.config.enabled) {
-        protoSocket.replyRefused(item.replyTo, proto_error_t::radioUnavailable, "The radio is disabled");
+      if(const char *why = radioRefusalReason(somfy.transceiver.config.enabled, somfy.transceiver.available())) {
+        protoSocket.replyRefused(item.replyTo, proto_error_t::radioUnavailable, why);
         break;
       }
       somfy.transceiver.beginFrequencyScan();

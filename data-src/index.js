@@ -1973,13 +1973,16 @@ class Somfy {
             let config = ProtoViews.radio(proto.schema, radio);
             ui.toElement(document.getElementById('divTransceiverSettings'), { transceiver: { config: config } });
             document.getElementById('divRadioError').style.display = config.radioInit ? 'none' : '';
+            this.radioPinsFixed = !!config.fixedPins;
+            ProtoViews.showRadioPins(document, this.radioPinsFixed);
             this.checkBootPins();
         });
     }
     // Warns of radio pins that can stop the board booting (issue #34).
     checkBootPins() {
         let trans = ui.fromElement(document.getElementById('divTransceiverSettings')).transceiver;
-        let warnings = BootPins.radioWarnings(chipModel(), trans.config);
+        // The board's wiring is not the user's to move, so there is nothing to warn of.
+        let warnings = this.radioPinsFixed ? [] : BootPins.radioWarnings(chipModel(), trans.config);
         let div = document.getElementById('divRadioBootPins');
         div.innerText = warnings.join('\n');
         div.style.display = warnings.length > 0 ? '' : 'none';
@@ -1993,7 +1996,7 @@ class Somfy {
             ui.errorMessage('You must select a radio type.');
             valid = false;
         }
-        // Check to make sure no pins were duplicated and defined
+        // Check to make sure no pins were duplicated and defined.  The board's own wiring is not checked.
         if (valid) {
             let fnValDup = (o, name) => {
                 let val = o[name];
@@ -2022,12 +2025,12 @@ class Somfy {
                 }
                 return true;
             };
-            if (valid) valid = fnValDup(trans.config, 'SCKPin');
-            if (valid) valid = fnValDup(trans.config, 'CSNPin');
-            if (valid) valid = fnValDup(trans.config, 'MOSIPin');
-            if (valid) valid = fnValDup(trans.config, 'MISOPin');
-            if (valid) valid = fnValDup(trans.config, 'TXPin');
-            if (valid) valid = fnValDup(trans.config, 'RXPin');
+            if (valid && !this.radioPinsFixed) valid = fnValDup(trans.config, 'SCKPin');
+            if (valid && !this.radioPinsFixed) valid = fnValDup(trans.config, 'CSNPin');
+            if (valid && !this.radioPinsFixed) valid = fnValDup(trans.config, 'MOSIPin');
+            if (valid && !this.radioPinsFixed) valid = fnValDup(trans.config, 'MISOPin');
+            if (valid && !this.radioPinsFixed) valid = fnValDup(trans.config, 'TXPin');
+            if (valid && !this.radioPinsFixed) valid = fnValDup(trans.config, 'RXPin');
             if (valid) {
                 sendOp('saveSettings', ProtoViews.radioSave(trans.config), (err) => {
                     if (err) ui.serviceError(err);
