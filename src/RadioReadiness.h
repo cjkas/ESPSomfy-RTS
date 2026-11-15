@@ -27,7 +27,9 @@ bool radioRegistersReady(const radio_readings_t &r, float requestedMHz);
 // CC1101_MARCSTATE value while receiving.
 #define RADIO_MARCSTATE_RX 0x0D
 // Tries at entering receive before the radio is given up as unavailable.
-#define RADIO_RX_ATTEMPTS 1
+// One retry: go idle and call SetRx again, so a single missed switch after a
+// transmission does not disable the radio until reboot.
+#define RADIO_RX_ATTEMPTS 2
 
 enum class rx_outcome_t : uint8_t {
   ready,       // the radio is receiving
@@ -42,5 +44,15 @@ rx_outcome_t radioRxOutcome(uint8_t marcstate, uint8_t attempt, uint8_t maxAttem
 // Whether a job for the radio may be queued or sent.  A generic radio is
 // always allowed, as before; the integrated one only once it is ready.
 bool radioMayTransmit(bool integratedRadio, bool radioAvailable);
+
+// Why a request that needs the radio (a frequency scan) is refused, or nullptr
+// when it may go ahead.  Texts are the ones clients show.  A generic radio is
+// available exactly when it is enabled, so it only ever gets the first one.
+const char *radioRefusalReason(bool enabled, bool radioAvailable);
+
+// Whether a queued repeater frame is discarded instead of kept for another
+// try: while transmitting is suspended, or the integrated radio is unavailable
+// (a stale repeat must not go out when the radio comes back).
+bool repeaterFrameDropped(bool txSuspended, bool integratedRadio, bool radioAvailable);
 
 #endif

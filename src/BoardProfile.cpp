@@ -1,4 +1,5 @@
 #include "BoardProfile.h"
+#include <esp_log.h>
 #include <SPI.h>
 #if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
 #include <driver/gpio.h>
@@ -6,6 +7,7 @@
 
 namespace BoardProfile {
 #if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
+static const char *TAG = "Somfy";
 static bool initialized = false;
 
 static void output(uint8_t pin, uint8_t level) {
@@ -36,7 +38,7 @@ bool prepareRadio(float frequency) {
   begin();
   // This hardware profile selects only the 433 MHz RF filter path.
   if(!(frequency >= 387.0f && frequency <= 464.0f)) {
-    Serial.println("Radio disabled: frequency is outside the selected 433 MHz band");
+    ESP_LOGW(TAG, "Radio disabled: frequency is outside the selected 433 MHz band");
     return false;
   }
   // Arduino 3 owns these pads while SPI is active. Release that ownership
@@ -50,7 +52,7 @@ bool prepareRadio(float frequency) {
   while(digitalRead(miso) == HIGH && millis() - started < 20) delay(1);
   bool ready = digitalRead(miso) == LOW;
   digitalWrite(cs, HIGH);
-  if(!ready) Serial.println("CC1101 not ready: MISO stayed HIGH; check power/shared SPI before retrying");
+  if(!ready) ESP_LOGW(TAG, "CC1101 not ready: MISO stayed HIGH; check power/shared SPI before retrying");
   if(ready) SPI.begin(sck, miso, mosi, cs);
   return ready;
 }

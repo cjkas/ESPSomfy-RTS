@@ -19,3 +19,13 @@ rx_outcome_t radioRxOutcome(uint8_t marcstate, uint8_t attempt, uint8_t maxAttem
 bool radioMayTransmit(bool integratedRadio, bool radioAvailable) {
   return !integratedRadio || radioAvailable;
 }
+
+const char *radioRefusalReason(bool enabled, bool radioAvailable) {
+  if(!enabled) return "The radio is disabled";
+  if(!radioAvailable) return "The radio did not respond";
+  return nullptr;
+}
+
+bool repeaterFrameDropped(bool txSuspended, bool integratedRadio, bool radioAvailable) {
+  return txSuspended || !radioMayTransmit(integratedRadio, radioAvailable);
+}

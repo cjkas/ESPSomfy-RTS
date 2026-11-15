@@ -95,8 +95,47 @@ static void test_a_radio_not_in_rx_may_retry_while_tries_are_left() {
 static void test_zero_tries_never_retry() {
   TEST_ASSERT_EQUAL(rx_outcome_t::unavailable, radioRxOutcome(0x01, 0, 0));
 }
-static void test_the_firmware_makes_one_try_for_now() {
-  TEST_ASSERT_EQUAL(1, RADIO_RX_ATTEMPTS);
+static void test_the_firmware_retries_receive_once() {
+  TEST_ASSERT_EQUAL(2, RADIO_RX_ATTEMPTS);
+}
+static void test_receive_retry_succeeds_on_the_second_try() {
+  TEST_ASSERT_EQUAL(rx_outcome_t::retry, radioRxOutcome(0x01, 0, RADIO_RX_ATTEMPTS));
+  TEST_ASSERT_EQUAL(rx_outcome_t::ready, radioRxOutcome(RADIO_MARCSTATE_RX, 1, RADIO_RX_ATTEMPTS));
+}
+static void test_receive_retry_fails_after_the_second_try() {
+  TEST_ASSERT_EQUAL(rx_outcome_t::retry, radioRxOutcome(0x01, 0, RADIO_RX_ATTEMPTS));
+  TEST_ASSERT_EQUAL(rx_outcome_t::unavailable, radioRxOutcome(0x01, 1, RADIO_RX_ATTEMPTS));
+}
+
+static void test_refusal_text_for_a_disabled_radio() {
+  TEST_ASSERT_EQUAL_STRING("The radio is disabled", radioRefusalReason(false, false));
+  TEST_ASSERT_EQUAL_STRING("The radio is disabled", radioRefusalReason(false, true));
+}
+static void test_refusal_text_for_a_radio_that_did_not_respond() {
+  TEST_ASSERT_EQUAL_STRING("The radio did not respond", radioRefusalReason(true, false));
+}
+static void test_a_working_radio_is_not_refused() {
+  TEST_ASSERT_NULL(radioRefusalReason(true, true));
+}
+static void test_a_generic_radio_is_refused_only_when_disabled() {
+  // A generic radio is available exactly when enabled.
+  TEST_ASSERT_NULL(radioRefusalReason(true, true));
+  TEST_ASSERT_EQUAL_STRING("The radio is disabled", radioRefusalReason(false, false));
+}
+
+static void test_repeater_frame_is_dropped_while_the_integrated_radio_is_unavailable() {
+  TEST_ASSERT_TRUE(repeaterFrameDropped(false, true, false));
+}
+static void test_repeater_frame_is_kept_for_a_ready_radio() {
+  TEST_ASSERT_FALSE(repeaterFrameDropped(false, true, true));
+  TEST_ASSERT_FALSE(repeaterFrameDropped(false, false, true));
+}
+static void test_repeater_frame_is_dropped_while_tx_is_suspended() {
+  TEST_ASSERT_TRUE(repeaterFrameDropped(true, true, true));
+  TEST_ASSERT_TRUE(repeaterFrameDropped(true, false, true));
+}
+static void test_a_generic_radio_never_drops_a_repeat_for_availability() {
+  TEST_ASSERT_FALSE(repeaterFrameDropped(false, false, false));
 }
 
 static void test_a_generic_radio_may_always_queue_and_send() {
@@ -122,7 +161,17 @@ int main(int, char **) {
   RUN_TEST(test_a_radio_not_in_rx_is_unavailable_with_one_try);
   RUN_TEST(test_a_radio_not_in_rx_may_retry_while_tries_are_left);
   RUN_TEST(test_zero_tries_never_retry);
-  RUN_TEST(test_the_firmware_makes_one_try_for_now);
+  RUN_TEST(test_the_firmware_retries_receive_once);
+  RUN_TEST(test_receive_retry_succeeds_on_the_second_try);
+  RUN_TEST(test_receive_retry_fails_after_the_second_try);
+  RUN_TEST(test_refusal_text_for_a_disabled_radio);
+  RUN_TEST(test_refusal_text_for_a_radio_that_did_not_respond);
+  RUN_TEST(test_a_working_radio_is_not_refused);
+  RUN_TEST(test_a_generic_radio_is_refused_only_when_disabled);
+  RUN_TEST(test_repeater_frame_is_dropped_while_the_integrated_radio_is_unavailable);
+  RUN_TEST(test_repeater_frame_is_kept_for_a_ready_radio);
+  RUN_TEST(test_repeater_frame_is_dropped_while_tx_is_suspended);
+  RUN_TEST(test_a_generic_radio_never_drops_a_repeat_for_availability);
   RUN_TEST(test_a_generic_radio_may_always_queue_and_send);
   RUN_TEST(test_the_integrated_radio_transmits_only_when_ready);
   return UNITY_END();

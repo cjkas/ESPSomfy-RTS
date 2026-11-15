@@ -379,24 +379,32 @@ bool Transceiver::startReceive() {
     rxmode = 1;
     pinMode(this->config.RXPin, INPUT);
     interruptPin = digitalPinToInterrupt(this->config.RXPin);
-    ELECHOUSE_cc1101.SetRx();
     if(BoardProfile::integratedRadio) {
-      uint8_t state;
-      do {
-        delay(1);
-        state = ELECHOUSE_cc1101.SpiReadStatus(CC1101_MARCSTATE) & 0x1F;
-      } while(state != RADIO_MARCSTATE_RX && millis() - timing < 20);
-      Serial.printf("CC1101 MARCSTATE=0x%02X (RX=0x0D); RF switch readback SW1=%d SW0=%d\n",
-        state, digitalRead(BoardProfile::sw1), digitalRead(BoardProfile::sw0));
-      if(radioRxOutcome(state, 0, RADIO_RX_ATTEMPTS) != rx_outcome_t::ready) {
-        Serial.println("CC1101 failed to enter RX; radio unavailable");
+      // One missed switch into RX is retried from idle before the radio is
+      // given up as unavailable.
+      for(uint8_t attempt = 0;; attempt++) {
+        ELECHOUSE_cc1101.SetRx();
+        const uint32_t tried = millis();
+        uint8_t state;
+        do {
+          delay(1);
+          state = ELECHOUSE_cc1101.SpiReadStatus(CC1101_MARCSTATE) & 0x1F;
+        } while(state != RADIO_MARCSTATE_RX && millis() - tried < 20);
+        const rx_outcome_t outcome = radioRxOutcome(state, attempt, RADIO_RX_ATTEMPTS);
+        if(outcome == rx_outcome_t::ready) break;
         ELECHOUSE_cc1101.setSidle();
+        if(outcome == rx_outcome_t::retry) {
+          ESP_LOGW(TAG, "CC1101 MARCSTATE=0x%02X, not RX; trying again", state);
+          continue;
+        }
+        ESP_LOGW(TAG, "CC1101 MARCSTATE=0x%02X, failed to enter RX; radio unavailable", state);
         this->config.radioInit = false;
         this->_available = false;
         rxmode = 0;
         return false;
       }
     }
+    else ELECHOUSE_cc1101.SetRx();
     //attachInterrupt(interruptPin, handleReceive, FALLING);
     attachInterrupt(interruptPin, handleReceive, CHANGE);
     ESP_LOGD(TAG, "Enabled receive on Pin #%d Timing: %ld", this->config.RXPin, millis() - timing);
@@ -624,9 +632,9 @@ static bool checkBoardRadio(float frequency) {
   r.freqWord = (static_cast<uint32_t>(ELECHOUSE_cc1101.SpiReadReg(CC1101_FREQ2)) << 16) |
     (static_cast<uint32_t>(ELECHOUSE_cc1101.SpiReadReg(CC1101_FREQ1)) << 8) |
     ELECHOUSE_cc1101.SpiReadReg(CC1101_FREQ0);
-  Serial.printf("CC1101 PARTNUM=0x%02X VERSION=0x%02X IOCFG0=0x%02X IOCFG2=0x%02X PKTCTRL0=0x%02X MDMCFG2=0x%02X\n",
+  ESP_LOGD(TAG, "CC1101 PARTNUM=0x%02X VERSION=0x%02X IOCFG0=0x%02X IOCFG2=0x%02X PKTCTRL0=0x%02X MDMCFG2=0x%02X",
     r.partnum, r.version, r.iocfg0, r.iocfg2, r.pktctrl0, r.mdmcfg2);
-  Serial.printf("CC1101 frequency requested=%.3f readback=%.3f MHz; GDO0 TX=%u GDO2 RX=%u\n",
+  ESP_LOGD(TAG, "CC1101 frequency requested=%.3f readback=%.3f MHz; GDO0 TX=%u GDO2 RX=%u",
     frequency, radioFrequencyMHz(r.freqWord), BoardProfile::tx, BoardProfile::rx);
   return radioRegistersReady(r, frequency);
 }
@@ -813,7 +821,9 @@ void Transceiver::loop() {
         snprintf(frame_buf + fpos, sizeof(frame_buf) - fpos, "]");
         ESP_LOGD(TAG, "%s", frame_buf);
       }
-      if(this->submitTx(job) || this->txSuspended()) {
+      // Drop the frame rather than keep retrying it while the radio cannot
+      // send: a stale repeat must not go out when the radio comes back.
+      if(repeaterFrameDropped(this->txSuspended(), BoardProfile::integratedRadio, this->available()) || this->submitTx(job)) {
         somfy_tx_t sent;
         tx_queue.pop(&sent);
       }

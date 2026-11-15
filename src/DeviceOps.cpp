@@ -2,6 +2,7 @@
 #include <WiFi.h>
 #include <atomic>
 #include <new>
+#include "RadioReadiness.h"
 #include "esp_log.h"
 #include "DeviceOps.h"
 #include "ConfigSettings.h"
@@ -235,8 +236,8 @@ void runDeviceOp(const loop_item_t &item) {
       protoSocket.endReply(item.replyTo);
       break;
     case proto_type_t::beginFrequencyScan:
-      if(!somfy.transceiver.config.enabled) {
-        protoSocket.replyRefused(item.replyTo, proto_error_t::radioUnavailable, "The radio is disabled");
+      if(const char *why = radioRefusalReason(somfy.transceiver.config.enabled, somfy.transceiver.available())) {
+        protoSocket.replyRefused(item.replyTo, proto_error_t::radioUnavailable, why);
         break;
       }
       somfy.transceiver.beginFrequencyScan();
