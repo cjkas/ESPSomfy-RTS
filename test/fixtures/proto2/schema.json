@@ -1,5 +1,5 @@
 {
- "hash": "16fdffc7",
+ "hash": "422f9a6e",
  "types": {
   "1": "hello",
   "2": "reply",
@@ -292,6 +292,11 @@
   "fw": {
    "name": "fw",
    "kind": "s",
+   "default": 0
+  },
+  "fx": {
+   "name": "fixedPins",
+   "kind": "b",
    "default": 0
   },
   "g": {

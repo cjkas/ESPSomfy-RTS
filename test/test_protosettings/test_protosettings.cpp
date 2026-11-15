@@ -2,6 +2,7 @@
 #include <string>
 #include <ArduinoJson.h>
 #include "ProtoSettings.h"
+#include "JsonFormatter.h"
 
 // Socket protocol 2's settings ops: the sections, and the settings route's
 // request that a save's payload becomes (docs/PROTOCOL.md).
@@ -161,6 +162,7 @@ static void test_what_is_only_sent_is_refused() {
   TEST_ASSERT_EQUAL_STRING("hasPassphrase can't be saved in network", expand(R"({"se":"network","hq":1})"));
   TEST_ASSERT_EQUAL_STRING("hasEthernet can't be saved in network", expand(R"({"se":"network","he":1})"));
   TEST_ASSERT_EQUAL_STRING("radioInit can't be saved in radio", expand(R"({"se":"radio","ri":1})"));
+  TEST_ASSERT_EQUAL_STRING("fixedPins can't be saved in radio", expand(R"({"se":"radio","fx":1})"));
 }
 static void test_a_field_of_another_section_is_refused() {
   TEST_ASSERT_EQUAL_STRING("ssid can't be saved in general", expand(R"({"se":"general","sd":"home"})"));
@@ -202,6 +204,26 @@ static void test_a_route_name_belongs_to_its_section() {
   TEST_ASSERT_EQUAL_UINT16(bit(settings_part_t::security), parts());
 }
 
+/*********************************************************************
+ * What the radio section says about the board
+ ********************************************************************/
+static std::string boardFields(bool pinsFixed) {
+  static BufferedJsonFormatter fmt;
+  static char buff[64];
+  fmt.setBuffer(buff, sizeof(buff));
+  ProtoWriter w(fmt);
+  fmt.beginObject();
+  writeRadioBoardFields(w, pinsFixed);
+  fmt.endObject();
+  return buff;
+}
+static void test_the_radio_pins_are_fixed_only_where_the_board_wires_them() {
+  TEST_ASSERT_EQUAL_STRING("{\"fx\":1}", boardFields(true).c_str());
+  // A generic board leaves it out, which is false to a client that knows it.
+  TEST_ASSERT_EQUAL_STRING("{}", boardFields(false).c_str());
+  TEST_ASSERT_EQUAL_STRING("fixedPins", protoFieldByKey("fx")->name);
+}
+
 int main(int argc, char **argv) {
   UNITY_BEGIN();
   RUN_TEST(test_every_section_by_its_name);
@@ -226,5 +248,6 @@ int main(int argc, char **argv) {
   RUN_TEST(test_ethernet_needs_a_chip_with_it);
   RUN_TEST(test_a_save_sets_the_parts_it_has_fields_of);
   RUN_TEST(test_a_route_name_belongs_to_its_section);
+  RUN_TEST(test_the_radio_pins_are_fixed_only_where_the_board_wires_them);
   return UNITY_END();
 }

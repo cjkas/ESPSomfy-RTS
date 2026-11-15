@@ -109,6 +109,7 @@ static void writeSettings(ProtoWriter &w, settings_section_t section) {
       w.add(proto_field_t::txPower, cfg.txPower);
       w.add(proto_field_t::noiseDetection, cfg.noiseDetection);
       w.add(proto_field_t::radioInit, cfg.radioInit);
+      writeRadioBoardFields(w, BoardProfile::integratedRadio);
       break;
     }
   }

@@ -25,7 +25,7 @@ static settings_section_t sectionOf(settings_part_t part) {
 // What a save may set.  lo..hi is a whole number's range, a number's in
 // hundredths, and hi a string's longest length: what the setting holds, so the
 // route's fromJSON neither cuts it short nor wraps it.  The has* fields and
-// radioInit are only ever sent.
+// radioInit and fixedPins are only ever sent.
 struct settings_field_t {
   settings_part_t part;
   proto_field_t field;
@@ -95,6 +95,10 @@ static const settings_field_t *saved(settings_section_t section, proto_field_t f
   for(const settings_field_t &s : FIELDS)
     if(s.field == field && sectionOf(s.part) == section) return &s;
   return nullptr;
+}
+
+void writeRadioBoardFields(ProtoWriter &w, bool pinsFixed) {
+  w.add(proto_field_t::fixedPins, pinsFixed);
 }
 
 const char *parseSettingsSection(JsonObjectConst d, settings_section_t &section) {
