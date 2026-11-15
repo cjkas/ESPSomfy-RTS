@@ -8,6 +8,7 @@
 #include "driver/gpio.h"
 #include "esp_log.h"
 #include "Utils.h"
+#include "RadioReadiness.h"
 #include "BootPins.h"
 #include "ConfigSettings.h"
 #include "Somfy.h"
@@ -384,10 +385,10 @@ bool Transceiver::startReceive() {
       do {
         delay(1);
         state = ELECHOUSE_cc1101.SpiReadStatus(CC1101_MARCSTATE) & 0x1F;
-      } while(state != 0x0D && millis() - timing < 20);
+      } while(state != RADIO_MARCSTATE_RX && millis() - timing < 20);
       Serial.printf("CC1101 MARCSTATE=0x%02X (RX=0x0D); RF switch readback SW1=%d SW0=%d\n",
         state, digitalRead(BoardProfile::sw1), digitalRead(BoardProfile::sw0));
-      if(state != 0x0D) {
+      if(radioRxOutcome(state, 0, RADIO_RX_ATTEMPTS) != rx_outcome_t::ready) {
         Serial.println("CC1101 failed to enter RX; radio unavailable");
         ELECHOUSE_cc1101.setSidle();
         this->config.radioInit = false;
@@ -613,23 +614,21 @@ static void warnBootPin(const char *name, uint8_t pin) {
 }
 static bool checkBoardRadio(float frequency) {
   if(!BoardProfile::integratedRadio) return true;
-  uint8_t part = ELECHOUSE_cc1101.SpiReadStatus(CC1101_PARTNUM);
-  uint8_t version = ELECHOUSE_cc1101.SpiReadStatus(CC1101_VERSION);
-  uint8_t gdo0 = ELECHOUSE_cc1101.SpiReadReg(CC1101_IOCFG0);
-  uint8_t gdo2 = ELECHOUSE_cc1101.SpiReadReg(CC1101_IOCFG2);
-  uint8_t packet = ELECHOUSE_cc1101.SpiReadReg(CC1101_PKTCTRL0);
-  uint8_t modem = ELECHOUSE_cc1101.SpiReadReg(CC1101_MDMCFG2);
-  uint32_t word = (static_cast<uint32_t>(ELECHOUSE_cc1101.SpiReadReg(CC1101_FREQ2)) << 16) |
+  radio_readings_t r;
+  r.partnum = ELECHOUSE_cc1101.SpiReadStatus(CC1101_PARTNUM);
+  r.version = ELECHOUSE_cc1101.SpiReadStatus(CC1101_VERSION);
+  r.iocfg0 = ELECHOUSE_cc1101.SpiReadReg(CC1101_IOCFG0);
+  r.iocfg2 = ELECHOUSE_cc1101.SpiReadReg(CC1101_IOCFG2);
+  r.pktctrl0 = ELECHOUSE_cc1101.SpiReadReg(CC1101_PKTCTRL0);
+  r.mdmcfg2 = ELECHOUSE_cc1101.SpiReadReg(CC1101_MDMCFG2);
+  r.freqWord = (static_cast<uint32_t>(ELECHOUSE_cc1101.SpiReadReg(CC1101_FREQ2)) << 16) |
     (static_cast<uint32_t>(ELECHOUSE_cc1101.SpiReadReg(CC1101_FREQ1)) << 8) |
     ELECHOUSE_cc1101.SpiReadReg(CC1101_FREQ0);
-  float actual = word * (26.0f / 65536.0f);
   Serial.printf("CC1101 PARTNUM=0x%02X VERSION=0x%02X IOCFG0=0x%02X IOCFG2=0x%02X PKTCTRL0=0x%02X MDMCFG2=0x%02X\n",
-    part, version, gdo0, gdo2, packet, modem);
+    r.partnum, r.version, r.iocfg0, r.iocfg2, r.pktctrl0, r.mdmcfg2);
   Serial.printf("CC1101 frequency requested=%.3f readback=%.3f MHz; GDO0 TX=%u GDO2 RX=%u\n",
-    frequency, actual, BoardProfile::tx, BoardProfile::rx);
-  return part == 0 && version != 0 && version != 0xFF &&
-    gdo0 == 0x0D && gdo2 == 0x0D && (packet & 0x30) == 0x30 &&
-    (modem & 0x70) == 0x30 && actual > frequency - 0.01f && actual < frequency + 0.01f;
+    frequency, radioFrequencyMHz(r.freqWord), BoardProfile::tx, BoardProfile::rx);
+  return radioRegistersReady(r, frequency);
 }
 
 void transceiver_config_t::apply() {
@@ -829,7 +828,7 @@ uint32_t Transceiver::submitTx(somfy_tx_job_t &job, bool priority, uint16_t dela
   }
   // Read published readiness without waiting behind a transmission. A queued
   // job checks it again under the radio lock immediately before sending.
-  if(BoardProfile::integratedRadio && !this->available()) return 0;
+  if(!radioMayTransmit(BoardProfile::integratedRadio, this->available())) return 0;
   uint32_t ticket;
   {
     TxQueueLock lock;
@@ -903,7 +902,7 @@ void Transceiver::runJob(somfy_tx_job_t &job) {
       start = this->sched.start(job.ticket, millis());
     }
     if(!start) return;
-    const bool complete = (!BoardProfile::integratedRadio || this->available()) && this->transmitJob(job);
+    const bool complete = radioMayTransmit(BoardProfile::integratedRadio, this->available()) && this->transmitJob(job);
     TxQueueLock qlock;
     this->sched.ended(job.ticket, complete, millis());
   }

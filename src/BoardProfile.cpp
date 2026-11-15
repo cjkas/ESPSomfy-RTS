@@ -54,17 +54,8 @@ bool prepareRadio(float frequency) {
   if(ready) SPI.begin(sck, miso, mosi, cs);
   return ready;
 }
-
-bool usesPin(uint8_t pin) {
-  // USB CDC and in-package flash/OPI PSRAM must never become relay outputs.
-  return pin == 19 || pin == 20 || (pin >= 26 && pin <= 37) ||
-    pin == power || pin == sck || pin == mosi || pin == miso ||
-    pin == cs || pin == tx || pin == rx || pin == sw1 || pin == sw0 ||
-    pin == displayCS || pin == sdCS || pin == nrfCS || pin == nrfCE || pin == backlight;
-}
 #else
 void begin() {}
 bool prepareRadio(float) { return true; }
-bool usesPin(uint8_t) { return false; }
 #endif
 }

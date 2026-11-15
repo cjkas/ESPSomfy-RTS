@@ -1,15 +1,13 @@
 #include "esp_log.h"
 #include "Somfy.h"
-#include "BoardProfile.h"
+#include "ShadeGpioGuard.h"
 
 static const char *TAG = "Somfy";
 
 // A backup may contain GPIO assignments from another board. Keep its shade
 // identity, but never drive a pad used by this board's integrated hardware.
 static bool usesBoardGPIOs(const SomfyShade &shade) {
-  if(shade.proto != radio_proto::GP_Relay && shade.proto != radio_proto::GP_Remote) return false;
-  return BoardProfile::usesPin(shade.gpioUp) || BoardProfile::usesPin(shade.gpioDown) ||
-    (shade.proto == radio_proto::GP_Remote && BoardProfile::usesPin(shade.gpioMy));
+  return shadeOutputsUseBoardPins(shade.proto, shade.gpioUp, shade.gpioDown, shade.gpioMy);
 }
 
 // Shared by saved/backup configuration loading and JSON updates. Refuse the
